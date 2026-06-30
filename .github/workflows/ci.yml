@@ -47,8 +47,34 @@ jobs:
         run: make test PYTHON=python
 
       # 4a. dependency vulnerability scan
+      # Waived advisory IDs MUST stay byte-identical to the Makefile `AUDIT_IGNORES`
+      # block; each is justified + tracked in docs/audits/vex.json + residual-risk.md.
+      # RR-1: pip tar-extraction (build-time tooling). RR-4: every other ID's first
+      # fixed release requires Python >=3.10 (3.9 is EOL), so no fix installs on the
+      # 3.9 floor — remediated by the Python 3.10+ migration flagged in ROADMAP.md.
       - name: Dependency audit
-        run: python -m pip_audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph
+        run: |
+          python -m pip_audit --skip-editable \
+            --ignore-vuln GHSA-4xh5-x5gv-qwph \
+            --ignore-vuln GHSA-w853-jp5j-5j7f \
+            --ignore-vuln GHSA-qmgc-5h2g-mvrw \
+            --ignore-vuln GHSA-6v7p-g79w-8964 \
+            --ignore-vuln PYSEC-2026-165 \
+            --ignore-vuln GHSA-cfh3-3jmp-rvhc \
+            --ignore-vuln GHSA-whj4-6x5x-4v2j \
+            --ignore-vuln GHSA-5xmw-vc9v-4wf2 \
+            --ignore-vuln GHSA-r73j-pqj5-w3x7 \
+            --ignore-vuln GHSA-pwv6-vv43-88gr \
+            --ignore-vuln PYSEC-2026-196 \
+            --ignore-vuln GHSA-58qw-9mgm-455v \
+            --ignore-vuln GHSA-jp4c-xjxw-mgf9 \
+            --ignore-vuln PYSEC-2026-113 \
+            --ignore-vuln GHSA-6w46-j5rx-g56g \
+            --ignore-vuln GHSA-gc5v-m9x4-r6x2 \
+            --ignore-vuln PYSEC-2026-212 \
+            --ignore-vuln GHSA-7p48-42j8-8846 \
+            --ignore-vuln PYSEC-2026-142 \
+            --ignore-vuln PYSEC-2026-141
 
       # 4b. secret scan (dedicated, merge-blocking)
       - name: Secret scan
