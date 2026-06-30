@@ -1,0 +1,133 @@
+{
+  "k": 5,
+  "n_positives": 4,
+  "models": {
+    "hybrid": {
+      "model": "hybrid",
+      "k": 5,
+      "precision_at_k": 0.6,
+      "recall_at_k": 0.75,
+      "map_at_k": 0.6875,
+      "n_positives": 4
+    },
+    "popularity": {
+      "model": "popularity",
+      "k": 5,
+      "precision_at_k": 0.2,
+      "recall_at_k": 0.25,
+      "map_at_k": 0.0833,
+      "n_positives": 4
+    }
+  },
+  "hybrid_beats_popularity": true,
+  "exposure": {
+    "taste": {
+      "k": 5,
+      "total": 11,
+      "segments": [
+        {
+          "segment": "woman",
+          "count": 5,
+          "share": 0.4545,
+          "first_rank": 1,
+          "mean_rank": 4.2,
+          "top_k_share": 0.8
+        },
+        {
+          "segment": "nonbinary",
+          "count": 1,
+          "share": 0.0909,
+          "first_rank": 8,
+          "mean_rank": 8.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "man",
+          "count": 2,
+          "share": 0.1818,
+          "first_rank": 7,
+          "mean_rank": 8.5,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "other",
+          "count": 0,
+          "share": 0.0,
+          "first_rank": 0,
+          "mean_rank": 0.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "female-fronted",
+          "count": 1,
+          "share": 0.0909,
+          "first_rank": 6,
+          "mean_rank": 6.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "unknown",
+          "count": 2,
+          "share": 0.1818,
+          "first_rank": 5,
+          "mean_rank": 7.0,
+          "top_k_share": 0.2
+        }
+      ]
+    },
+    "values_lens": {
+      "k": 5,
+      "total": 11,
+      "segments": [
+        {
+          "segment": "woman",
+          "count": 5,
+          "share": 0.4545,
+          "first_rank": 1,
+          "mean_rank": 3.6,
+          "top_k_share": 0.8
+        },
+        {
+          "segment": "nonbinary",
+          "count": 1,
+          "share": 0.0909,
+          "first_rank": 6,
+          "mean_rank": 6.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "man",
+          "count": 2,
+          "share": 0.1818,
+          "first_rank": 9,
+          "mean_rank": 10.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "other",
+          "count": 0,
+          "share": 0.0,
+          "first_rank": 0,
+          "mean_rank": 0.0,
+          "top_k_share": 0.0
+        },
+        {
+          "segment": "female-fronted",
+          "count": 1,
+          "share": 0.0909,
+          "first_rank": 5,
+          "mean_rank": 5.0,
+          "top_k_share": 0.2
+        },
+        {
+          "segment": "unknown",
+          "count": 2,
+          "share": 0.1818,
+          "first_rank": 7,
+          "mean_rank": 8.5,
+          "top_k_share": 0.0
+        }
+      ]
+    }
+  }
+}

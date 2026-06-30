@@ -19,11 +19,33 @@ from collections.abc import Sequence
 from html import escape
 
 from pipeline.models import Recommendation
+from recommender.coverage import IdentityCoverage, identity_coverage
 from recommender.why import WhyThisArtist, why_this_artist
 
 
 def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
+
+
+def _coverage_html(coverage: IdentityCoverage) -> str:
+    """The per-run identity-coverage readout: makes 'unknown is first-class' visible.
+
+    Rendered as text + a list (never colour-only), so the screen-reader and the
+    a11y gate both see the breakdown. Unknown is always shown — a normal outcome,
+    framed as such, never as a gap.
+    """
+    rows = [
+        f"<li>{escape(label)}: {count}</li>"
+        for label, count in coverage.basis_breakdown()
+        if count > 0 or label.startswith("Unknown")
+    ]
+    return (
+        '<section aria-labelledby="coverage-h">'
+        '<h2 id="coverage-h">Identity coverage</h2>'
+        f'<p class="coverage">{escape(coverage.summary_line())}</p>'
+        "<ul>" + "".join(rows) + "</ul>"
+        "</section>"
+    )
 
 
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
@@ -112,6 +134,7 @@ def render_cards_html(
 ) -> str:
     """Render a complete, accessible HTML document for the given recommendations."""
     cards = "".join(_card_html(r) for r in recs)
+    coverage_html = _coverage_html(identity_coverage(recs))
     lens_pct = f"{lens_strength:.0%}"
     return (
         "<!doctype html>"
@@ -128,6 +151,7 @@ def render_cards_html(
         "score, and artists with unknown identity are surfaced on musical merit "
         "alone.</p></header>"
         '<main id="main">'
+        f"{coverage_html}"
         "<h2>Score summary</h2>"
         f"{_table_html(recs)}"
         "<h2>Recommendations</h2>"

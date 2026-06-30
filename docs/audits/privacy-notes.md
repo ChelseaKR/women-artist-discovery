@@ -20,8 +20,14 @@ public figures (artists), never about the user.
 
 There are exactly two outbound paths, both purpose-limited:
 
+The outbound surface is **enumerable**: `tests/test_egress_allowlist.py` names the
+complete allow-list of files permitted to open a socket — exactly these two — and
+fails if any other module in `pipeline` / `recommender` / `export` / `app` reaches
+the network, so a new egress path cannot be added silently.
+
 1. **Last.fm / enrichment fetch** — confined to `pipeline/lastfm.py` (asserted by
-   `tests/test_privacy.py`), cached locally, rate-limit-respecting.
+   `tests/test_privacy.py` and the egress allow-list), cached locally,
+   rate-limit-respecting.
 2. **Playlist export** (`export/`) — the project's only *user-initiated* egress.
    It is opt-in (nothing leaves on load), runs only when the user clicks
    export/connect, and sends just the recommended **artist names** (a public
@@ -61,6 +67,8 @@ There are exactly two outbound paths, both purpose-limited:
 |------------|------|-------|
 | No telemetry / analytics | auto | `tests/test_privacy.py` |
 | Core network confined to API client | auto | `tests/test_privacy.py` |
+| Outbound egress is an enumerable allow-list (exactly two points) | auto | `tests/test_egress_allowlist.py` |
+| No identity field can appear in any export format | auto | `tests/test_export_schema.py` |
 | Export egress opt-in & isolated to one transport | auto + review | `tests/test_export.py` (offline fake transport) · this document |
 | Lineage timestamps on cache | auto | `tests/test_cache_serde.py` |
 | Secrets never in source | auto | secret scan (CI + `make security`) |

@@ -35,6 +35,7 @@ from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
+from recommender.coverage import identity_coverage
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
@@ -136,6 +137,15 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         st.info("Live mode would fetch this user; this demo build uses cached data.")
     profile, catalog, source = _load_demo()
     recs = recommend(profile, catalog, source, k=10, lens_strength=lens)
+
+    coverage = identity_coverage(recs)
+    st.subheader("Identity coverage")
+    st.write(coverage.summary_line())
+    st.caption(
+        "Unknown is first-class: artists with no sourced identity are surfaced on "
+        "musical merit alone and are never down-ranked. Sourced identity is sparse, "
+        "so a high unknown count is expected — not a gap."
+    )
 
     st.subheader("Score summary")
     st.table(

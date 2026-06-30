@@ -13,7 +13,8 @@ from pathlib import Path
 
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
-from recommender.eval import evaluate, to_report
+from recommender.coverage import identity_coverage
+from recommender.eval import evaluate, exposure_by_lens, to_report
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
@@ -22,7 +23,10 @@ from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles,
 
 def _cmd_eval(args: argparse.Namespace) -> int:
     results = evaluate(DEMO_USER, demo_scrobbles(), demo_catalog(), demo_source(), k=args.k)
-    report = to_report(results)
+    exposure = exposure_by_lens(
+        DEMO_USER, demo_scrobbles(), demo_catalog(), demo_source(), k=args.k
+    )
+    report = to_report(results, exposure)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -37,6 +41,8 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     recs = recommend(
         demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
     )
+    coverage = identity_coverage(recs)
+    print(f"Identity coverage: {coverage.summary_line()}")  # noqa: T201
     for rec in recs:
         why = why_this_artist(rec)
         print(f"{rec.rank:>2}. {rec.artist.name:<22} score={rec.score:.3f}")  # noqa: T201

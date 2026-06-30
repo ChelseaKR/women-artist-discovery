@@ -14,12 +14,15 @@ the eval is reproducible without a seed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from typing import Optional
 
 from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
 
+from recommender.exposure import ExposureReport, compute_exposure
 from recommender.hybrid import recommend
 
 
@@ -94,6 +97,20 @@ def popularity_ranking(catalog: dict[str, Artist], exclude: set[str]) -> list[st
     return [a.artist_id for a in candidates]
 
 
+def _train_profile(
+    username: str, train: list[Scrobble], catalog: dict[str, Artist]
+) -> ListeningProfile:
+    """The held-out *train* profile, with tags re-attached from the catalog."""
+    base_profile = build_profile(username, train)
+    # Re-attach tags from the catalog so the content signal works on train data.
+    return ListeningProfile(
+        username=base_profile.username,
+        play_counts=base_profile.play_counts,
+        artist_names=base_profile.artist_names,
+        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
+    )
+
+
 def evaluate(
     username: str,
     scrobbles: list[Scrobble],
@@ -106,14 +123,7 @@ def evaluate(
     """Run both models on a temporal hold-out. Returns results keyed by model."""
     train, test = temporal_split(scrobbles, train_frac)
     positives = ground_truth(train, test)
-    base_profile = build_profile(username, train)
-    # Re-attach tags from the catalog so the content signal works on train data.
-    train_profile = ListeningProfile(
-        username=base_profile.username,
-        play_counts=base_profile.play_counts,
-        artist_names=base_profile.artist_names,
-        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
-    )
+    train_profile = _train_profile(username, train, catalog)
     known = train_profile.known_artist_ids
 
     hybrid_recs = recommend(train_profile, catalog, source, k=len(catalog), lens_strength=0.0)
@@ -126,11 +136,44 @@ def evaluate(
     }
 
 
-def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
-    """A JSON-able report (the committed eval artifact)."""
+def exposure_by_lens(
+    username: str,
+    scrobbles: list[Scrobble],
+    catalog: dict[str, Artist],
+    source: ScrobbleSource,
+    *,
+    k: int = 5,
+    train_frac: float = 0.7,
+) -> dict[str, ExposureReport]:
+    """Per-identity exposure of the *delivered* ranking, taste vs. the values lens.
+
+    Returns two :class:`~recommender.exposure.ExposureReport` s — ``"taste"``
+    (lens off, the pure-hybrid ranking the eval scores) and ``"values_lens"``
+    (lens at full strength) — so the report shows the bounded, boost-only lens's
+    effect on exposure without ever penalising or dropping the unknown segment.
+    """
+    train, _test = temporal_split(scrobbles, train_frac)
+    train_profile = _train_profile(username, train, catalog)
+    reports: dict[str, ExposureReport] = {}
+    for label, lens in (("taste", 0.0), ("values_lens", 1.0)):
+        recs = recommend(train_profile, catalog, source, k=len(catalog), lens_strength=lens)
+        reports[label] = compute_exposure(recs, k)
+    return reports
+
+
+def to_report(
+    results: dict[str, EvalResult],
+    exposure: Optional[Mapping[str, ExposureReport]] = None,
+) -> dict[str, object]:
+    """A JSON-able report (the committed eval artifact).
+
+    When ``exposure`` is supplied it is embedded under ``"exposure"`` beside the
+    precision/recall/MAP models, so a single artifact carries both *quality* and
+    *fairness/exposure* numbers for the run.
+    """
     hybrid = results["hybrid"]
     popularity = results["popularity"]
-    return {
+    report: dict[str, object] = {
         "k": hybrid.k,
         "n_positives": hybrid.n_positives,
         "models": {name: asdict(res) for name, res in results.items()},
@@ -142,3 +185,6 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
             )
         ),
     }
+    if exposure is not None:
+        report["exposure"] = {label: rep.to_dict() for label, rep in exposure.items()}
+    return report
