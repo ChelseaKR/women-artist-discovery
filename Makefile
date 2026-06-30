@@ -40,11 +40,43 @@ typecheck: ## Stage 2 — strict static typing (mypy --strict)
 test: ## Stage 3 — unit + integration tests with coverage gate (>=85%)
 	$(PYTHON) -m pytest
 
+# Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
+# HIGH/CRITICAL waiver — committed, justified waiver JSON"). Every ID below is
+# justified + tracked machine-readably in docs/audits/vex.json and narratively in
+# docs/audits/residual-risk.md (RR-1, RR-4). Two clusters:
+#   RR-1  GHSA-4xh5-x5gv-qwph — pip fallback tar extraction; pip is build-time
+#         tooling, not a shipped runtime dep.
+#   RR-4  every other ID — its FIRST fixed release is gated to Python >=3.10
+#         (Python 3.9 reached EOL 2025-10), so on this repo's 3.9 floor NO fix is
+#         pip-installable; forcing the pin would break `make install`. Remediation
+#         is the Python 3.10+ migration flagged in docs/ROADMAP.md. Re-audit (drop
+#         the relevant IDs) the moment the floor moves to 3.10 — the fixes are
+#         already published there.
+AUDIT_IGNORES := \
+	--ignore-vuln GHSA-4xh5-x5gv-qwph \
+	--ignore-vuln GHSA-w853-jp5j-5j7f \
+	--ignore-vuln GHSA-qmgc-5h2g-mvrw \
+	--ignore-vuln GHSA-6v7p-g79w-8964 \
+	--ignore-vuln PYSEC-2026-165 \
+	--ignore-vuln GHSA-cfh3-3jmp-rvhc \
+	--ignore-vuln GHSA-whj4-6x5x-4v2j \
+	--ignore-vuln GHSA-5xmw-vc9v-4wf2 \
+	--ignore-vuln GHSA-r73j-pqj5-w3x7 \
+	--ignore-vuln GHSA-pwv6-vv43-88gr \
+	--ignore-vuln PYSEC-2026-196 \
+	--ignore-vuln GHSA-58qw-9mgm-455v \
+	--ignore-vuln GHSA-jp4c-xjxw-mgf9 \
+	--ignore-vuln PYSEC-2026-113 \
+	--ignore-vuln GHSA-6w46-j5rx-g56g \
+	--ignore-vuln GHSA-gc5v-m9x4-r6x2 \
+	--ignore-vuln PYSEC-2026-212 \
+	--ignore-vuln GHSA-7p48-42j8-8846 \
+	--ignore-vuln PYSEC-2026-142 \
+	--ignore-vuln PYSEC-2026-141
+
 security: ## Stage 4 — dependency vulnerability + secret scan
-	# Audit installed deps. GHSA-4xh5-x5gv-qwph (CVE-2025-8869, pip fallback tar
-	# extraction) has NO fixed version published and pip is build-time tooling, not
-	# a shipped runtime dependency — accepted + tracked in docs/audits/residual-risk.md.
-	$(PYTHON) -m pip_audit --skip-editable --ignore-vuln GHSA-4xh5-x5gv-qwph
+	# Audit installed deps; waived advisories are justified in docs/audits/vex.json.
+	$(PYTHON) -m pip_audit --skip-editable $(AUDIT_IGNORES)
 	@./scripts/secret-scan.sh
 
 a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
