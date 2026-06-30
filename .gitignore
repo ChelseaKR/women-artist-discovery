@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local cache (personal listening data — never committed; privacy: local-first)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Secrets — API keys live in the environment / .env, never in source
+.env
+*.secret
+
+# Generated a11y artifacts that include timestamps are committed under docs/audits/
+# but the raw browser dumps are not.
+docs/audits/pa11y-raw.json
+node_modules/
+
+# OS
+.DS_Store
