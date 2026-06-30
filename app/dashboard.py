@@ -63,7 +63,7 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
     tracks = recommendations_to_tracks(recs)
     name = f"Women-Artist Discovery — {username}"
     cols = st.columns(len(_FALLBACKS))
-    for col, (label, fmt, mime) in zip(cols, _FALLBACKS):
+    for col, (label, fmt, mime) in zip(cols, _FALLBACKS, strict=True):
         col.download_button(
             label,
             data=render(tracks, fmt, playlist_name=name),

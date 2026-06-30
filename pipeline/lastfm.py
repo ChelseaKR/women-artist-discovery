@@ -14,7 +14,8 @@ Two implementations of :class:`ScrobbleSource`:
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Optional, Protocol, runtime_checkable
 
 from pipeline.cache import Cache
 from pipeline.models import Scrobble
