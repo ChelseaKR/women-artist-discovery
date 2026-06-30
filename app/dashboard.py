@@ -8,30 +8,104 @@ Accessibility: the values lens is a labelled, always-visible, explained slider;
 identity is shown as text + glyph (never colour alone); the score chart is paired
 with a data table; sources render as real links. The committed static render
 (:mod:`app.build_static`) carries the same semantics for the automated a11y gate.
+
+Two interactive features sit on top of the core:
+
+* **"Why this artist"** — each card surfaces the shared
+  :class:`~recommender.why.WhyThisArtist`: the sourced identity (with provenance,
+  never inferred) plus the hybrid + values-lens reasons.
+* **Playlist export** — download a portable track list (text/CSV/M3U/JSPF) with no
+  account, or connect Spotify (env-configured OAuth) to push a real playlist.
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 
+from export.models import ExportError, ExportFormat
+from export.spotify import (
+    RequestsTransport,
+    SpotifyClient,
+    SpotifyCredentials,
+    SpotifyOAuth,
+    export_recommendations,
+)
+from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, IdentityBasis, ListeningProfile, Recommendation
+from pipeline.models import Artist, ListeningProfile, Recommendation
 from recommender.hybrid import recommend
+from recommender.why import why_this_artist
 
 
 def _load_demo() -> tuple[ListeningProfile, dict[str, Artist], ScrobbleSource]:
     return demo_profile(), demo_catalog(), demo_source()
 
 
-def _identity_text(rec: Recommendation) -> str:
-    label = rec.artist.identity
-    if label.is_known:
-        conf = f" · confidence {label.confidence:.0%}" if label.confidence else ""
-        return f"● Identity: {label.gender} — self-identified{conf}"
-    if rec.artist.female_fronted is True:
-        return "● Identity: female-fronted band (sourced lineup) — distinct from member gender"
-    return "● Identity: unknown — surfaced on musical similarity alone"
+_FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
+    ("Plain text", ExportFormat.TEXT, "text/plain"),
+    ("CSV", ExportFormat.CSV, "text/csv"),
+    ("M3U playlist", ExportFormat.M3U, "audio/x-mpegurl"),
+    ("JSPF (JSON)", ExportFormat.JSPF, "application/json"),
+)
+
+
+def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma: no cover - UI glue
+    import streamlit as st
+
+    st.subheader("Export this playlist")
+    st.caption(
+        "Exports are opt-in and user-initiated — the only data that leaves your "
+        "machine, and only when you click. The portable formats need no account."
+    )
+
+    tracks = recommendations_to_tracks(recs)
+    name = f"Women-Artist Discovery — {username}"
+    cols = st.columns(len(_FALLBACKS))
+    for col, (label, fmt, mime) in zip(cols, _FALLBACKS):
+        col.download_button(
+            label,
+            data=render(tracks, fmt, playlist_name=name),
+            file_name=f"women-artist-discovery.{fmt}",
+            mime=mime,
+        )
+
+    with st.expander("Connect Spotify and push a playlist"):
+        try:
+            creds = SpotifyCredentials.from_env(os.environ)
+        except ExportError as exc:
+            st.info(
+                f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
+                "live Spotify export. The portable formats above work without it."
+            )
+            return
+
+        oauth = SpotifyOAuth(creds, RequestsTransport())
+        if "spotify_state" not in st.session_state:
+            st.session_state["spotify_state"] = secrets.token_urlsafe(16)
+        auth_url = oauth.authorize_url(st.session_state["spotify_state"])
+        st.markdown(
+            f"1. [Authorize on Spotify]({auth_url}) and copy the `code` you're redirected to."
+        )
+        code = st.text_input("2. Paste the authorization code", type="password")
+        make_public = st.checkbox("Make the playlist public", value=False)
+        if st.button("Create Spotify playlist") and code:
+            try:
+                token = oauth.exchange_code(code)
+                client = SpotifyClient(token, RequestsTransport())
+                result = export_recommendations(recs, client, username=username, public=make_public)
+            except ExportError as exc:
+                st.error(f"Export failed: {exc}")
+                return
+            st.success(
+                f"Created “{result.playlist_name}” with {result.matched_count}/"
+                f"{result.track_count} tracks matched."
+            )
+            if result.playlist_url:
+                st.markdown(f"[Open your playlist]({result.playlist_url})")
+            if result.unmatched:
+                st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime
@@ -77,25 +151,28 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
 
     st.subheader("Recommendations")
     for rec in recs:
+        why = why_this_artist(rec)
         with st.container(border=True):
             st.markdown(f"### {rec.rank}. {rec.artist.name}")
             st.caption(
                 f"Score {rec.score:.3f} = taste {rec.base_score:.3f} "
                 f"+ values lens {rec.rerank_delta:.3f}"
             )
-            st.write(_identity_text(rec))
-            st.markdown("**Why recommended**")
-            for sig in rec.explanation.signals:
-                st.markdown(f"- {sig.kind}: {sig.detail}")
-            if rec.explanation.identity_basis is not IdentityBasis.UNKNOWN:
-                st.markdown("**Sources**")
-                for src in rec.explanation.identity_sources:
+            st.write(f"● Identity: {why.identity_statement}")
+            st.markdown("**Why this artist**")
+            for reason in why.reasons:
+                st.markdown(f"- {reason}")
+            if why.provenance:
+                st.markdown("**Sources** (sourced, never inferred)")
+                for p in why.provenance:
                     st.markdown(
-                        f"- {src.kind}: [{src.citation}]({src.citation}) "
-                        f"(retrieved {src.retrieved_at})"
+                        f"- {p.source_kind} asserted “{p.asserted_value}”: "
+                        f"[{p.citation}]({p.citation}) (retrieved {p.retrieved_at})"
                     )
             else:
                 st.caption("Identity unknown — no sources, surfaced on merit.")
+
+    _render_export(recs, username)
 
 
 if __name__ == "__main__":  # pragma: no cover
