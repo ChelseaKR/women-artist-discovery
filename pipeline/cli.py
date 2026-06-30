@@ -11,8 +11,11 @@ import json
 import sys
 from pathlib import Path
 
+from export.models import ExportFormat
+from export.tracklist import recommendations_to_tracks, render
 from recommender.eval import evaluate, to_report
 from recommender.hybrid import recommend
+from recommender.why import why_this_artist
 
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
 
@@ -35,8 +38,26 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
     )
     for rec in recs:
+        why = why_this_artist(rec)
         print(f"{rec.rank:>2}. {rec.artist.name:<22} score={rec.score:.3f}")  # noqa: T201
-        print(f"    {rec.explanation.summary}")  # noqa: T201
+        print(f"    why: {why.headline}")  # noqa: T201
+        print(f"    identity: {why.identity_statement}")  # noqa: T201
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    recs = recommend(
+        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+    )
+    tracks = recommendations_to_tracks(recs)
+    text = render(tracks, ExportFormat(args.format), playlist_name="Women-Artist Discovery")
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"wrote {out}")  # noqa: T201
+    else:
+        print(text)  # noqa: T201
     return 0
 
 
@@ -53,6 +74,15 @@ def main(argv: list[str] | None = None) -> int:
     p_rec.add_argument("--k", type=int, default=10)
     p_rec.add_argument("--lens", type=float, default=0.5)
     p_rec.set_defaults(func=_cmd_recommend)
+
+    p_exp = sub.add_parser("export", help="export demo recommendations to a portable playlist file")
+    p_exp.add_argument(
+        "--format", choices=[str(f) for f in ExportFormat], default=str(ExportFormat.TEXT)
+    )
+    p_exp.add_argument("--k", type=int, default=10)
+    p_exp.add_argument("--lens", type=float, default=0.5)
+    p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
+    p_exp.set_defaults(func=_cmd_export)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

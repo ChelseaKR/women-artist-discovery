@@ -30,11 +30,12 @@ dev = [
 wad = "pipeline.cli:main"
 
 [tool.setuptools]
-packages = ["pipeline", "recommender", "app"]
+packages = ["pipeline", "recommender", "app", "export"]
 
 [tool.setuptools.package-data]
 pipeline = ["py.typed"]
 recommender = ["py.typed"]
+export = ["py.typed"]
 
 # ---------------------------------------------------------------------------
 # Lint / format gate (QUALITY-AND-METRICS-STANDARD §7, CI stage 1)
@@ -68,7 +69,7 @@ disallow_any_generics = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_return_any = true
-files = ["pipeline", "recommender", "app"]
+files = ["pipeline", "recommender", "app", "export"]
 
 [[tool.mypy.overrides]]
 # Third-party libs without stubs — don't fail strict on them.
@@ -85,6 +86,7 @@ ignore_missing_imports = true
 addopts = [
     "--cov=pipeline",
     "--cov=recommender",
+    "--cov=export",
     "--cov-branch",
     "--cov-report=term-missing",
     "--cov-report=xml:docs/audits/coverage.xml",

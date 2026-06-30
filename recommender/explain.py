@@ -19,16 +19,7 @@ from pipeline.models import (
 
 from recommender.collaborative import CollabResult
 from recommender.content import ContentResult
-
-
-def _identity_phrase(artist: Artist) -> str:
-    label = artist.identity
-    if label.gender is not Gender.UNKNOWN:
-        conf = f" (confidence {label.confidence:.2f})" if label.confidence else ""
-        return f"identifies as {label.gender}{conf}, per {label.basis}"
-    if artist.female_fronted is True:
-        return "female-fronted band (sourced lineup), distinct from any member's gender"
-    return "identity unknown — surfaced on musical similarity alone"
+from recommender.why import artist_identity_phrase
 
 
 def build_explanation(
@@ -84,7 +75,7 @@ def build_explanation(
         basis = IdentityBasis.UNKNOWN
         sources = ()
 
-    summary = f"Recommended because {signals[0].detail}; {_identity_phrase(artist)}."
+    summary = f"Recommended because {signals[0].detail}; {artist_identity_phrase(artist)}."
     return Explanation(
         signals=tuple(signals),
         identity_basis=basis,

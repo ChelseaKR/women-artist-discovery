@@ -19,50 +19,50 @@ from collections.abc import Sequence
 from html import escape
 
 from pipeline.models import Recommendation
+from recommender.why import WhyThisArtist, why_this_artist
 
 
-def _identity_line(rec: Recommendation) -> str:
-    label = rec.artist.identity
-    if label.is_known:
-        conf = f", confidence {label.confidence:.0%}" if label.confidence else ""
-        return f"Identity: {escape(str(label.gender))} — basis: self-identified{conf}"
-    if rec.artist.female_fronted is True:
-        return "Identity: female-fronted band (sourced lineup) — distinct from any member's gender"
-    return "Identity: unknown — surfaced on musical similarity alone"
+def _identity_line(why: WhyThisArtist) -> str:
+    return f"Identity: {escape(why.identity_statement)}"
 
 
-def _sources_html(rec: Recommendation) -> str:
-    sources = rec.explanation.identity_sources
-    if not sources:
-        return '<p class="sources">Sources: none (identity unknown).</p>'
+def _provenance_html(why: WhyThisArtist, aid: str) -> str:
+    """Identity provenance: each citation with the *raw value the source asserted*.
+
+    Showing the asserted value (not just a label) is what makes "sourced, never
+    inferred" auditable rather than a promise.
+    """
+    if not why.provenance:
+        return '<p class="sources">Sources: none — identity unknown, surfaced on merit.</p>'
     items = "".join(
-        f"<li>{escape(str(s.kind))}: "
-        f'<a href="{escape(s.citation)}">{escape(s.citation)}</a> '
-        f'<span class="retrieved">(retrieved {escape(s.retrieved_at)})</span></li>'
-        for s in sources
+        f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
+        f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span></li>'
+        for p in why.provenance
     )
-    aid = escape(rec.artist.artist_id)
-    return f'<p class="sources" id="src-{aid}">Sources:</p><ul>{items}</ul>'
+    return (
+        f'<p class="sources" id="src-{aid}">Sources (sourced, never inferred):</p><ul>{items}</ul>'
+    )
 
 
-def _signals_html(rec: Recommendation) -> str:
-    items = "".join(
-        f"<li>{escape(s.kind)}: {escape(s.detail)}</li>" for s in rec.explanation.signals
-    )
+def _reasons_html(why: WhyThisArtist) -> str:
+    items = "".join(f"<li>{escape(r)}</li>" for r in why.reasons)
     return f"<ul>{items}</ul>"
 
 
 def _card_html(rec: Recommendation) -> str:
-    basis = escape(str(rec.explanation.identity_basis))
+    why = why_this_artist(rec)
+    basis = escape(str(why.identity_basis))
     aid = escape(rec.artist.artist_id)
     return (
         f'<article class="card" aria-labelledby="h-{aid}">'
         f'<h3 id="h-{aid}">{rec.rank}. {escape(rec.artist.name)}</h3>'
         f'<p class="score">Score: {rec.score:.3f} '
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
-        f'<p class="identity" data-basis="{basis}">{_identity_line(rec)}</p>'
-        f"<h4>Why recommended</h4>{_signals_html(rec)}"
-        f"{_sources_html(rec)}"
+        f'<p class="identity" data-basis="{basis}" data-inferred="false">'
+        f"{_identity_line(why)}</p>"
+        f"<h4>Why this artist</h4>{_reasons_html(why)}"
+        f"{_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
         f"</article>"
     )

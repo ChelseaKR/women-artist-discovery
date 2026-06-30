@@ -13,8 +13,9 @@ Your library leans toward women and female-fronted bands by taste, but no recomm
 - **Pulls your listening** (scrobbles + tags) from Last.fm; enriches with MusicBrainz/ListenBrainz, Wikidata, and Discogs.
 - **Hybrid recommendations:** collaborative similarity + content/tags, then a values-aware re-rank.
 - **Sourced identity, never inferred:** identity basis is shown and cited; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
-- **Explains every pick:** why (which signals) + identity basis + sources.
-- **Local-first:** your listening history stays yours.
+- **Explains every pick:** a shared "Why this artist" view — why (which signals) + identity basis + provenance (the *raw value each source asserted*, never inferred).
+- **Export your picks:** push the current set to a Spotify playlist (env-configured OAuth), or download a portable, account-free track list (plain text / CSV / M3U / JSPF).
+- **Local-first:** your listening history stays yours; the only opt-in egress is a user-initiated playlist export (artist names only).
 
 ## For Claude Code
 - **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
