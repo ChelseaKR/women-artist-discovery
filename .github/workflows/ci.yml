@@ -77,6 +77,10 @@ jobs:
       - name: Eval
         run: make eval PYTHON=python
 
+      # 8. i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
+      - name: i18n status
+        run: make i18n PYTHON=python
+
       - name: Upload audit artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
