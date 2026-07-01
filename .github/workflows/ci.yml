@@ -16,14 +16,19 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Python 3.9 dropped (EOL 2025-10-31). Floor is now >=3.10.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           persist-credentials: false
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
-          python-version: "3.9"
+          python-version: ${{ matrix.python-version }}
 
       - name: Set up Node (for the pa11y/axe a11y runner)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
@@ -49,34 +54,14 @@ jobs:
         run: make test PYTHON=python
 
       # 4a. dependency vulnerability scan
-      # Waived advisory IDs MUST stay byte-identical to the Makefile `AUDIT_IGNORES`
-      # block; each is justified + tracked in docs/audits/vex.json + residual-risk.md.
-      # RR-1: pip tar-extraction (build-time tooling). RR-4: every other ID's first
-      # fixed release requires Python >=3.10 (3.9 is EOL), so no fix installs on the
-      # 3.9 floor — remediated by the Python 3.10+ migration flagged in ROADMAP.md.
+      # The waiver list is EMPTY (mirrors the Makefile `AUDIT_IGNORES`): with the
+      # floor now >=3.10 the former Python-3.9-EOL cluster (RR-4, 19 advisories)
+      # installs its published fixes, and RR-1 (GHSA-4xh5-x5gv-qwph, pip tar
+      # extraction) is cleared by pip>=25.3/PEP 706. pip-audit must be 0 unwaived.
+      # Re-introduce a waiver only if a genuinely-unfixable advisory appears,
+      # byte-identical here + in the Makefile + justified in docs/audits/vex.json.
       - name: Dependency audit
-        run: |
-          python -m pip_audit --skip-editable \
-            --ignore-vuln GHSA-4xh5-x5gv-qwph \
-            --ignore-vuln GHSA-w853-jp5j-5j7f \
-            --ignore-vuln GHSA-qmgc-5h2g-mvrw \
-            --ignore-vuln GHSA-6v7p-g79w-8964 \
-            --ignore-vuln PYSEC-2026-165 \
-            --ignore-vuln GHSA-cfh3-3jmp-rvhc \
-            --ignore-vuln GHSA-whj4-6x5x-4v2j \
-            --ignore-vuln GHSA-5xmw-vc9v-4wf2 \
-            --ignore-vuln GHSA-r73j-pqj5-w3x7 \
-            --ignore-vuln GHSA-pwv6-vv43-88gr \
-            --ignore-vuln PYSEC-2026-196 \
-            --ignore-vuln GHSA-58qw-9mgm-455v \
-            --ignore-vuln GHSA-jp4c-xjxw-mgf9 \
-            --ignore-vuln PYSEC-2026-113 \
-            --ignore-vuln GHSA-6w46-j5rx-g56g \
-            --ignore-vuln GHSA-gc5v-m9x4-r6x2 \
-            --ignore-vuln PYSEC-2026-212 \
-            --ignore-vuln GHSA-7p48-42j8-8846 \
-            --ignore-vuln PYSEC-2026-142 \
-            --ignore-vuln PYSEC-2026-141
+        run: python -m pip_audit --skip-editable
 
       # 4b. secret scan (dedicated, merge-blocking)
       - name: Secret scan

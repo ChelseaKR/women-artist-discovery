@@ -41,41 +41,21 @@ test: ## Stage 3 — unit + integration tests with coverage gate (>=85%)
 	$(PYTHON) -m pytest
 
 # Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
-# HIGH/CRITICAL waiver — committed, justified waiver JSON"). Every ID below is
-# justified + tracked machine-readably in docs/audits/vex.json and narratively in
-# docs/audits/residual-risk.md (RR-1, RR-4). Two clusters:
-#   RR-1  GHSA-4xh5-x5gv-qwph — pip fallback tar extraction; pip is build-time
-#         tooling, not a shipped runtime dep.
-#   RR-4  every other ID — its FIRST fixed release is gated to Python >=3.10
-#         (Python 3.9 reached EOL 2025-10), so on this repo's 3.9 floor NO fix is
-#         pip-installable; forcing the pin would break `make install`. Remediation
-#         is the Python 3.10+ migration flagged in docs/ROADMAP.md. Re-audit (drop
-#         the relevant IDs) the moment the floor moves to 3.10 — the fixes are
-#         already published there.
-AUDIT_IGNORES := \
-	--ignore-vuln GHSA-4xh5-x5gv-qwph \
-	--ignore-vuln GHSA-w853-jp5j-5j7f \
-	--ignore-vuln GHSA-qmgc-5h2g-mvrw \
-	--ignore-vuln GHSA-6v7p-g79w-8964 \
-	--ignore-vuln PYSEC-2026-165 \
-	--ignore-vuln GHSA-cfh3-3jmp-rvhc \
-	--ignore-vuln GHSA-whj4-6x5x-4v2j \
-	--ignore-vuln GHSA-5xmw-vc9v-4wf2 \
-	--ignore-vuln GHSA-r73j-pqj5-w3x7 \
-	--ignore-vuln GHSA-pwv6-vv43-88gr \
-	--ignore-vuln PYSEC-2026-196 \
-	--ignore-vuln GHSA-58qw-9mgm-455v \
-	--ignore-vuln GHSA-jp4c-xjxw-mgf9 \
-	--ignore-vuln PYSEC-2026-113 \
-	--ignore-vuln GHSA-6w46-j5rx-g56g \
-	--ignore-vuln GHSA-gc5v-m9x4-r6x2 \
-	--ignore-vuln PYSEC-2026-212 \
-	--ignore-vuln GHSA-7p48-42j8-8846 \
-	--ignore-vuln PYSEC-2026-142 \
-	--ignore-vuln PYSEC-2026-141
+# HIGH/CRITICAL waiver — committed, justified waiver JSON").
+# As of the Python 3.10+ migration (2026-06-30) the waiver list is EMPTY:
+#   * RR-4 — the 19-advisory Python-3.9-EOL cluster (requests, urllib3, streamlit,
+#     pillow, pyarrow, msgpack, filelock, pytest, pip) had fixes gated to
+#     Python >=3.10; with the floor now >=3.10 every fix installs (see
+#     pyproject floors + uv.lock), so all 19 IDs are dropped.
+#   * RR-1 — GHSA-4xh5-x5gv-qwph (pip fallback tar extraction) is cleared by
+#     pip>=25.3 / PEP 706 tar filter on the >=3.10 floor; no longer reported.
+# `pip-audit` is therefore driven to 0 with NO --ignore-vuln flags. Re-introduce a
+# justified entry here (byte-identical in ci.yml + docs/audits/vex.json) only if a
+# genuinely-unfixable advisory ever appears. History: docs/audits/residual-risk.md.
+AUDIT_IGNORES :=
 
 security: ## Stage 4 — dependency vulnerability + secret scan
-	# Audit installed deps; waived advisories are justified in docs/audits/vex.json.
+	# Audit installed deps; the waiver list is empty (see docs/audits/residual-risk.md).
 	$(PYTHON) -m pip_audit --skip-editable $(AUDIT_IGNORES)
 	@./scripts/secret-scan.sh
 
