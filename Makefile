@@ -7,7 +7,7 @@ PIP    ?= .venv/bin/pip
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval i18n audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -24,7 +24,7 @@ dev: install ## Run the Streamlit dashboard (demo mode; no API key needed)
 	$(PYTHON) -m streamlit run app/dashboard.py
 
 # --- The verify pipeline (each stage is merge-blocking) ----------------------
-verify: lint typecheck test security a11y eval ## Run every checkable gate (CI parity)
+verify: lint typecheck test security a11y eval i18n ## Run every checkable gate (CI parity)
 	@echo "✓ all checkable gates green"
 
 format: ## Auto-format the code
@@ -70,6 +70,9 @@ a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
 
 eval: ## Stage 7 — offline eval; fails unless the hybrid beats the baseline
 	$(PYTHON) -m pipeline.cli eval --k 5 --out docs/audits/eval-report.json
+
+i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
+	@./scripts/i18n-gate.sh
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
