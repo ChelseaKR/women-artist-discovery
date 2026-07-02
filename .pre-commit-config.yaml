@@ -1,0 +1,33 @@
+# Local guardrails that mirror the CI merge gate. Install with `uvx pre-commit install`.
+# Revisions are pinned to full commit SHAs (tag noted alongside); bump deliberately via a reviewed PR.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 75b98813cfb7e663870a28c74366a1e99d7bfe79  # v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: d4911cfb7f1010759fde68da196036feeb25b99d  # v1.11.2
+    hooks:
+      - id: mypy
+        additional_dependencies: ["types-requests", "numpy"]
+        args: ["--strict"]
+        files: ^(pipeline|recommender|app|export)/
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 43fae355e6fe4d99d2a7b240a224b85e2903aeb4  # v8.21.2
+    hooks:
+      - id: gitleaks
