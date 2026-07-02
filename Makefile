@@ -53,8 +53,12 @@ lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset)
 typecheck: ## Stage 2 — strict static typing (mypy --strict)
 	$(PYTHON) -m mypy
 
-test: ## Stage 3 — unit + integration tests with coverage gate (>=85%)
+test: ## Stage 3 — unit + integration tests with coverage gates (>=85%; identity resolver >=95%)
 	$(PYTHON) -m pytest
+	# Per-module floor (CODE-QUALITY-STANDARD, safety-critical paths): the identity
+	# resolver must hold >=95% branch coverage, above the 85% baseline. Scoped
+	# re-report over the .coverage data the pytest run just wrote.
+	$(PYTHON) -m coverage report --include="pipeline/identity.py" --fail-under=95
 
 # Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
 # HIGH/CRITICAL waiver — committed, justified waiver JSON").
