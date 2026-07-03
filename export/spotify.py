@@ -26,12 +26,31 @@ import base64
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Optional
 
 from pipeline.models import Recommendation
 
 from export.models import ExportError, PlaylistExport
 from export.tracklist import recommendations_to_tracks
+from export.transport import HttpResponse, HttpTransport, RequestsTransport
+
+# HttpResponse/HttpTransport/RequestsTransport live in export.transport (shared
+# with every provider); re-exported here so this module's public API is
+# unchanged for existing callers (`from export.spotify import HttpTransport`).
+__all__ = [
+    "AUTH_URL",
+    "TOKEN_URL",
+    "API_ROOT",
+    "DEFAULT_SCOPES",
+    "HttpResponse",
+    "HttpTransport",
+    "RequestsTransport",
+    "SpotifyCredentials",
+    "SpotifyToken",
+    "SpotifyOAuth",
+    "SpotifyClient",
+    "export_recommendations",
+]
 
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"  # noqa: S105 - public endpoint, not a secret
@@ -40,65 +59,6 @@ API_ROOT = "https://api.spotify.com/v1"
 DEFAULT_SCOPES: tuple[str, ...] = ("playlist-modify-private", "playlist-modify-public")
 #: Spotify caps additions at 100 URIs per request.
 _ADD_BATCH = 100
-
-
-@dataclass(frozen=True)
-class HttpResponse:
-    """A minimal HTTP response: a status code and the parsed JSON body."""
-
-    status: int
-    body: dict[str, Any]
-
-    @property
-    def ok(self) -> bool:
-        return 200 <= self.status < 300
-
-
-@runtime_checkable
-class HttpTransport(Protocol):
-    """The tiny HTTP surface the Spotify client needs. Injectable for testing."""
-
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        data: Optional[Mapping[str, str]] = None,
-        json_body: Optional[Mapping[str, Any]] = None,
-    ) -> HttpResponse: ...
-
-
-class RequestsTransport:  # pragma: no cover - live network path, verified manually
-    """The one live transport. Imports ``requests`` lazily, like the Last.fm client."""
-
-    def __init__(self, timeout: float = 15.0) -> None:
-        self.timeout = timeout
-
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: Optional[Mapping[str, str]] = None,
-        data: Optional[Mapping[str, str]] = None,
-        json_body: Optional[Mapping[str, Any]] = None,
-    ) -> HttpResponse:
-        import requests
-
-        resp = requests.request(
-            method,
-            url,
-            headers=dict(headers or {}),
-            data=dict(data) if data is not None else None,
-            json=dict(json_body) if json_body is not None else None,
-            timeout=self.timeout,
-        )
-        try:
-            body = resp.json() if resp.content else {}
-        except ValueError:
-            body = {}
-        return HttpResponse(status=resp.status_code, body=body if isinstance(body, dict) else {})
 
 
 @dataclass(frozen=True)

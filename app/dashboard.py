@@ -15,15 +15,21 @@ Two interactive features sit on top of the core:
   :class:`~recommender.why.WhyThisArtist`: the sourced identity (with provenance,
   never inferred) plus the hybrid + values-lens reasons.
 * **Playlist export** — download a portable track list (text/CSV/M3U/JSPF) with no
-  account, or connect Spotify (env-configured OAuth) to push a real playlist.
+  account, or connect a provider from the registry (:mod:`export.registry`) —
+  Spotify (env-configured OAuth) or ListenBrainz (env-configured token) — to
+  push a real playlist.
 """
 
 from __future__ import annotations
 
 import os
 import secrets
+from typing import Optional
 
+from export.listenbrainz import ListenBrainzCredentials
+from export.listenbrainz import export_recommendations as export_to_listenbrainz
 from export.models import ExportError, ExportFormat
+from export.registry import PROVIDERS
 from export.spotify import (
     RequestsTransport,
     SpotifyClient,
@@ -71,7 +77,13 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
             mime=mime,
         )
 
-    with st.expander("Connect Spotify and push a playlist"):
+    # Both live providers are opt-in expanders; a missing-credentials message
+    # for one must not prevent the other from rendering, so neither branch
+    # returns out of the function early.
+    spotify_info = PROVIDERS["spotify"]
+    with st.expander(f"Connect {spotify_info.name} and push a playlist"):
+        st.caption(spotify_info.egress_summary)
+        creds: Optional[SpotifyCredentials]
         try:
             creds = SpotifyCredentials.from_env(os.environ)
         except ExportError as exc:
@@ -79,33 +91,70 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
                 f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
                 "live Spotify export. The portable formats above work without it."
             )
-            return
-
-        oauth = SpotifyOAuth(creds, RequestsTransport())
-        if "spotify_state" not in st.session_state:
-            st.session_state["spotify_state"] = secrets.token_urlsafe(16)
-        auth_url = oauth.authorize_url(st.session_state["spotify_state"])
-        st.markdown(
-            f"1. [Authorize on Spotify]({auth_url}) and copy the `code` you're redirected to."
-        )
-        code = st.text_input("2. Paste the authorization code", type="password")
-        make_public = st.checkbox("Make the playlist public", value=False)
-        if st.button("Create Spotify playlist") and code:
-            try:
-                token = oauth.exchange_code(code)
-                client = SpotifyClient(token, RequestsTransport())
-                result = export_recommendations(recs, client, username=username, public=make_public)
-            except ExportError as exc:
-                st.error(f"Export failed: {exc}")
-                return
-            st.success(
-                f"Created “{result.playlist_name}” with {result.matched_count}/"
-                f"{result.track_count} tracks matched."
+            creds = None
+        if creds is not None:
+            oauth = SpotifyOAuth(creds, RequestsTransport())
+            if "spotify_state" not in st.session_state:
+                st.session_state["spotify_state"] = secrets.token_urlsafe(16)
+            auth_url = oauth.authorize_url(st.session_state["spotify_state"])
+            st.markdown(
+                f"1. [Authorize on Spotify]({auth_url}) and copy the `code` you're redirected to."
             )
-            if result.playlist_url:
-                st.markdown(f"[Open your playlist]({result.playlist_url})")
-            if result.unmatched:
-                st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+            code = st.text_input("2. Paste the authorization code", type="password")
+            make_public = st.checkbox("Make the playlist public", value=False, key="spotify_public")
+            if st.button("Create Spotify playlist") and code:
+                try:
+                    token = oauth.exchange_code(code)
+                    client = SpotifyClient(token, RequestsTransport())
+                    result = export_recommendations(
+                        recs, client, username=username, public=make_public
+                    )
+                except ExportError as exc:
+                    st.error(f"Export failed: {exc}")
+                else:
+                    st.success(
+                        f"Created “{result.playlist_name}” with {result.matched_count}/"
+                        f"{result.track_count} tracks matched."
+                    )
+                    if result.playlist_url:
+                        st.markdown(f"[Open your playlist]({result.playlist_url})")
+                    if result.unmatched:
+                        st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+
+    listenbrainz_info = PROVIDERS["listenbrainz"]
+    with st.expander(f"Connect {listenbrainz_info.name} and push a playlist"):
+        st.caption(listenbrainz_info.egress_summary)
+        lb_creds: Optional[ListenBrainzCredentials]
+        try:
+            lb_creds = ListenBrainzCredentials.from_env(os.environ)
+        except ExportError as exc:
+            st.info(
+                f"{exc}. Set WAD_LISTENBRAINZ_TOKEN (from your ListenBrainz settings page) "
+                "to enable live ListenBrainz export. The portable formats above work without it."
+            )
+            lb_creds = None
+        if lb_creds is not None:
+            lb_public = st.checkbox(
+                "Make the playlist public", value=False, key="listenbrainz_public"
+            )
+            if st.button("Create ListenBrainz playlist"):
+                try:
+                    lb_result = export_to_listenbrainz(
+                        recs,
+                        lb_creds,
+                        RequestsTransport(),
+                        username=username,
+                        public=lb_public,
+                    )
+                except ExportError as exc:
+                    st.error(f"Export failed: {exc}")
+                else:
+                    st.success(
+                        f"Created “{lb_result.playlist_name}” with {lb_result.matched_count}/"
+                        f"{lb_result.track_count} tracks."
+                    )
+                    if lb_result.playlist_url:
+                        st.markdown(f"[Open your playlist]({lb_result.playlist_url})")
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime

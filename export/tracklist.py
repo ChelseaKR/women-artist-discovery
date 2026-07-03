@@ -12,6 +12,7 @@ import csv
 import io
 import json
 from collections.abc import Sequence
+from typing import Any
 
 from pipeline.models import Recommendation
 from recommender.why import why_this_artist
@@ -75,9 +76,14 @@ def to_m3u(tracks: Sequence[PlaylistTrack], playlist_name: str = "Women-Artist D
     return "\n".join(lines) + "\n"
 
 
-def to_jspf(tracks: Sequence[PlaylistTrack], playlist_name: str = "Women-Artist Discovery") -> str:
-    """A JSPF (JSON playlist) document — structured, tool-friendly, portable."""
-    playlist = {
+def _jspf_document(
+    tracks: Sequence[PlaylistTrack], playlist_name: str = "Women-Artist Discovery"
+) -> dict[str, Any]:
+    """The JSPF document as a plain ``dict`` — the shape shared by :func:`to_jspf`'s
+    string output and any provider (e.g. ListenBrainz) that submits the same
+    structure over the network instead of writing it to a local file.
+    """
+    return {
         "playlist": {
             "title": playlist_name,
             "creator": "women-artist-discovery",
@@ -93,7 +99,11 @@ def to_jspf(tracks: Sequence[PlaylistTrack], playlist_name: str = "Women-Artist 
             ],
         }
     }
-    return json.dumps(playlist, indent=2)
+
+
+def to_jspf(tracks: Sequence[PlaylistTrack], playlist_name: str = "Women-Artist Discovery") -> str:
+    """A JSPF (JSON playlist) document — structured, tool-friendly, portable."""
+    return json.dumps(_jspf_document(tracks, playlist_name), indent=2)
 
 
 def render(

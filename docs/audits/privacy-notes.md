@@ -12,6 +12,7 @@
 | Enriched artist metadata | public | identity + tags + similarity | `data/cache.db` (local) | re-enriched on demand |
 | API responses | public | rate-limit-respecting cache | `data/cache.db` (local) | overwritten on refetch |
 | Playlist export (opt-in) | personal | user-initiated push of the recommended artist names to Spotify | none (sent, not stored) | n/a — only on click |
+| Playlist export (opt-in) | personal | user-initiated push of a JSPF playlist of recommended artist names to ListenBrainz (`api.listenbrainz.org`, static token auth) | none (sent, not stored) | n/a — only on click |
 
 No special-category data is *inferred*; identity is only ever **sourced** about
 public figures (artists), never about the user.
@@ -22,20 +23,30 @@ There are exactly two outbound paths, both purpose-limited:
 
 1. **Last.fm / enrichment fetch** — confined to `pipeline/lastfm.py` (asserted by
    `tests/test_privacy.py`), cached locally, rate-limit-respecting.
-2. **Playlist export** (`export/`) — the project's only *user-initiated* egress.
-   It is opt-in (nothing leaves on load), runs only when the user clicks
-   export/connect, and sends just the recommended **artist names** (a public
-   search query) to Spotify to build a playlist. The credential-free formats
-   (text / CSV / M3U / JSPF) stay fully local. No listening history, no identity
-   data, and no telemetry are transmitted. The live HTTP call is isolated in one
-   injectable transport (`export/spotify.py::RequestsTransport`); the rest of the
-   flow is exercised offline with a fake transport, so the egress surface is a
-   single, auditable function.
+2. **Playlist export** (`export/`) — the project's only *user-initiated* egress,
+   and provider-agnostic: every live provider (listed in `export/registry.py`)
+   ends at the same `PlaylistExport` result type via the same injectable
+   `HttpTransport` (`export/transport.py`). It is opt-in (nothing leaves on
+   load), runs only when the user clicks export/connect, and sends just the
+   recommended **artist names** (a public search query) to the chosen provider
+   to build a playlist. The credential-free formats (text / CSV / M3U / JSPF)
+   stay fully local. No listening history, no identity data, and no telemetry
+   are transmitted. Each provider's flow is exercised offline with a fake
+   transport, so the egress surface per provider is a single, auditable
+   function:
+   - **Spotify** — sends the artist names to `api.spotify.com` to build a
+     playlist. The live HTTP call is isolated in
+     `export/transport.py::RequestsTransport`, injected into
+     `export/spotify.py`.
+   - **ListenBrainz** — sends a JSPF playlist of the artist names to
+     `api.listenbrainz.org` (`export/listenbrainz.py`), using the same
+     `RequestsTransport`.
 
    *Secrets:* the Spotify app credentials are read from the environment only
    (`WAD_SPOTIFY_CLIENT_ID`, `WAD_SPOTIFY_CLIENT_SECRET`, `WAD_SPOTIFY_REDIRECT_URI`)
    and the OAuth access/refresh tokens are held in memory for the session, never
-   written to disk or committed.
+   written to disk or committed. The ListenBrainz user token is read from the
+   environment only (`WAD_LISTENBRAINZ_TOKEN`), never hard-coded or persisted.
 
 ## Handling & commitments
 
