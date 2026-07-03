@@ -12,17 +12,31 @@ To run live you need a Spotify app (client id + secret) and these env vars::
     WAD_SPOTIFY_CLIENT_SECRET=...
     WAD_SPOTIFY_REDIRECT_URI=http://127.0.0.1:8080/callback
 
-OAuth steps the caller drives:
-1. :meth:`SpotifyOAuth.authorize_url` → open it, the user grants the playlist
-   scopes, Spotify redirects back to ``redirect_uri`` with ``?code=...``.
-2. :meth:`SpotifyOAuth.exchange_code` → swap that code for an access token.
-3. :func:`export_recommendations` → search each artist, create the playlist,
+OAuth steps the caller drives (native-app hardened: PKCE + state, a loopback
+listener as the primary redirect capture):
+1. :meth:`PkcePair.generate` → a fresh verifier/S256-challenge pair; the
+   verifier never leaves process memory.
+2. :meth:`SpotifyOAuth.authorize_url` → open it (passing the challenge and an
+   opaque ``state``); the user grants the playlist scopes; Spotify redirects
+   back to ``redirect_uri`` with ``?code=...&state=...``.
+3. :func:`capture_redirect` → a tiny stdlib loopback HTTP server bound to
+   ``127.0.0.1`` on the redirect URI's port, waiting for that one request; or,
+   as a fallback, the caller pastes the full redirected URL.
+4. :func:`parse_redirect` → extracts ``code``, verifies ``state`` matches
+   (raising :class:`ExportError` — "possible CSRF" — on mismatch) and raises
+   on any Spotify ``error`` param.
+5. :meth:`SpotifyOAuth.exchange_code` → swap the code (+ PKCE verifier) for an
+   access token.
+6. :func:`export_recommendations` → search each artist, create the playlist,
    add the matched tracks. Unmatched artists are reported, never dropped silently.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
+import http.server
+import secrets
 import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -40,6 +54,30 @@ API_ROOT = "https://api.spotify.com/v1"
 DEFAULT_SCOPES: tuple[str, ...] = ("playlist-modify-private", "playlist-modify-public")
 #: Spotify caps additions at 100 URIs per request.
 _ADD_BATCH = 100
+#: How long the loopback listener waits for the browser to redirect back.
+_CAPTURE_TIMEOUT = 120.0
+
+
+@dataclass(frozen=True)
+class PkcePair:
+    """A PKCE verifier/challenge pair (RFC 7636, S256 method).
+
+    The verifier never leaves process memory: it is generated here, held only
+    long enough to be passed to :meth:`SpotifyOAuth.exchange_code`, and never
+    serialised, logged, or transmitted anywhere except in the token-exchange
+    POST body over TLS.
+    """
+
+    verifier: str
+    challenge: str
+
+    @classmethod
+    def generate(cls) -> PkcePair:
+        """Generate a fresh, cryptographically random verifier + S256 challenge."""
+        verifier = secrets.token_urlsafe(64)
+        digest = hashlib.sha256(verifier.encode()).digest()
+        challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+        return cls(verifier=verifier, challenge=challenge)
 
 
 @dataclass(frozen=True)
@@ -165,9 +203,18 @@ class SpotifyOAuth:
         self.transport = transport
 
     def authorize_url(
-        self, state: str, scopes: Sequence[str] = DEFAULT_SCOPES, show_dialog: bool = False
+        self,
+        state: str,
+        scopes: Sequence[str] = DEFAULT_SCOPES,
+        show_dialog: bool = False,
+        code_challenge: Optional[str] = None,
     ) -> str:
-        """The URL to send the user to for consent. Pure; opens no connection."""
+        """The URL to send the user to for consent. Pure; opens no connection.
+
+        ``code_challenge`` should be a :class:`PkcePair`'s ``challenge``; when
+        given, it is sent with ``code_challenge_method=S256`` (RFC 7636),
+        hardening the flow against authorization-code interception.
+        """
         if not state:
             raise ValueError("an opaque 'state' value is required (CSRF protection)")
         params = {
@@ -178,17 +225,26 @@ class SpotifyOAuth:
             "state": state,
             "show_dialog": "true" if show_dialog else "false",
         }
+        if code_challenge:
+            params["code_challenge"] = code_challenge
+            params["code_challenge_method"] = "S256"
         return f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
 
-    def exchange_code(self, code: str) -> SpotifyToken:
-        """Exchange an authorization ``code`` for an access token."""
-        return self._token_request(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": self.credentials.redirect_uri,
-            }
-        )
+    def exchange_code(self, code: str, code_verifier: Optional[str] = None) -> SpotifyToken:
+        """Exchange an authorization ``code`` for an access token.
+
+        ``code_verifier`` should be the :class:`PkcePair` verifier matching the
+        challenge sent to :meth:`authorize_url`; when given, it is included in
+        the token-request body (PKCE token exchange, RFC 7636 §4.5).
+        """
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": self.credentials.redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        return self._token_request(data)
 
     def refresh(self, refresh_token: str) -> SpotifyToken:
         """Refresh an access token. Spotify may omit a new refresh token; reuse the old."""
@@ -216,6 +272,69 @@ class SpotifyOAuth:
         if not resp.ok:
             raise ExportError(f"Spotify token request failed (HTTP {resp.status})")
         return SpotifyToken.from_body(resp.body)
+
+
+def parse_redirect(url: str, expected_state: str) -> str:
+    """Parse the full redirected URL, verify ``state``, and return the ``code``.
+
+    Raises :class:`ExportError` if Spotify reported an ``error`` param, or if
+    the returned ``state`` does not match ``expected_state`` — the state check
+    is what makes CSRF protection an enforced, tested failure path rather than
+    a value that is generated but never verified.
+    """
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    error = query.get("error", [""])[0]
+    if error:
+        raise ExportError(f"Spotify authorization failed: {error}")
+    returned_state = query.get("state", [""])[0]
+    if returned_state != expected_state:
+        raise ExportError("OAuth state mismatch — possible CSRF")
+    code = query.get("code", [""])[0]
+    if not code:
+        raise ExportError("redirected URL did not contain an authorization code")
+    return code
+
+
+class _RedirectCaptureHandler(http.server.BaseHTTPRequestHandler):
+    """Stashes the redirected path/query on the server, then closes the tab."""
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib handler naming  # pragma: no cover
+        self.server.captured_path = self.path  # type: ignore[attr-defined]
+        body = b"<html><body>Spotify authorized. You can close this tab.</body></html>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:  # pragma: no cover - silence stdlib
+        pass
+
+
+def capture_redirect(  # pragma: no cover - binds a real socket, verified manually
+    redirect_uri: str, timeout: float = _CAPTURE_TIMEOUT
+) -> str:
+    """Run a one-shot loopback listener and return the redirected path+query.
+
+    Parses host/port from ``redirect_uri``, binds ``http.server.HTTPServer`` to
+    ``127.0.0.1`` on that port, and blocks for a single request (or until
+    ``timeout`` elapses) — the native-app-recommended way to receive the OAuth
+    redirect without the user having to copy-paste a URL by hand.
+    """
+    parsed = urllib.parse.urlparse(redirect_uri)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+    server = http.server.HTTPServer((host, port), _RedirectCaptureHandler)
+    server.timeout = timeout
+    server.captured_path = None  # type: ignore[attr-defined]
+    try:
+        server.handle_request()
+    finally:
+        server.server_close()
+    path: Optional[str] = server.captured_path  # type: ignore[attr-defined]
+    if not path:
+        raise ExportError("timed out waiting for the Spotify redirect")
+    return path
 
 
 class SpotifyClient:

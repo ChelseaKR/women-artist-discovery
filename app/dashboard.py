@@ -25,11 +25,14 @@ import secrets
 
 from export.models import ExportError, ExportFormat
 from export.spotify import (
+    PkcePair,
     RequestsTransport,
     SpotifyClient,
     SpotifyCredentials,
     SpotifyOAuth,
+    capture_redirect,
     export_recommendations,
+    parse_redirect,
 )
 from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
@@ -84,15 +87,18 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
         oauth = SpotifyOAuth(creds, RequestsTransport())
         if "spotify_state" not in st.session_state:
             st.session_state["spotify_state"] = secrets.token_urlsafe(16)
-        auth_url = oauth.authorize_url(st.session_state["spotify_state"])
-        st.markdown(
-            f"1. [Authorize on Spotify]({auth_url}) and copy the `code` you're redirected to."
+        if "spotify_pkce" not in st.session_state:
+            st.session_state["spotify_pkce"] = PkcePair.generate()
+        pkce: PkcePair = st.session_state["spotify_pkce"]
+        auth_url = oauth.authorize_url(
+            st.session_state["spotify_state"], code_challenge=pkce.challenge
         )
-        code = st.text_input("2. Paste the authorization code", type="password")
+        st.markdown(f"1. [Authorize on Spotify]({auth_url})")
         make_public = st.checkbox("Make the playlist public", value=False)
-        if st.button("Create Spotify playlist") and code:
+
+        def _finish(code: str) -> None:
             try:
-                token = oauth.exchange_code(code)
+                token = oauth.exchange_code(code, code_verifier=pkce.verifier)
                 client = SpotifyClient(token, RequestsTransport())
                 result = export_recommendations(recs, client, username=username, public=make_public)
             except ExportError as exc:
@@ -106,6 +112,28 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
                 st.markdown(f"[Open your playlist]({result.playlist_url})")
             if result.unmatched:
                 st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+
+        st.markdown("2. Waiting on the local redirect — or paste the URL yourself:")
+        if st.button("Listen for the Spotify redirect (recommended)"):
+            with st.spinner("Waiting for Spotify to redirect back to 127.0.0.1…"):
+                try:
+                    redirected = capture_redirect(creds.redirect_uri)
+                    code = parse_redirect(redirected, st.session_state["spotify_state"])
+                except ExportError as exc:
+                    st.error(f"Authorization failed: {exc}")
+                    return
+            _finish(code)
+
+        redirected_url = st.text_input(
+            "…or paste the full URL you were redirected to (fallback)", type="password"
+        )
+        if st.button("Create Spotify playlist from pasted URL") and redirected_url:
+            try:
+                code = parse_redirect(redirected_url, st.session_state["spotify_state"])
+            except ExportError as exc:
+                st.error(f"Authorization failed: {exc}")
+                return
+            _finish(code)
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime
