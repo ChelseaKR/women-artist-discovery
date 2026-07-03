@@ -113,12 +113,21 @@ class Source:
     citation: str  # stable reference: URL, Wikidata QID, MBID, etc.
     retrieved_at: str  # ISO-8601 date the claim was fetched
     detail: str = ""  # the raw value the source asserted (e.g. "female")
+    #: True when this Source is a locally-entered correction (FIX-10) rather
+    #: than an upstream-fetched claim. Still an ``ARTIST_STATEMENT`` — the
+    #: "no citation, no override" invariant applies identically — but callers
+    #: (why-cards, renderers) can label it distinctly for transparency.
+    is_local_correction: bool = False
 
     def __post_init__(self) -> None:
         if not self.citation.strip():
             raise UnsourcedIdentityError("a Source must carry a non-empty citation")
         if self.kind not in PERMITTED_SOURCES:  # pragma: no cover - enum-exhaustive
             raise InferenceForbiddenError(f"{self.kind!r} is not a permitted source")
+        if self.is_local_correction and self.kind is not SourceKind.ARTIST_STATEMENT:
+            raise InferenceForbiddenError(
+                "a local correction must be recorded as an ARTIST_STATEMENT source"
+            )
 
 
 @dataclass(frozen=True)
@@ -131,18 +140,33 @@ class IdentityLabel:
     * That source must be an *individual-identity* source — a band-composition
       source can never establish a person's gender.
     * A non-``UNKNOWN`` gender's basis must be ``SELF_IDENTIFIED``.
+    * ``conflict=True`` requires at least two distinct asserted genders among
+      ``conflicting_claims`` (FIX-10) — surfacing disagreement is itself a
+      sourced claim, never a bare assertion.
     """
 
     gender: Gender = Gender.UNKNOWN
     basis: IdentityBasis = IdentityBasis.UNKNOWN
     sources: tuple[Source, ...] = ()
     confidence: Optional[float] = None
+    #: True when permitted sources disagreed on this individual's gender. The
+    #: resolver still reports its highest-priority ``gender`` above, but a
+    #: conflict is never silently hidden — the disagreeing sources are kept
+    #: in ``conflicting_claims`` so it can be shown, not buried.
+    conflict: bool = False
+    #: The disagreeing sources behind a conflict (empty when ``conflict`` is
+    #: False). A superset of, or equal to, ``sources`` in practice — kept as
+    #: its own field so "what everyone asserted" survives independently of
+    #: "which source we chose to report".
+    conflicting_claims: tuple[Source, ...] = ()
 
     def __post_init__(self) -> None:
         if self.gender is Gender.UNKNOWN:
             # Unknown is first-class: no source required, basis must be UNKNOWN.
             if self.basis is not IdentityBasis.UNKNOWN:
                 raise IdentityError("unknown gender must carry UNKNOWN basis")
+            if self.conflict:
+                raise IdentityError("an unknown gender cannot carry a conflict")
             return
         if not self.sources:
             raise UnsourcedIdentityError(
@@ -158,6 +182,22 @@ class IdentityLabel:
                 )
         if self.confidence is not None and not (0.0 <= self.confidence <= 1.0):
             raise IdentityError("confidence must be in [0, 1]")
+        if self.conflict:
+            if len(self.conflicting_claims) < 2:
+                raise IdentityError("a conflict must carry at least two conflicting claims")
+            for src in self.conflicting_claims:
+                if src.kind not in INDIVIDUAL_IDENTITY_SOURCES:
+                    raise InferenceForbiddenError(
+                        f"{src.kind} cannot establish an individual's gender; "
+                        "it is a band-composition source"
+                    )
+            asserted = {src.detail for src in self.conflicting_claims}
+            if len(asserted) < 2:
+                raise IdentityError(
+                    "conflict=True requires >=2 distinct asserted genders among conflicting_claims"
+                )
+        elif self.conflicting_claims:
+            raise IdentityError("conflicting_claims requires conflict=True")
 
     @property
     def is_known(self) -> bool:

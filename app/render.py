@@ -26,18 +26,41 @@ def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
 
 
+def _conflict_html(why: WhyThisArtist, aid: str) -> str:
+    """A visually distinct callout when permitted sources disagree (FIX-10).
+
+    Conveyed as text (heading + prose), never colour alone, matching this
+    renderer's existing accessibility posture. Empty string when there is no
+    conflict, so callers can splice it in unconditionally.
+    """
+    if not why.conflict_note:
+        return ""
+    return (
+        f'<div class="conflict" role="note" aria-labelledby="conflict-h-{aid}">'
+        f'<p id="conflict-h-{aid}" class="conflict-heading">Sources disagree</p>'
+        f"<p>{escape(why.conflict_note)}</p></div>"
+    )
+
+
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     """Identity provenance: each citation with the *raw value the source asserted*.
 
     Showing the asserted value (not just a label) is what makes "sourced, never
-    inferred" auditable rather than a promise.
+    inferred" auditable rather than a promise. A locally-entered correction
+    (FIX-10) is labelled as such, distinct from an upstream-fetched claim.
     """
     if not why.provenance:
         return '<p class="sources">Sources: none — identity unknown, surfaced on merit.</p>'
     items = "".join(
         f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
         f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
-        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span></li>'
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span>'
+        + (
+            '<span class="local-correction"> — local correction</span>'
+            if p.is_local_correction
+            else ""
+        )
+        + "</li>"
         for p in why.provenance
     )
     return (
@@ -61,6 +84,7 @@ def _card_html(rec: Recommendation) -> str:
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
         f'<p class="identity" data-basis="{basis}" data-inferred="false">'
         f"{_identity_line(why)}</p>"
+        f"{_conflict_html(why, aid)}"
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
         f"{_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
@@ -96,6 +120,10 @@ body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padd
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
 .identity { font-weight: 600; }
 .identity::before { content: "\\25CF  "; }  /* glyph paired with text, not colour-only */
+.conflict { border: 2px dashed; border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; }
+.conflict-heading { font-weight: 700; margin: 0 0 0.25rem; }
+.conflict-heading::before { content: "\\26A0  "; }  /* glyph paired with text, not colour-only */
+.local-correction { font-style: italic; }
 a:focus, .skip:focus { outline: 3px solid; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }

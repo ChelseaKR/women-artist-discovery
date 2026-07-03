@@ -4,6 +4,10 @@ body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padd
 .card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
 .identity { font-weight: 600; }
 .identity::before { content: "\25CF  "; }  /* glyph paired with text, not colour-only */
+.conflict { border: 2px dashed; border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; }
+.conflict-heading { font-weight: 700; margin: 0 0 0.25rem; }
+.conflict-heading::before { content: "\26A0  "; }  /* glyph paired with text, not colour-only */
+.local-correction { font-style: italic; }
 a:focus, .skip:focus { outline: 3px solid; }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 1rem; top: 1rem; }

@@ -16,11 +16,20 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from pipeline.models import Artist, Scrobble
+from pipeline.identity import IdentityEvidence
+from pipeline.models import Artist, Scrobble, SourceKind, UnsourcedIdentityError
 from pipeline.serde import artist_from_dict, artist_to_dict
 
 DEFAULT_DB_PATH = Path("data") / "cache.db"
 
+#: The schema this module knows how to produce. Bumped whenever a migration is
+#: added; ``Cache.__init__`` applies every migration up to this version, so an
+#: older on-disk cache is upgraded in place rather than requiring a wipe.
+CACHE_SCHEMA_VERSION = 3
+
+# The baseline schema (artists/scrobbles/http_cache) — everything this module
+# shipped before schema-version tracking existed. Treated as "version 2" for
+# migration-numbering purposes (FIX-10 is the first migration on top of it).
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS artists (
     artist_id  TEXT PRIMARY KEY,
@@ -42,6 +51,23 @@ CREATE TABLE IF NOT EXISTS http_cache (
 );
 """
 
+# v3 (FIX-10): the local corrections ledger. `citation` and `retrieved_at` are
+# NOT NULL — an operator-entered override with no citation cannot be stored,
+# mirroring `Source.__post_init__`'s "no citation, no override" invariant.
+# Corrections live outside `http_cache`, so `wad refresh` (which only expires
+# `http_cache`) never touches them — a correction persists until an operator
+# removes it.
+_MIGRATE_TO_V3 = """
+CREATE TABLE IF NOT EXISTS corrections (
+    artist_id      TEXT NOT NULL,
+    asserted_value TEXT NOT NULL,
+    citation       TEXT NOT NULL,
+    retrieved_at   TEXT NOT NULL,
+    entered_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_corrections_artist ON corrections(artist_id);
+"""
+
 
 class Cache:
     """A thin, typed wrapper over a local SQLite database.
@@ -60,7 +86,26 @@ class Cache:
         self.conn.row_factory = sqlite3.Row
         with closing(self.conn.cursor()) as cur:
             cur.executescript(_SCHEMA)
+            self._migrate(cur)
         self.conn.commit()
+
+    def _migrate(self, cur: sqlite3.Cursor) -> None:
+        """Apply every migration between the on-disk version and current.
+
+        Uses SQLite's built-in ``PRAGMA user_version`` as the version marker
+        (no extra table needed). All migration DDL is idempotent
+        (``CREATE TABLE IF NOT EXISTS``), so this is safe to run against a
+        fresh ``:memory:`` cache, an untracked pre-versioning cache, or one
+        already on the latest version.
+        """
+        version = cur.execute("PRAGMA user_version").fetchone()[0]
+        if version < CACHE_SCHEMA_VERSION:
+            self._migrate_to_v3(cur)
+            cur.execute(f"PRAGMA user_version = {CACHE_SCHEMA_VERSION}")
+
+    def _migrate_to_v3(self, cur: sqlite3.Cursor) -> None:
+        """Add the local corrections ledger (FIX-10)."""
+        cur.executescript(_MIGRATE_TO_V3)
 
     # -- lifecycle -----------------------------------------------------------
     def __enter__(self) -> Cache:
@@ -135,3 +180,82 @@ class Cache:
             (url, body, fetched_at),
         )
         self.conn.commit()
+
+    def expire_http_cache(self) -> int:
+        """Clear the HTTP response cache (what ``wad refresh`` refreshes).
+
+        Deliberately touches only ``http_cache`` — ``artists``, ``scrobbles``,
+        and ``corrections`` are untouched, so a local correction (FIX-10)
+        survives a refresh rather than being wiped alongside stale HTTP bodies.
+        Returns the number of rows cleared.
+        """
+        cur = self.conn.execute("DELETE FROM http_cache")
+        self.conn.commit()
+        return cur.rowcount
+
+    # -- local corrections ledger (FIX-10) ------------------------------------
+    def put_correction(self, artist_id: str, evidence: IdentityEvidence, entered_at: str) -> None:
+        """Record an operator-entered correction. Requires a citation.
+
+        ``evidence`` is validated exactly like any other identity evidence —
+        turning it into a :class:`~pipeline.models.Source` re-runs
+        ``Source.__post_init__``, so an empty citation raises
+        :class:`~pipeline.models.UnsourcedIdentityError` here too: "no
+        citation, no override" is a single invariant, not one rule for live
+        sources and a laxer one for corrections.
+        """
+        source = evidence.as_source()  # raises UnsourcedIdentityError if uncited
+        if source.kind is not SourceKind.ARTIST_STATEMENT:
+            raise UnsourcedIdentityError(
+                "a correction must be recorded as an ARTIST_STATEMENT source"
+            )
+        self.conn.execute(
+            "INSERT INTO corrections"
+            "(artist_id, asserted_value, citation, retrieved_at, entered_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (artist_id, evidence.value, evidence.citation, evidence.retrieved_at, entered_at),
+        )
+        self.conn.commit()
+
+    def get_corrections(self, artist_id: str) -> tuple[IdentityEvidence, ...]:
+        """Corrections for one artist, as evidence ready to feed the resolver.
+
+        Ordered by ``entered_at`` (then citation, for a deterministic tie
+        break) so re-running resolution is reproducible.
+        """
+        rows = self.conn.execute(
+            "SELECT asserted_value, citation, retrieved_at FROM corrections "
+            "WHERE artist_id = ? ORDER BY entered_at, citation",
+            (artist_id,),
+        ).fetchall()
+        return tuple(
+            IdentityEvidence(
+                kind=SourceKind.ARTIST_STATEMENT,
+                value=r["asserted_value"],
+                citation=r["citation"],
+                retrieved_at=r["retrieved_at"],
+                is_local_correction=True,
+            )
+            for r in rows
+        )
+
+    def list_corrections(self) -> tuple[tuple[str, IdentityEvidence, str], ...]:
+        """Every correction in the ledger, as ``(artist_id, evidence, entered_at)``."""
+        rows = self.conn.execute(
+            "SELECT artist_id, asserted_value, citation, retrieved_at, entered_at "
+            "FROM corrections ORDER BY entered_at, citation"
+        ).fetchall()
+        return tuple(
+            (
+                r["artist_id"],
+                IdentityEvidence(
+                    kind=SourceKind.ARTIST_STATEMENT,
+                    value=r["asserted_value"],
+                    citation=r["citation"],
+                    retrieved_at=r["retrieved_at"],
+                    is_local_correction=True,
+                ),
+                r["entered_at"],
+            )
+            for r in rows
+        )

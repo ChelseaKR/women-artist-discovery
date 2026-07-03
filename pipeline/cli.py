@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from export.models import ExportFormat
@@ -17,7 +18,10 @@ from recommender.eval import evaluate, to_report
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
+from pipeline.cache import DEFAULT_DB_PATH, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
+from pipeline.identity import IdentityEvidence
+from pipeline.models import SourceKind, UnsourcedIdentityError
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
@@ -61,6 +65,50 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_refresh(args: argparse.Namespace) -> int:
+    """Expire the HTTP response cache only. Corrections (FIX-10) survive."""
+    with Cache(args.db) as cache:
+        cleared = cache.expire_http_cache()
+    print(f"refreshed: cleared {cleared} cached HTTP response(s); corrections untouched")  # noqa: T201
+    return 0
+
+
+def _cmd_corrections(args: argparse.Namespace) -> int:
+    """List the local corrections ledger, or add one (citation required)."""
+    with Cache(args.db) as cache:
+        if args.artist or args.value or args.citation:
+            if not (args.artist and args.value and args.citation):
+                print(  # noqa: T201
+                    "error: adding a correction requires --artist, --value, and --citation",
+                    file=sys.stderr,
+                )
+                return 1
+            now = datetime.now(timezone.utc).date().isoformat()
+            evidence = IdentityEvidence(
+                kind=SourceKind.ARTIST_STATEMENT,
+                value=args.value,
+                citation=args.citation,
+                retrieved_at=args.retrieved_at or now,
+            )
+            try:
+                cache.put_correction(args.artist, evidence, entered_at=now)
+            except UnsourcedIdentityError as exc:
+                print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+                return 1
+            print(f"recorded correction for {args.artist}: {args.value!r} ({args.citation})")  # noqa: T201
+            return 0
+        corrections = cache.list_corrections()
+        if not corrections:
+            print("no corrections recorded")  # noqa: T201
+            return 0
+        for artist_id, evidence, entered_at in corrections:
+            print(  # noqa: T201
+                f"{artist_id}: {evidence.value!r} — {evidence.citation} "
+                f"(retrieved {evidence.retrieved_at}, entered {entered_at})"
+            )
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -83,6 +131,22 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_refresh = sub.add_parser(
+        "refresh", help="expire the HTTP response cache (corrections survive)"
+    )
+    p_refresh.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    p_refresh.set_defaults(func=_cmd_refresh)
+
+    p_corr = sub.add_parser(
+        "corrections", help="list the local corrections ledger, or add one (FIX-10)"
+    )
+    p_corr.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    p_corr.add_argument("--artist", default=None, help="artist_id to correct")
+    p_corr.add_argument("--value", default=None, help="the asserted gender value, e.g. 'woman'")
+    p_corr.add_argument("--citation", default=None, help="a citation — required to add")
+    p_corr.add_argument("--retrieved-at", default=None, help="ISO-8601 date; defaults to today")
+    p_corr.set_defaults(func=_cmd_corrections)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
