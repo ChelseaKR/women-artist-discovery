@@ -94,6 +94,7 @@ i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
+	@$(PYTHON) scripts/writeup-check.py
 	@echo "✓ audit artifacts regenerated under docs/audits/"
 
 clean: ## Remove caches and generated local data
