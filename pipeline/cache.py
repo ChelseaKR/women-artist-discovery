@@ -106,6 +106,21 @@ class Cache:
         )
         self.conn.commit()
 
+    def last_synced_ts(self, username: str) -> int:
+        """Return the newest stored scrobble ``ts`` for ``username``, or 0 if none.
+
+        This is the since-cursor for incremental, resumable ingest (FIX-02):
+        the caller passes it back in as ``since_ts`` so only new plays get
+        fetched. Derived from ``MAX(ts)`` rather than a separate watermark
+        table — the stored history is already the source of truth, and this
+        keeps the cache schema unchanged.
+        """
+        row = self.conn.execute(
+            "SELECT MAX(ts) AS max_ts FROM scrobbles WHERE username = ?", (username,)
+        ).fetchone()
+        max_ts = row["max_ts"] if row else None
+        return int(max_ts) if max_ts is not None else 0
+
     def get_scrobbles(self, username: str) -> list[Scrobble]:
         rows = self.conn.execute(
             "SELECT artist_id, artist_name, track, ts FROM scrobbles "

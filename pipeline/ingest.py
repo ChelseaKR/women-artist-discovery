@@ -74,12 +74,23 @@ def ingest(
 ) -> tuple[ListeningProfile, dict[str, Artist]]:
     """Run the full ingest. Returns the listening profile and an enriched catalog.
 
-    When a ``cache`` is supplied, scrobbles and enriched artists are persisted
-    with the given ``fetched_at`` lineage timestamp.
+    When a ``cache`` is supplied, ingest is paginated and incremental (FIX-02):
+    only scrobbles newer than the cache's watermark (``Cache.last_synced_ts``)
+    are fetched, merged into the cache (idempotently — refetching the same
+    range is harmless since only ``ts > since`` is ever requested), and the
+    listening profile is built from the *full* stored history so play counts
+    reflect everything synced so far, not just this run's delta. Enriched
+    artists are persisted with the given ``fetched_at`` lineage timestamp.
+
+    Without a ``cache``, ingest is a single-page snapshot, as before.
     """
-    scrobbles = source.recent_scrobbles(username, limit=limit)
     if cache is not None:
-        cache.put_scrobbles(username, scrobbles)
+        since = cache.last_synced_ts(username)
+        fetched = source.scrobbles_since(username, since_ts=since, page_size=limit)
+        cache.put_scrobbles(username, fetched)
+        scrobbles = cache.get_scrobbles(username)
+    else:
+        scrobbles = source.recent_scrobbles(username, limit=limit)
     profile = build_profile(username, scrobbles)
 
     catalog: dict[str, Artist] = {}
