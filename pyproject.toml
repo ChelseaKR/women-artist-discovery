@@ -30,6 +30,9 @@ dev = [
     "mypy>=1.11",
     "types-requests",
     "pip-audit>=2.7",
+    # Property-based guardrail tests (FIX-11) — proves the no-inference /
+    # boost-only invariants hold over generated inputs, not just fixtures.
+    "hypothesis>=6",
 ]
 
 [project.scripts]
