@@ -54,6 +54,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
+### Build log addendum (2026-07-03) — EXP-02: rank-shift transparency in every why-card — done
+- **Every why-card now states how the values lens moved that pick's position.** `recommender.hybrid.recommend` computes a counterfactual pure-taste ordering (candidates sorted by `base_score` alone, same tie-break as the lens-applied sort) and attaches it to each `Recommendation` as `base_rank`, alongside the existing lens-applied `rank`. At `lens_strength = 0` the two orderings are identical by construction (`score == base_score`), so every card correctly reads "unchanged" with no special-casing needed.
+- **`recommender.why.rank_shift_statement(rank, base_rank)`** renders that comparison as one honest sentence — `"the values lens moved this pick from #9 to #4"` or `"the values lens did not change this pick's position"` — and is threaded into `WhyThisArtist.rank_shift`, rendered in both `to_text()` and `to_markdown()` directly under the identity line. All four surfaces that build a `WhyThisArtist` (`pipeline/cli.py`, `app/dashboard.py`, `app/render.py`, `export/tracklist.py`) now surface it.
+- **Excellence-bar invariant tested:** since the re-rank is boost-only, an unknown-identity card's rank can never *improve* on its counterfactual pure-taste rank — it can only stay the same or be pushed down by boosted picks overtaking it. `tests/test_why.py::test_unknown_identity_never_shows_a_lens_caused_improvement` asserts `rank >= base_rank` for every unknown-basis card at full lens strength.
+
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
 control-by-control status). Highlights: README now carries a real Standards Conformance table

@@ -14,6 +14,12 @@ Two guarantees are made explicit in the output itself, not just in a comment:
 * **Unknown is first-class.** An artist with no sourced identity is described as
   "surfaced on musical similarity alone" — a normal answer, never an apology and
   never a guess.
+
+A third guarantee lives here too: **rank-shift transparency.** Every card states
+plainly how the values lens moved that pick, comparing its lens-applied
+:attr:`~pipeline.models.Recommendation.rank` against its counterfactual
+pure-taste :attr:`~pipeline.models.Recommendation.base_rank` — see
+:func:`rank_shift_statement`.
 """
 
 from __future__ import annotations
@@ -56,6 +62,8 @@ class WhyThisArtist:
     * ``identity_statement`` — the sourced identity (or the first-class unknown).
     * ``identity_basis`` — *how* the identity was established (never "inferred").
     * ``provenance`` — the citations behind the identity claim (empty if unknown).
+    * ``rank_shift`` — plain-language statement of how the values lens moved this
+      pick's position versus the counterfactual pure-taste ranking.
     * ``inferred`` — always ``False``; identity in this system is never guessed.
     """
 
@@ -66,6 +74,7 @@ class WhyThisArtist:
     identity_basis: IdentityBasis
     provenance: tuple[ProvenanceItem, ...]
     inferred: bool = False
+    rank_shift: str = "the values lens did not change this pick's position"
 
     @property
     def identity_is_known(self) -> bool:
@@ -76,6 +85,7 @@ class WhyThisArtist:
         lines = [
             f"Why {self.artist_name}: {self.headline}",
             f"  Identity: {self.identity_statement}",
+            f"  Rank shift: {self.rank_shift}",
         ]
         if self.reasons:
             lines.append("  Why recommended:")
@@ -97,6 +107,7 @@ class WhyThisArtist:
             f"**Why {self.artist_name}** — {self.headline}",
             "",
             f"_Identity:_ {self.identity_statement}",
+            f"_Rank shift:_ {self.rank_shift}",
         ]
         if self.reasons:
             parts.append("")
@@ -140,6 +151,19 @@ def _reason_line(kind: str, detail: str) -> str:
     return f"{kind}: {detail}"
 
 
+def rank_shift_statement(rank: int, base_rank: int) -> str:
+    """Plain-language statement of how the values lens moved a pick's position.
+
+    ``rank`` is the lens-applied position; ``base_rank`` is the counterfactual
+    pure-taste position (``lens_strength = 0``). ``base_rank == 0`` means the
+    counterfactual was never computed (e.g. a hand-built recommendation) —
+    treated the same as "unchanged" rather than guessing at a shift.
+    """
+    if base_rank == 0 or rank == base_rank:
+        return "the values lens did not change this pick's position"
+    return f"the values lens moved this pick from #{base_rank} to #{rank}"
+
+
 def why_this_artist(rec: Recommendation) -> WhyThisArtist:
     """Build the shared, transparent 'why this artist' view for a recommendation."""
     expl = rec.explanation
@@ -154,4 +178,5 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         identity_basis=expl.identity_basis,
         provenance=provenance,
         inferred=False,
+        rank_shift=rank_shift_statement(rec.rank, rec.base_rank),
     )

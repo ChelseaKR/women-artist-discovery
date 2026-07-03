@@ -9,6 +9,7 @@ from recommender.why import (
     ProvenanceItem,
     WhyThisArtist,
     artist_identity_phrase,
+    rank_shift_statement,
     why_this_artist,
 )
 
@@ -28,6 +29,7 @@ def test_every_recommendation_yields_a_why(profile, catalog, source) -> None:
         assert why.headline
         assert why.reasons
         assert why.identity_statement
+        assert why.rank_shift  # 100% coverage: every card states its rank shift
 
 
 def test_sourced_woman_shows_provenance_not_inference(profile, catalog, source) -> None:
@@ -78,6 +80,58 @@ def test_markdown_and_text_round_trip_the_reasons(profile, catalog, source) -> N
         # Reasons appear in both renderings (markdown bullet / text bullet).
         assert reason in md
         assert reason in txt
+    # The rank-shift line is rendered in both text and markdown, under identity.
+    assert why.rank_shift in md
+    assert why.rank_shift in txt
+
+
+def test_rank_shift_statement_wording() -> None:
+    assert rank_shift_statement(4, 9) == "the values lens moved this pick from #9 to #4"
+    assert rank_shift_statement(3, 3) == "the values lens did not change this pick's position"
+    # base_rank == 0 means the counterfactual was never computed — treated as
+    # unchanged rather than fabricating a shift.
+    assert rank_shift_statement(5, 0) == "the values lens did not change this pick's position"
+
+
+def test_rank_shift_reflects_the_boost_moving_a_pick_up(profile, catalog, source) -> None:
+    # At full lens strength, boygenius (values-aligned) rises from #3 to #2.
+    rec = _rec_for(profile, catalog, source, "boygenius", lens=1.0)
+    assert rec.base_rank == 3
+    assert rec.rank == 2
+    why = why_this_artist(rec)
+    assert why.rank_shift == "the values lens moved this pick from #3 to #2"
+
+
+def test_rank_shift_unchanged_when_already_top(profile, catalog, source) -> None:
+    # snail-mail is #1 either way at full lens strength — no shift to report.
+    rec = _rec_for(profile, catalog, source, "snail-mail", lens=1.0)
+    assert rec.rank == rec.base_rank == 1
+    why = why_this_artist(rec)
+    assert why.rank_shift == "the values lens did not change this pick's position"
+
+
+def test_rank_shift_unchanged_for_everyone_at_lens_zero(profile, catalog, source) -> None:
+    # Guard: lens_strength=0 must yield "unchanged" for every card, no exceptions.
+    for rec in recommend(profile, catalog, source, k=99, lens_strength=0.0):
+        assert rec.rank == rec.base_rank
+        why = why_this_artist(rec)
+        assert why.rank_shift == "the values lens did not change this pick's position"
+
+
+def test_unknown_identity_never_shows_a_lens_caused_improvement(profile, catalog, source) -> None:
+    """Excellence-bar invariant: the boost-only re-rank never moves an unknown
+    card *up*. Its rank can only stay the same or get pushed down by aligned
+    picks overtaking it — never improve, since it never receives a boost.
+    """
+    for rec in recommend(profile, catalog, source, k=99, lens_strength=1.0):
+        why = why_this_artist(rec)
+        if why.identity_basis is IdentityBasis.UNKNOWN:
+            # rank - base_rank >= 0: never a smaller (better) rank number than
+            # the counterfactual pure-taste position.
+            assert rec.rank >= rec.base_rank, (
+                f"{rec.artist.artist_id} improved from #{rec.base_rank} to "
+                f"#{rec.rank} despite an unknown identity — the lens is boost-only"
+            )
 
 
 def test_artist_identity_phrase_matches_statement(profile, catalog, source) -> None:

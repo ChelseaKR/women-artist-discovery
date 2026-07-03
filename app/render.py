@@ -26,6 +26,10 @@ def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
 
 
+def _rank_shift_line(why: WhyThisArtist) -> str:
+    return f"Rank shift: {escape(why.rank_shift)}"
+
+
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     """Identity provenance: each citation with the *raw value the source asserted*.
 
@@ -61,6 +65,7 @@ def _card_html(rec: Recommendation) -> str:
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
         f'<p class="identity" data-basis="{basis}" data-inferred="false">'
         f"{_identity_line(why)}</p>"
+        f'<p class="rank-shift">{_rank_shift_line(why)}</p>'
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
         f"{_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'

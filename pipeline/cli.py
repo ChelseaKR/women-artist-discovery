@@ -42,6 +42,7 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         print(f"{rec.rank:>2}. {rec.artist.name:<22} score={rec.score:.3f}")  # noqa: T201
         print(f"    why: {why.headline}")  # noqa: T201
         print(f"    identity: {why.identity_statement}")  # noqa: T201
+        print(f"    rank shift: {why.rank_shift}")  # noqa: T201
     return 0
 
 
