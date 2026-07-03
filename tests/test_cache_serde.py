@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pipeline.cache import Cache
+from pipeline.cache import CACHE_SCHEMA_VERSION, Cache
 from pipeline.models import (
     Artist,
     Gender,
@@ -15,6 +15,7 @@ from pipeline.models import (
     UnsourcedIdentityError,
 )
 from pipeline.serde import artist_from_dict, artist_to_dict
+from recommender.feedback import Feedback
 
 
 @pytest.fixture
@@ -79,6 +80,83 @@ def test_corrupt_cache_row_violating_guardrail_raises_on_load() -> None:
     }
     with pytest.raises(UnsourcedIdentityError):
         artist_from_dict(payload)
+
+
+def test_feedback_round_trips(mem_cache) -> None:
+    fb = Feedback(username="chelsea", artist_id="mitski", vote=1, ts=100)
+    mem_cache.record_feedback(fb, fetched_at="2026-07-02")
+    loaded = mem_cache.load_feedback("chelsea")
+    assert loaded == [fb]
+
+
+def test_feedback_upserts_on_revote(mem_cache) -> None:
+    """A re-vote on the same (username, artist_id) replaces, not duplicates."""
+    mem_cache.record_feedback(
+        Feedback(username="chelsea", artist_id="mitski", vote=1, ts=100), fetched_at="2026-07-01"
+    )
+    mem_cache.record_feedback(
+        Feedback(username="chelsea", artist_id="mitski", vote=-1, ts=200), fetched_at="2026-07-02"
+    )
+    loaded = mem_cache.load_feedback("chelsea")
+    assert loaded == [Feedback(username="chelsea", artist_id="mitski", vote=-1, ts=200)]
+
+
+def test_feedback_is_scoped_per_user(mem_cache) -> None:
+    mem_cache.record_feedback(
+        Feedback(username="chelsea", artist_id="mitski", vote=1, ts=100), fetched_at="2026-07-02"
+    )
+    mem_cache.record_feedback(
+        Feedback(username="other", artist_id="mitski", vote=-1, ts=100), fetched_at="2026-07-02"
+    )
+    assert mem_cache.load_feedback("chelsea") == [
+        Feedback(username="chelsea", artist_id="mitski", vote=1, ts=100)
+    ]
+    assert mem_cache.load_feedback("nobody") == []
+
+
+def test_fresh_cache_is_created_at_current_schema_version(mem_cache) -> None:
+    assert mem_cache.schema_version == CACHE_SCHEMA_VERSION
+
+
+def test_migration_from_v1_adds_feedback_table(tmp_path) -> None:
+    """A cache written before the feedback migration gains the table in place."""
+    db_path = tmp_path / "legacy.db"
+
+    # Simulate a pre-migration (v1) cache: base schema only, no feedback table,
+    # user_version left at 0 (as a real legacy file would be).
+    import sqlite3
+
+    from pipeline.cache import _BASE_SCHEMA
+
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(_BASE_SCHEMA)
+    conn.commit()
+    conn.close()
+
+    with Cache(db_path) as cache:
+        assert cache.schema_version == CACHE_SCHEMA_VERSION
+        fb = Feedback(username="chelsea", artist_id="mitski", vote=1, ts=100)
+        cache.record_feedback(fb, fetched_at="2026-07-02")
+        assert cache.load_feedback("chelsea") == [fb]
+
+
+def test_newer_cache_schema_raises(tmp_path) -> None:
+    """A cache written by a newer version of the code must not be misread."""
+    from pipeline.cache import CacheSchemaError
+
+    db_path = tmp_path / "future.db"
+    with Cache(db_path):
+        pass  # create it at the current version, then bump it past what we support
+
+    import sqlite3
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(f"PRAGMA user_version = {CACHE_SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(CacheSchemaError):
+        Cache(db_path)
 
 
 def test_artist_to_dict_is_json_shaped() -> None:

@@ -1,4 +1,4 @@
-"""Command-line entry point: ``wad eval`` and ``wad recommend`` (demo mode).
+"""Command-line entry point: ``wad eval``, ``wad recommend`` (demo mode), etc.
 
 Thin argparse glue over the library; excluded from coverage. Live mode (a real
 Last.fm username) requires ``WAD_LASTFM_API_KEY`` in the environment.
@@ -9,14 +9,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
 from recommender.eval import evaluate, to_report
+from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
+from pipeline.cache import DEFAULT_DB_PATH, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
 
 
@@ -34,8 +37,15 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
 
 def _cmd_recommend(args: argparse.Namespace) -> int:
+    with Cache(DEFAULT_DB_PATH) as cache:
+        feedbacks = cache.load_feedback(DEMO_USER)
     recs = recommend(
-        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+        demo_profile(),
+        demo_catalog(),
+        demo_source(),
+        k=args.k,
+        lens_strength=args.lens,
+        feedbacks=feedbacks,
     )
     for rec in recs:
         why = why_this_artist(rec)
@@ -46,8 +56,15 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
+    with Cache(DEFAULT_DB_PATH) as cache:
+        feedbacks = cache.load_feedback(DEMO_USER)
     recs = recommend(
-        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+        demo_profile(),
+        demo_catalog(),
+        demo_source(),
+        k=args.k,
+        lens_strength=args.lens,
+        feedbacks=feedbacks,
     )
     tracks = recommendations_to_tracks(recs)
     text = render(tracks, ExportFormat(args.format), playlist_name="Women-Artist Discovery")
@@ -58,6 +75,17 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"wrote {out}")  # noqa: T201
     else:
         print(text)  # noqa: T201
+    return 0
+
+
+def _cmd_feedback(args: argparse.Namespace) -> int:
+    """Record one thumbs vote on an artist — tunes future ``recommend``/``export``."""
+    vote = 1 if args.up else -1
+    fb = Feedback(username=args.user, artist_id=args.artist, vote=vote, ts=int(time.time()))
+    with Cache(DEFAULT_DB_PATH) as cache:
+        cache.record_feedback(fb, fetched_at=time.strftime("%Y-%m-%d", time.gmtime()))
+    direction = "up" if vote == 1 else "down"
+    print(f"recorded thumbs-{direction} for {args.artist} ({args.user})")  # noqa: T201
     return 0
 
 
@@ -83,6 +111,14 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_fb = sub.add_parser("feedback", help="record a thumbs vote to tune future rankings")
+    p_fb.add_argument("--artist", required=True, help="artist_id to vote on")
+    p_fb.add_argument("--user", default=DEMO_USER, help="username the vote is recorded under")
+    vote_group = p_fb.add_mutually_exclusive_group(required=True)
+    vote_group.add_argument("--up", action="store_true", help="thumbs-up (boost this artist)")
+    vote_group.add_argument("--down", action="store_true", help="thumbs-down (lower this artist)")
+    p_fb.set_defaults(func=_cmd_feedback)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

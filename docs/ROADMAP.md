@@ -16,7 +16,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Vision.** Discovery that respects both taste and identity, without essentialism.
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
-  - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
+  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune the lens~~ (shipped — see M6 build log addendum below).
   - *Could:* acoustic/content features; a "discovery report"; additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
@@ -54,6 +54,14 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
+### Build log addendum (2026-07-02) — M6 feedback loop (thumbs feedback to tune the lens)
+- **Shipped** the roadmap "Should: thumbs feedback to tune the lens" item. `recommender/feedback.py` adds a `Feedback` dataclass (`username`, `artist_id`, `vote ∈ {+1,-1}`, `ts`) and a pure `feedback_adjustment(artist, feedbacks, strength) -> float`: votes for one artist are summed and squashed through `tanh`, then scaled by `MAX_FEEDBACK` (0.3) — bounded within `[-MAX_FEEDBACK, MAX_FEEDBACK]`, mirroring `rerank.MAX_BOOST`'s bound but signed, since feedback (unlike the values lens) is allowed to lower an artist.
+- **Kept artist-scoped, by construction, to preserve the fairness guarantee.** `feedback_adjustment` only folds in votes whose `artist_id` matches the artist being scored — a thumbs-down on one artist can never lower any other artist, let alone a whole identity class. Identity never appears in `recommender/feedback.py` at all. `tests/test_unknown_first_class.py::test_feedback_does_not_reintroduce_an_identity_penalty` asserts this end-to-end through `recommend()`, alongside the lens's own boost-only contract and the unknown-first-class guarantee, all three holding simultaneously with feedback in the mix.
+- **Composed into `base_score`, not `rerank_delta`.** `recommender/hybrid.recommend()` gained optional `feedbacks`/`feedback_strength` params; the adjustment is added to each candidate's base (taste) score *before* the values lens is applied and the list is re-sorted, so `rerank_delta` stays boost-only and non-negative (its own tested invariant) while feedback can move a score either direction.
+- **Persisted locally**, matching the cache's existing local-first, sourced-lineage posture: `pipeline/cache.py` adds a `feedback` table (`UNIQUE(username, artist_id)`, `ts` + `fetched_at` lineage), a `record_feedback()`/`load_feedback()` pair, and a schema-versioning migration runner (`CACHE_SCHEMA_VERSION` 1 → 2, `PRAGMA user_version`-backed, forward-only) so an older cache file migrates in place and a newer one fails loudly rather than being misread.
+- **CLI:** `wad feedback --artist <id> --up/--down [--user <username>]` records a vote; `wad recommend` / `wad export` now load the demo user's stored feedback and pass it into `recommend()`. Verified live: a thumbs-down on `snail-mail` demoted it from rank 1 to rank 2 behind `boygenius` in the `--lens 0.5` demo ranking, with every other artist's score unchanged.
+- **No new dependencies** (stdlib `math.tanh`, `sqlite3` already present).
+
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
 |--------|--------|-------------|------|
@@ -82,7 +90,7 @@ docs/
 - **M3 — Recommender.** Collaborative + content hybrid. *Done when held-out eval beats a popularity baseline.*
 - **M4 — Values-aware re-rank.** Sourced identity weighting; unknown never penalized. *Done when re-rank tests pass and unknown artists still surface.*
 - **M5 — Dashboard + explanations.** Streamlit UI with why-cards + sources; a11y. *Done when every rec shows why + basis + source and axe = 0.*
-- **M6 — Polish.** Feedback loop, export, discovery report. *Done when all §7 gates pass.*
+- **M6 — Polish.** Feedback loop (shipped — thumbs feedback to tune the lens, see build log addendum 2026-07-02), export (shipped), discovery report. *Done when all §7 gates pass.*
 - **Claude Code approach.** Write the no-inference guardrail test *first*; identity defaults to unknown everywhere; never let a missing label change a score.
 
 ## 9. Go-to-market & community
