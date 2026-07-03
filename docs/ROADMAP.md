@@ -54,6 +54,27 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
+### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
+- **Done.** The "core network confined to `lastfm.py`" privacy guarantee was
+  only ever a source scan over `pipeline`/`recommender`, so it missed the
+  `app/` and `export/` packages added by the playlist-export work above, and
+  it couldn't catch indirect/transitive network calls at all. Closed with two
+  enforcement gates, documented as the single source of truth in
+  `docs/audits/privacy-notes.md` ("Egress registry / allowlist"):
+  1. **Source scan (gate 1)** — `tests/test_privacy.py::_core_files` now also
+     walks `app/` and `export/`; `NETWORK_TOKENS` grew to cover indirect
+     egress (`httpx`, `urllib3`, `aiohttp`, `webbrowser`); `NETWORK_ALLOWED`
+     is now `{"lastfm.py", "spotify.py"}` — the two live-client modules,
+     matching `RequestsTransport`'s documented allowlist.
+  2. **Runtime socket guard (gate 2)** — an autouse `_no_network` fixture in
+     `tests/conftest.py` patches `socket.socket.connect` and
+     `socket.create_connection` to raise for every test, proving the suite is
+     offline by construction rather than by convention.
+- **Verified:** `make test` is green (149 passed, 96% coverage on the gated
+  `pipeline`+`recommender` scope, well above the 85% floor); a deliberately
+  added `import requests` in `app/dashboard.py` was confirmed to fail the
+  source-scan gate, then reverted.
+
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
 |--------|--------|-------------|------|

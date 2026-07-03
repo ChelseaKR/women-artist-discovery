@@ -3,13 +3,22 @@
 These are source-level guarantees (DPIA: data-minimisation + purpose-limitation):
 the listening data is local-first, so the core must not import analytics SDKs and
 must not open network connections anywhere except the explicit Last.fm/enrichment
-client paths.
+and Spotify-export client paths.
+
+This is enforcement gate 1 of 2 for FIX-07 (runtime egress guard, see
+`docs/audits/privacy-notes.md` "Egress registry / allowlist"): a source-level
+scan that catches string-level egress additions in `app/` and `export/` as well
+as `pipeline/`/`recommender/`. Gate 2 is the autouse socket-level guard in
+`tests/conftest.py`, which catches indirect/transitive runtime egress that a
+text scan can't see.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import app
+import export
 import pipeline
 import recommender
 
@@ -24,13 +33,29 @@ TELEMETRY_TOKENS = (
     "googleanalytics",
 )
 
-# Network may only be reached from these modules (the live API clients).
-NETWORK_ALLOWED = {"lastfm.py"}
-NETWORK_TOKENS = ("import requests", "urllib.request", "http.client", "import socket")
+# Network may only be reached from these modules — the live API clients. This
+# is the single source of truth for sanctioned egress; keep it in sync with
+# "Egress registry / allowlist" in docs/audits/privacy-notes.md.
+NETWORK_ALLOWED = {"lastfm.py", "spotify.py"}
+NETWORK_TOKENS = (
+    "import requests",
+    "import httpx",
+    "import urllib3",
+    "import aiohttp",
+    "urllib.request",
+    "http.client",
+    "import socket",
+    "webbrowser",
+)
 
 
 def _core_files() -> list[Path]:
-    roots = [Path(pipeline.__file__).parent, Path(recommender.__file__).parent]
+    roots = [
+        Path(pipeline.__file__).parent,
+        Path(recommender.__file__).parent,
+        Path(app.__file__).parent,
+        Path(export.__file__).parent,
+    ]
     return [p for root in roots for p in root.rglob("*.py")]
 
 

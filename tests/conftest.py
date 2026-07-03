@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+
 import pytest
 from pipeline.demo import (
     DEMO_USER,
@@ -20,6 +22,26 @@ from pipeline.models import (
     Source,
     SourceKind,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """FIX-07 gate 2: prove the suite is offline by construction.
+
+    Gate 1 (`tests/test_privacy.py`) is a source scan that catches egress
+    *statements* added to the wrong module. This fixture catches egress
+    *attempts* at runtime — including indirect/transitive calls a text scan
+    can't see (e.g. a network call reached through a third-party dependency).
+    Every test in this suite runs against the offline demo fixtures, which use
+    no sockets, so this should never fire during a normal run; if it does, a
+    test or the code under test just tried to leave the machine.
+    """
+
+    def _blocked(*_args, **_kwargs):
+        raise RuntimeError("network egress blocked during tests (FIX-07)")
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+    monkeypatch.setattr(socket, "create_connection", _blocked)
 
 
 @pytest.fixture

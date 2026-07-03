@@ -37,6 +37,43 @@ There are exactly two outbound paths, both purpose-limited:
    and the OAuth access/refresh tokens are held in memory for the session, never
    written to disk or committed.
 
+## Egress registry / allowlist (FIX-07)
+
+Single source of truth for every module allowed to open a network connection.
+Anything not listed here is, by construction, forbidden from reaching the
+network — enforced across `pipeline/`, `recommender/`, `app/`, and `export/`.
+
+| Module | What it does | Live transport |
+|--------|---------------|-----------------|
+| `pipeline/lastfm.py` | Last.fm scrobble/tag/similarity fetch, cached, rate-limited | `import requests` (lazy, inside the client) |
+| `export/spotify.py` | Playlist export via OAuth; the only live implementation is `RequestsTransport` | `import requests` (lazy, inside `RequestsTransport.request`) |
+
+Adding a new live client (e.g. a FIX-01 MusicBrainz/Discogs/Wikidata HTTP
+client) requires updating **both** of the following in the same change, or the
+new client will fail the merge-blocking privacy gate:
+
+1. This table.
+2. `NETWORK_ALLOWED` in `tests/test_privacy.py`.
+
+### Two enforcement gates
+
+1. **Source scan (gate 1)** — `tests/test_privacy.py::test_network_access_is_confined_to_api_clients`
+   walks every `.py` file under `pipeline/`, `recommender/`, `app/`, and
+   `export/` and asserts none of `NETWORK_TOKENS` ("import requests",
+   "import httpx", "import urllib3", "import aiohttp", "urllib.request",
+   "http.client", "import socket", "webbrowser") appears outside a module in
+   the allowlist above. This catches egress statements added anywhere in the
+   tree, including string-level additions that haven't run yet.
+2. **Runtime socket guard (gate 2)** — the autouse `_no_network` fixture in
+   `tests/conftest.py` patches `socket.socket.connect` and
+   `socket.create_connection` to raise for the duration of every test. This
+   catches *indirect/transitive* egress a text scan can't see (e.g. a call
+   reached through a third-party dependency's internals), proving the whole
+   suite runs offline by construction rather than by convention. A
+   deliberately-added `requests.get(...)` in `app/` fails both gates: gate 1
+   because the string appears outside the allowlist, and gate 2 the moment the
+   call is actually exercised.
+
 ## Handling & commitments
 
 - **Local-first.** Everything lives in a single on-disk SQLite file under `data/`
@@ -45,8 +82,10 @@ There are exactly two outbound paths, both purpose-limited:
   recommended artist names (see "Outbound data flows" below).
 - **No telemetry / no third-party analytics.** Enforced by source scan:
   `tests/test_privacy.py` asserts no analytics SDK is imported and that network
-  egress exists **only** in the Last.fm API client (`pipeline/lastfm.py`); the
-  cache uses stdlib `sqlite3` only.
+  egress exists **only** in the two modules on the "Egress registry /
+  allowlist" above (`pipeline/lastfm.py`, `export/spotify.py`); the cache uses
+  stdlib `sqlite3` only. Backed by a runtime socket guard (see below) so the
+  claim holds even for indirect/transitive egress.
 - **Data minimisation & lineage.** Only what's needed is stored, each row with a
   `fetched_at` timestamp (`pipeline/cache.py`, `tests/test_cache_serde.py`).
 - **Deletion path.** `make clean` removes the local cache (`data/*.db`); there is
@@ -60,7 +99,7 @@ There are exactly two outbound paths, both purpose-limited:
 | Commitment | Gate | Where |
 |------------|------|-------|
 | No telemetry / analytics | auto | `tests/test_privacy.py` |
-| Core network confined to API client | auto | `tests/test_privacy.py` |
+| Core network confined to API clients (`pipeline`, `recommender`, `app`, `export`) | auto (source scan + socket guard) | `tests/test_privacy.py` · `tests/conftest.py::_no_network` |
 | Export egress opt-in & isolated to one transport | auto + review | `tests/test_export.py` (offline fake transport) · this document |
 | Lineage timestamps on cache | auto | `tests/test_cache_serde.py` |
 | Secrets never in source | auto | secret scan (CI + `make security`) |
