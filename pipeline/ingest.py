@@ -7,10 +7,17 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 * a :class:`~pipeline.models.ListeningProfile` (per-artist play weights + tags), and
 * a catalog of enriched :class:`~pipeline.models.Artist` objects with *sourced*
   identity + composition (defaulting to unknown), each cached with a fetch date.
+
+FIX-12 (operability): every stage logs its start, elapsed time, and a short
+result summary via ``wad.ingest`` (see :mod:`pipeline.logconfig`), and a
+live-mode failure is logged with the stage + source it happened in before the
+exception is re-raised — never swallowed.
 """
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Optional
 
 from pipeline.cache import Cache
@@ -18,6 +25,8 @@ from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
+
+log = logging.getLogger("wad.ingest")
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -77,25 +86,59 @@ def ingest(
     When a ``cache`` is supplied, scrobbles and enriched artists are persisted
     with the given ``fetched_at`` lineage timestamp.
     """
-    scrobbles = source.recent_scrobbles(username, limit=limit)
+    ingest_start = time.monotonic()
+    log.info("stage=ingest event=start username=%s limit=%d", username, limit)
+
+    stage_start = time.monotonic()
+    try:
+        scrobbles = source.recent_scrobbles(username, limit=limit)
+    except Exception:
+        log.exception(
+            "stage=fetch_scrobbles event=failed username=%s source=%s",
+            username,
+            type(source).__name__,
+        )
+        raise
+    log.info(
+        "stage=fetch_scrobbles event=end elapsed=%.3fs count=%d",
+        time.monotonic() - stage_start,
+        len(scrobbles),
+    )
+
     if cache is not None:
+        stage_start = time.monotonic()
         cache.put_scrobbles(username, scrobbles)
+        log.info("stage=cache_scrobbles event=end elapsed=%.3fs", time.monotonic() - stage_start)
     profile = build_profile(username, scrobbles)
 
+    stage_start = time.monotonic()
     catalog: dict[str, Artist] = {}
     tags_by_artist: dict[str, tuple[str, ...]] = {}
     for artist_id, name in profile.artist_names.items():
-        artist = enrich_artist(
-            artist_id,
-            name,
-            source,
-            enricher,
-            playcount=profile.play_counts.get(artist_id, 0),
-        )
+        try:
+            artist = enrich_artist(
+                artist_id,
+                name,
+                source,
+                enricher,
+                playcount=profile.play_counts.get(artist_id, 0),
+            )
+        except Exception:
+            log.exception(
+                "stage=enrich event=failed artist_id=%s enricher=%s",
+                artist_id,
+                type(enricher).__name__,
+            )
+            raise
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags
         if cache is not None:
             cache.put_artist(artist, fetched_at=fetched_at)
+    log.info(
+        "stage=enrich event=end elapsed=%.3fs count=%d",
+        time.monotonic() - stage_start,
+        len(catalog),
+    )
 
     # Re-emit the profile with tags now known (frozen dataclass → rebuild).
     profile = ListeningProfile(
@@ -103,5 +146,11 @@ def ingest(
         play_counts=profile.play_counts,
         artist_names=profile.artist_names,
         tags=tags_by_artist,
+    )
+    log.info(
+        "stage=ingest event=end elapsed=%.3fs username=%s artists=%d",
+        time.monotonic() - ingest_start,
+        username,
+        len(catalog),
     )
     return profile, catalog

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+import pytest
 from pipeline.cache import Cache
 from pipeline.ingest import build_profile, enrich_artist, ingest
 from pipeline.models import Gender
@@ -45,3 +48,46 @@ def test_ingest_without_cache_still_returns_catalog(demo_user, source, enricher)
     profile, catalog = ingest(demo_user, source, enricher)
     assert set(catalog) <= set(profile.play_counts)
     assert "mitski" in catalog
+
+
+class _FailingSource:
+    """A ScrobbleSource whose fetch stage always raises (FIX-12 failure logging)."""
+
+    def recent_scrobbles(self, username: str, limit: int = 200):  # noqa: ANN201
+        raise RuntimeError("simulated Last.fm failure")
+
+    def artist_tags(self, artist_id: str) -> tuple[str, ...]:
+        return ()
+
+    def similar_artists(self, artist_id: str) -> list[tuple[str, float]]:
+        return []
+
+
+class _FailingEnricher:
+    """An EnrichmentSource whose gender lookup always raises (FIX-12 failure logging)."""
+
+    def gender_evidence(self, artist_id: str):  # noqa: ANN201
+        raise RuntimeError("simulated enrichment-source failure")
+
+    def composition_evidence(self, artist_id: str):  # noqa: ANN201
+        return [], []
+
+
+def test_ingest_logs_and_reraises_scrobble_fetch_failure(demo_user, enricher, caplog) -> None:
+    with (
+        caplog.at_level(logging.ERROR, logger="wad.ingest"),
+        pytest.raises(RuntimeError, match="simulated Last.fm failure"),
+    ):
+        ingest(demo_user, _FailingSource(), enricher)
+    assert "stage=fetch_scrobbles" in caplog.text
+    assert "event=failed" in caplog.text
+
+
+def test_ingest_logs_and_reraises_enrich_failure(demo_user, source, caplog) -> None:
+    with (
+        caplog.at_level(logging.ERROR, logger="wad.ingest"),
+        pytest.raises(RuntimeError, match="simulated enrichment-source failure"),
+    ):
+        ingest(demo_user, source, _FailingEnricher())
+    assert "stage=enrich" in caplog.text
+    assert "event=failed" in caplog.text

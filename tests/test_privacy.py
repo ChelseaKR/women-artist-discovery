@@ -24,8 +24,9 @@ TELEMETRY_TOKENS = (
     "googleanalytics",
 )
 
-# Network may only be reached from these modules (the live API clients).
-NETWORK_ALLOWED = {"lastfm.py"}
+# Network may only be reached from these modules (the live API clients, plus
+# wad doctor's explicitly opt-in --check-upstream reachability probe — FIX-12).
+NETWORK_ALLOWED = {"lastfm.py", "doctor.py"}
 NETWORK_TOKENS = ("import requests", "urllib.request", "http.client", "import socket")
 
 

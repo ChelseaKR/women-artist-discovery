@@ -1,10 +1,12 @@
 """Local-first SQLite cache with data-lineage timestamps.
 
 Privacy posture (RESPONSIBLE-TECH-AUDITS §C): listening data and enriched
-metadata live in a single on-disk SQLite file under ``data/`` and never leave the
-machine. There is no telemetry and no third-party client here — only stdlib
-``sqlite3``. Every cached row carries a ``fetched_at`` timestamp so each record is
-traceable to a source + fetch time (Quality §9, data quality & lineage).
+metadata live in a single on-disk SQLite file under a documented, stable local
+data directory (:mod:`pipeline.paths` — ``WAD_DATA_DIR`` or a platformdirs-style
+per-OS default) and never leave the machine. There is no telemetry and no
+third-party client here — only stdlib ``sqlite3``. Every cached row carries a
+``fetched_at`` timestamp so each record is traceable to a source + fetch time
+(Quality §9, data quality & lineage).
 """
 
 from __future__ import annotations
@@ -17,9 +19,19 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline.models import Artist, Scrobble
+from pipeline.paths import default_db_path
 from pipeline.serde import artist_from_dict, artist_to_dict
 
-DEFAULT_DB_PATH = Path("data") / "cache.db"
+# FIX-12: derived from pipeline.paths so the cache lives at a documented,
+# cwd-independent location instead of a hardcoded relative "data/" folder.
+# Resolved once at import time (honours WAD_DATA_DIR set before pipeline.cache
+# is first imported); pass an explicit db_path to Cache() to override per-call.
+DEFAULT_DB_PATH = default_db_path()
+
+# Bumped whenever _SCHEMA changes in a way that requires a migration. Stored
+# in SQLite's own PRAGMA user_version so `wad doctor` (pipeline/doctor.py) can
+# detect a stale cache without guessing from table shape.
+CACHE_SCHEMA_VERSION = 1
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS artists (
@@ -60,6 +72,11 @@ class Cache:
         self.conn.row_factory = sqlite3.Row
         with closing(self.conn.cursor()) as cur:
             cur.executescript(_SCHEMA)
+            # Stamp a fresh database with the current schema version; never
+            # downgrade an existing (possibly newer) stamp on open.
+            (current_version,) = cur.execute("PRAGMA user_version").fetchone()
+            if current_version == 0:
+                cur.execute(f"PRAGMA user_version = {int(CACHE_SCHEMA_VERSION)}")
         self.conn.commit()
 
     # -- lifecycle -----------------------------------------------------------

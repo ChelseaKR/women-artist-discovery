@@ -18,6 +18,8 @@ from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
+from pipeline.doctor import run_diagnostics
+from pipeline.logconfig import configure_logging
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
@@ -61,7 +63,17 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    report = run_diagnostics(check_upstream=args.check_upstream)
+    for check in report.checks:
+        status = "PASS" if check.passed else "FAIL"
+        print(f"[{status}] {check.name}: {check.detail}")  # noqa: T201
+    print(f"doctor: {'OK' if report.ok else 'FAIL'}")  # noqa: T201
+    return 0 if report.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    configure_logging()
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -83,6 +95,14 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_doc = sub.add_parser("doctor", help="diagnose env, data location, and cache health")
+    p_doc.add_argument(
+        "--check-upstream",
+        action="store_true",
+        help="also ping the four upstream APIs (opt-in, off by default; makes network calls)",
+    )
+    p_doc.set_defaults(func=_cmd_doctor)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
