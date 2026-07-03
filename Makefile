@@ -56,6 +56,9 @@ AUDIT_IGNORES :=
 
 security: ## Stage 4 — dependency vulnerability + secret scan
 	# Audit installed deps; the waiver list is empty (see docs/audits/residual-risk.md).
+	# --skip-editable: pip-audit errors on the editable-installed project itself
+	# (no PyPI dist to resolve for a local `pip install -e .`); we only care about
+	# third-party deps here, so skip auditing the local editable install.
 	$(PYTHON) -m pip_audit --skip-editable $(AUDIT_IGNORES)
 	@./scripts/secret-scan.sh
 

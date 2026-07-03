@@ -21,6 +21,9 @@ data/*.sqlite3
 # Generated a11y artifacts that include timestamps are committed under docs/audits/
 # but the raw browser dumps are not.
 docs/audits/pa11y-raw.json
+# coverage.xml is regenerable machine churn (pytest, see pyproject.toml), not a
+# committed deliverable (unlike eval-report.json / the a11y dashboards).
+docs/audits/coverage.xml
 node_modules/
 
 # OS

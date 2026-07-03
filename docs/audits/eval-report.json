@@ -1,0 +1,23 @@
+{
+  "k": 5,
+  "n_positives": 4,
+  "models": {
+    "hybrid": {
+      "model": "hybrid",
+      "k": 5,
+      "precision_at_k": 0.6,
+      "recall_at_k": 0.75,
+      "map_at_k": 0.6875,
+      "n_positives": 4
+    },
+    "popularity": {
+      "model": "popularity",
+      "k": 5,
+      "precision_at_k": 0.2,
+      "recall_at_k": 0.25,
+      "map_at_k": 0.0833,
+      "n_positives": 4
+    }
+  },
+  "hybrid_beats_popularity": true
+}
