@@ -17,7 +17,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
   - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
-  - *Could:* acoustic/content features; a "discovery report"; additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done — `wad report`, see build log); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -53,6 +53,9 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **Playlist export** as a new top-level `export/` package — deliberately *outside* `pipeline`/`recommender` so the privacy test's "core network confined to `lastfm.py`" guarantee still holds and the export egress is a separate, opt-in boundary. Credential-free fallbacks (plain text / CSV / M3U / JSPF, `export/tracklist.py`) need no account; live Spotify (`export/spotify.py`) uses the Authorization Code OAuth flow with an injectable `HttpTransport` (fake in tests, `requests` only in `RequestsTransport`), credentials from env only. `wad export` CLI + dashboard download buttons + a Spotify connect panel. New egress documented in `docs/audits/privacy-notes.md`.
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
+
+### Build log addendum (2026-07-03) — shareable static discovery report (EXP-11)
+- **`wad report`** (`pipeline/cli.py`) realises the roadmap "Could: discovery report" item: it runs the same demo `recommend()` call as `wad recommend`/`wad export` and writes the result with `app.render.render_cards_html` — the identical renderer `app/build_static.py` uses to produce the a11y-gate artifact — to a self-contained HTML file (`--out`, default `my-discoveries.html`). No new rendering path, so the report inherits the same axe/`app.a11y_check` guarantees (semantic landmarks, data-table score equivalent, identity conveyed as text) with zero extra audit surface. `--k` and `--lens` mirror `wad export`'s flags.
 
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
