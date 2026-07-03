@@ -97,6 +97,11 @@ class Cache:
         ).fetchone()
         return row["fetched_at"] if row else None
 
+    def list_artist_ids(self) -> list[str]:
+        """Every cached artist id — the set ``wad refresh`` re-enriches."""
+        rows = self.conn.execute("SELECT artist_id FROM artists").fetchall()
+        return [row["artist_id"] for row in rows]
+
     # -- scrobbles -----------------------------------------------------------
     def put_scrobbles(self, username: str, scrobbles: Iterable[Scrobble]) -> None:
         self.conn.executemany(

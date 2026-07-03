@@ -11,13 +11,14 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from pipeline.cache import Cache
 from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, ListeningProfile, Scrobble
+from pipeline.models import Artist, ListeningProfile, Scrobble, Source
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -61,6 +62,94 @@ def enrich_artist(
         listeners=listeners,
         playcount=playcount,
     )
+
+
+@dataclass(frozen=True)
+class IdentityLabelChange:
+    """One identity-source change detected by re-enriching a cached artist.
+
+    ``wad refresh`` re-runs enrichment for every cached artist and reports one
+    of these whenever a source *kind already on file* now asserts a different
+    value or carries a newer ``retrieved_at`` — the observable signal that an
+    upstream edit (e.g. a Wikidata P21 correction) has landed. This is the
+    minimal shape EXP-05's :mod:`pipeline.corrections` needs to reconcile a
+    locally-filed pending correction against; a fuller source-conflict ledger
+    is out of scope here (see roadmap FIX-10).
+    """
+
+    artist_id: str
+    source_kind: str
+    old_value: str
+    new_value: str
+    retrieved_at: str
+
+
+def _identity_sources(artist: Artist) -> tuple[Source, ...]:
+    sources: tuple[Source, ...] = artist.identity.sources
+    if artist.composition is not None:
+        sources = sources + artist.composition.sources
+    return sources
+
+
+def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
+    """Compare two enrichment passes for the same artist; report per-source changes.
+
+    Only source kinds present in *both* passes are compared — a kind that
+    newly appears or disappears is a bigger event (a full source-conflict view
+    is FIX-10's scope) than the narrow "this citation's value moved" signal
+    ``reconcile()`` needs.
+    """
+    old_by_kind = {s.kind: s for s in _identity_sources(old)}
+    new_by_kind = {s.kind: s for s in _identity_sources(new)}
+    changes: list[IdentityLabelChange] = []
+    for kind, new_src in new_by_kind.items():
+        old_src = old_by_kind.get(kind)
+        if old_src is None:
+            continue
+        if old_src.detail != new_src.detail or old_src.retrieved_at != new_src.retrieved_at:
+            changes.append(
+                IdentityLabelChange(
+                    artist_id=new.artist_id,
+                    source_kind=str(kind),
+                    old_value=old_src.detail,
+                    new_value=new_src.detail,
+                    retrieved_at=new_src.retrieved_at,
+                )
+            )
+    return changes
+
+
+def refresh_catalog(
+    cache: Cache,
+    source: ScrobbleSource,
+    enricher: EnrichmentSource,
+    *,
+    fetched_at: str,
+) -> list[IdentityLabelChange]:
+    """Re-enrich every cached artist; persist the refresh and report changes.
+
+    This is ``wad refresh``'s core: each cached artist is re-resolved through
+    the same :func:`enrich_artist` path ingest uses, the cache row is updated
+    with the new lineage timestamp, and any identity-source change is
+    reported so the caller (the CLI) can reconcile it against pending local
+    corrections (:mod:`pipeline.corrections`).
+    """
+    changes: list[IdentityLabelChange] = []
+    for artist_id in cache.list_artist_ids():
+        old = cache.get_artist(artist_id)
+        if old is None:  # pragma: no cover - defensive; id just came from this cache
+            continue
+        refreshed = enrich_artist(
+            artist_id,
+            old.name,
+            source,
+            enricher,
+            listeners=old.listeners,
+            playcount=old.playcount,
+        )
+        changes.extend(diff_identity_sources(old, refreshed))
+        cache.put_artist(refreshed, fetched_at=fetched_at)
+    return changes
 
 
 def ingest(

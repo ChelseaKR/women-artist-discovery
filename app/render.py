@@ -10,7 +10,9 @@ Accessibility decisions baked in here:
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
 * a skip link to ``<main>`` and proper landmarks/heading order,
 * identity is conveyed as **text**, never colour alone,
-* the score "chart" ships with a real ``<table>`` data equivalent.
+* the score "chart" ships with a real ``<table>`` data equivalent,
+* a "Fix at source" link, where one exists, is a labelled text link — never a
+  bare icon or colour cue (EXP-05).
 """
 
 from __future__ import annotations
@@ -19,25 +21,45 @@ from collections.abc import Sequence
 from html import escape
 
 from pipeline.models import Recommendation
-from recommender.why import WhyThisArtist, why_this_artist
+from recommender.upstream import upstream_edit_url
+from recommender.why import ProvenanceItem, WhyThisArtist, why_this_artist
 
 
 def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
 
 
+def _fix_at_source_link(p: ProvenanceItem) -> str:
+    """A labelled deep link to the upstream edit UI, or "" if none applies.
+
+    Only offered when :func:`upstream_edit_url` can build a real edit link
+    from this citation (sourced-only, no guessing); the link text itself
+    names the action so it never relies on an icon or colour alone (a11y).
+    """
+    edit_url = upstream_edit_url(p.source_kind, p.citation)
+    if edit_url is None:
+        return ""
+    return (
+        f' <a class="fix-at-source" href="{escape(edit_url)}">'
+        f"Fix at source: correct this {escape(p.source_kind)} claim upstream</a>"
+    )
+
+
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     """Identity provenance: each citation with the *raw value the source asserted*.
 
     Showing the asserted value (not just a label) is what makes "sourced, never
-    inferred" auditable rather than a promise.
+    inferred" auditable rather than a promise. Where the citation resolves to a
+    known upstream edit surface, a "Fix at source" link is appended so a wrong
+    or stale claim can be corrected at its origin (EXP-05).
     """
     if not why.provenance:
         return '<p class="sources">Sources: none — identity unknown, surfaced on merit.</p>'
     items = "".join(
         f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
         f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
-        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span></li>'
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span>'
+        f"{_fix_at_source_link(p)}</li>"
         for p in why.provenance
     )
     return (
