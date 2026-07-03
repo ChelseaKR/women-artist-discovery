@@ -85,6 +85,28 @@ def test_artist_identity_phrase_matches_statement(profile, catalog, source) -> N
     assert artist_identity_phrase(rec.artist) == why_this_artist(rec).identity_statement
 
 
+def test_artist_identity_phrase_uses_qualitative_tier_not_percentage() -> None:
+    from pipeline.models import Artist, Gender, IdentityBasis, IdentityLabel, Source, SourceKind
+
+    label = IdentityLabel(
+        gender=Gender.WOMAN,
+        basis=IdentityBasis.SELF_IDENTIFIED,
+        sources=(
+            Source(
+                kind=SourceKind.ARTIST_STATEMENT,
+                citation="https://example.org/statement",
+                retrieved_at="2026-05-31",
+                detail="woman",
+            ),
+        ),
+        confidence=0.9,
+    )
+    artist = Artist(artist_id="known-female", name="Known Female", identity=label)
+    phrase = artist_identity_phrase(artist)
+    assert "directly stated by the artist" in phrase
+    assert "%" not in phrase
+
+
 def test_provenance_item_from_source_preserves_raw_value() -> None:
     from pipeline.models import Source, SourceKind
 
