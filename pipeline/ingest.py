@@ -20,15 +20,52 @@ from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
 
 
-def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
-    """Reduce raw scrobbles into per-artist play counts and names."""
-    play_counts: dict[str, int] = {}
+def build_profile(
+    username: str,
+    scrobbles: list[Scrobble],
+    *,
+    now_ts: Optional[int] = None,
+    half_life_days: Optional[float] = None,
+    era_start: Optional[int] = None,
+    era_end: Optional[int] = None,
+) -> ListeningProfile:
+    """Reduce raw scrobbles into per-artist play weights and names.
+
+    Two independent, optional temporal shapings (EXP-06 — Temporal taste
+    profiles), applied in this order:
+
+    1. **Era window.** If ``era_start``/``era_end`` (unix seconds) are given,
+       scrobbles outside that *inclusive* ``[era_start, era_end]`` window are
+       dropped before anything is counted — a "my 2019 self" profile.
+    2. **Recency decay.** If ``half_life_days`` is given, each surviving play
+       is weighted ``0.5 ** ((now_ts - s.ts) / (half_life_days * 86400))``
+       instead of a flat ``1``, so a play exactly one half-life before
+       ``now_ts`` counts half as much as a play at ``now_ts``. ``now_ts``
+       defaults to the max timestamp among the (era-filtered) scrobbles —
+       *not* the wall clock — so the profile is reproducible from the same
+       scrobble list alone.
+
+    With both ``None`` (the default), this reproduces the exact play counts
+    of the original flat-count profile, as floats (``10.0 == 10``) — see
+    :class:`~pipeline.models.ListeningProfile`.
+    """
+    windowed = [
+        s
+        for s in scrobbles
+        if (era_start is None or s.ts >= era_start) and (era_end is None or s.ts <= era_end)
+    ]
+    effective_now = now_ts if now_ts is not None else max((s.ts for s in windowed), default=0)
+
+    play_counts: dict[str, float] = {}
     artist_names: dict[str, str] = {}
-    for s in scrobbles:
+    for s in windowed:
         key = s.artist_id or s.artist_name
         if not key:
             continue
-        play_counts[key] = play_counts.get(key, 0) + 1
+        weight = 1.0
+        if half_life_days is not None:
+            weight = 0.5 ** ((effective_now - s.ts) / (half_life_days * 86400))
+        play_counts[key] = play_counts.get(key, 0.0) + weight
         artist_names.setdefault(key, s.artist_name)
     return ListeningProfile(
         username=username,
@@ -90,7 +127,7 @@ def ingest(
             name,
             source,
             enricher,
-            playcount=profile.play_counts.get(artist_id, 0),
+            playcount=int(profile.play_counts.get(artist_id, 0)),
         )
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags

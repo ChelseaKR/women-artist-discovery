@@ -15,12 +15,19 @@ the eval is reproducible without a seed.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Optional
 
 from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
 
 from recommender.hybrid import recommend
+
+#: Half-life used for the "hybrid_decay" comparison variant when the caller
+#: does not specify one — chosen so a year-old play has decayed to ~13% of a
+#: fresh one, which is enough to separate recency-heavy from stale-heavy
+#: tastes on the held-out window without erasing older plays outright.
+DEFAULT_DECAY_HALF_LIFE_DAYS = 180.0
 
 
 @dataclass(frozen=True)
@@ -94,6 +101,30 @@ def popularity_ranking(catalog: dict[str, Artist], exclude: set[str]) -> list[st
     return [a.artist_id for a in candidates]
 
 
+def _training_profile(
+    username: str,
+    train: list[Scrobble],
+    catalog: dict[str, Artist],
+    *,
+    half_life_days: Optional[float] = None,
+) -> ListeningProfile:
+    """Build the train-window profile, tags re-attached from the catalog.
+
+    ``half_life_days`` optionally applies recency decay (EXP-06 — Temporal
+    taste profiles) via :func:`pipeline.ingest.build_profile`; ``None`` is the
+    flat play-count profile the eval has always used. Either way ``now_ts``
+    is left at its default (max ts within ``train``), so the profile — and
+    therefore the eval — stays reproducible without a seed.
+    """
+    base_profile = build_profile(username, train, half_life_days=half_life_days)
+    return ListeningProfile(
+        username=base_profile.username,
+        play_counts=base_profile.play_counts,
+        artist_names=base_profile.artist_names,
+        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
+    )
+
+
 def evaluate(
     username: str,
     scrobbles: list[Scrobble],
@@ -102,27 +133,36 @@ def evaluate(
     *,
     k: int = 10,
     train_frac: float = 0.7,
+    half_life_days: Optional[float] = None,
 ) -> dict[str, EvalResult]:
-    """Run both models on a temporal hold-out. Returns results keyed by model."""
+    """Run hybrid, popularity, and a decay variant on a temporal hold-out.
+
+    Returns results keyed by model: ``"hybrid"`` (flat play counts, decay
+    off), ``"popularity"`` (baseline), and ``"hybrid_decay"`` (same hybrid
+    ranking but trained on a recency-decayed profile, decay on) — so a report
+    built from this dict can state numerically whether decay helps on this
+    held-out window. ``half_life_days`` picks the decay variant's half-life;
+    it defaults to :data:`DEFAULT_DECAY_HALF_LIFE_DAYS` when not given.
+    """
     train, test = temporal_split(scrobbles, train_frac)
     positives = ground_truth(train, test)
-    base_profile = build_profile(username, train)
-    # Re-attach tags from the catalog so the content signal works on train data.
-    train_profile = ListeningProfile(
-        username=base_profile.username,
-        play_counts=base_profile.play_counts,
-        artist_names=base_profile.artist_names,
-        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
-    )
+
+    train_profile = _training_profile(username, train, catalog)
     known = train_profile.known_artist_ids
 
     hybrid_recs = recommend(train_profile, catalog, source, k=len(catalog), lens_strength=0.0)
     hybrid_ranked = [r.artist.artist_id for r in hybrid_recs]
     pop_ranked = popularity_ranking(catalog, exclude=set(known))
 
+    decay_half_life = half_life_days if half_life_days is not None else DEFAULT_DECAY_HALF_LIFE_DAYS
+    decay_profile = _training_profile(username, train, catalog, half_life_days=decay_half_life)
+    decay_recs = recommend(decay_profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    decay_ranked = [r.artist.artist_id for r in decay_recs]
+
     return {
         "hybrid": _score("hybrid", hybrid_ranked, positives, k),
         "popularity": _score("popularity", pop_ranked, positives, k),
+        "hybrid_decay": _score("hybrid_decay", decay_ranked, positives, k),
     }
 
 
@@ -130,7 +170,7 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
     """A JSON-able report (the committed eval artifact)."""
     hybrid = results["hybrid"]
     popularity = results["popularity"]
-    return {
+    report: dict[str, object] = {
         "k": hybrid.k,
         "n_positives": hybrid.n_positives,
         "models": {name: asdict(res) for name, res in results.items()},
@@ -142,3 +182,10 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
             )
         ),
     }
+    decay = results.get("hybrid_decay")
+    if decay is not None:
+        # Numeric, not just boolean: how much (if any) recency decay moved
+        # map@k on this held-out window, decay-on vs decay-off (EXP-06).
+        report["decay_map_at_k_delta"] = round(decay.map_at_k - hybrid.map_at_k, 4)
+        report["decay_improves_map_at_k"] = decay.map_at_k > hybrid.map_at_k
+    return report
