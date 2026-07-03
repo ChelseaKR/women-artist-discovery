@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from typing import cast
 
 from export.models import ExportError, ExportFormat
 from export.spotify import (
@@ -35,8 +36,14 @@ from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
+from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
+
+#: Fixed lens grid the fairness-observability panel is computed across; the
+#: current slider value is added to this so the panel always covers what's
+#: on screen. 0.0 is the panel's base lens — the pure-taste ranking.
+LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
 
 
 def _load_demo() -> tuple[ListeningProfile, dict[str, Artist], ScrobbleSource]:
@@ -147,6 +154,41 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             "Total": [round(r.score, 3) for r in recs],
             "Identity basis": [str(r.explanation.identity_basis) for r in recs],
         }
+    )
+
+    st.subheader("Fairness observability")
+    lens_values = sorted({*LENS_GRID, lens})
+    recs_by_lens = {
+        lv: recommend(profile, catalog, source, k=10, lens_strength=lv) for lv in lens_values
+    }
+    panel = observability_panel(recs_by_lens, current_lens=lens, k=10, base_lens=0.0)
+    exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    retention_row = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention_row["by_lens"])
+
+    base_pct = f"{cast(float, panel['base_lens']):.0%}"
+    current_pct = f"{cast(float, panel['current_lens']):.0%}"
+    st.table(
+        {
+            "Identity segment": [row["segment"] for row in exposure_rows],
+            f"Base lens share ({base_pct})": [
+                f"{cast(float, row['base_share']):.0%}" for row in exposure_rows
+            ],
+            f"Current lens share ({current_pct})": [
+                f"{cast(float, row['current_share']):.0%}" for row in exposure_rows
+            ],
+        }
+    )
+    st.table(
+        {
+            "Identity segment": [retention_row["segment"]],
+            **{f"Lens {key}": [f"{value:.0%}"] for key, value in by_lens.items()},
+        }
+    )
+    st.caption(
+        "Moving the lens changes exposure shares across identity segments; "
+        "unknown-retention stays pinned at 100% — the boost-only lens never "
+        "displaces artists with unknown identity from the results."
     )
 
     st.subheader("Recommendations")

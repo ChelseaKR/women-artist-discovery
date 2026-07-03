@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from html import escape
+from typing import cast
 
 from pipeline.models import Recommendation
 from recommender.why import WhyThisArtist, why_this_artist
@@ -90,6 +91,61 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
+def _exposure_share_table_html(panel: dict[str, object]) -> str:
+    """The primary, table-first equivalent of the exposure-share chart."""
+    rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    base_pct = f"{cast(float, panel['base_lens']):.0%}"
+    current_pct = f"{cast(float, panel['current_lens']):.0%}"
+    body = "".join(
+        f'<tr><th scope="row">{escape(str(row["segment"]))}</th>'
+        f"<td>{cast(float, row['base_share']):.0%}</td>"
+        f"<td>{cast(float, row['current_share']):.0%}</td></tr>"
+        for row in rows
+    )
+    return (
+        "<table><caption>Exposure share by identity segment — base lens "
+        f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
+        '<th scope="col">Identity segment</th>'
+        f'<th scope="col">Base lens ({base_pct})</th>'
+        f'<th scope="col">Current lens ({current_pct})</th>'
+        f"</tr></thead><tbody>{body}</tbody></table>"
+    )
+
+
+def _retention_table_html(panel: dict[str, object]) -> str:
+    """The unknown-retention curve, table-first (should read 100% throughout)."""
+    retention_row = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention_row["by_lens"])
+    lens_keys = list(by_lens)
+    header = "".join(f'<th scope="col">Lens {escape(key)}</th>' for key in lens_keys)
+    cells = "".join(f"<td>{by_lens[key]:.0%}</td>" for key in lens_keys)
+    segment = escape(str(retention_row["segment"]))
+    return (
+        "<table><caption>Unknown-identity retention across the lens (pinned "
+        "at 100% — the merge-blocking fairness guarantee)</caption><thead><tr>"
+        f'<th scope="col">Identity segment</th>{header}'
+        f'</tr></thead><tbody><tr><th scope="row">{segment}</th>{cells}</tr>'
+        "</tbody></table>"
+    )
+
+
+def _exposure_panel_html(panel: dict[str, object] | None) -> str:
+    """The fairness-observability section: table-first, chart optional (omitted).
+
+    ``panel`` is the output of :func:`recommender.exposure.observability_panel`.
+    Defaults to nothing rendered so existing callers/tests are unaffected.
+    """
+    if panel is None:
+        return ""
+    return (
+        "<h2>Fairness observability</h2>"
+        "<p>Moving the lens changes exposure shares across identity segments; "
+        "unknown-retention stays pinned at 100% — the boost-only lens never "
+        "displaces artists with unknown identity from the results.</p>"
+        f"{_exposure_share_table_html(panel)}{_retention_table_html(panel)}"
+    )
+
+
 _STYLE = """
 :root { color-scheme: light dark; }
 body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem; }
@@ -108,9 +164,18 @@ th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
 
 
 def render_cards_html(
-    recs: Sequence[Recommendation], lens_strength: float, username: str = "demo"
+    recs: Sequence[Recommendation],
+    lens_strength: float,
+    username: str = "demo",
+    exposure_panel: dict[str, object] | None = None,
 ) -> str:
-    """Render a complete, accessible HTML document for the given recommendations."""
+    """Render a complete, accessible HTML document for the given recommendations.
+
+    ``exposure_panel`` is the optional output of
+    :func:`recommender.exposure.observability_panel` — the fairness
+    observability section (table-first). It defaults to ``None`` so existing
+    callers render exactly as before.
+    """
     cards = "".join(_card_html(r) for r in recs)
     lens_pct = f"{lens_strength:.0%}"
     return (
@@ -130,6 +195,7 @@ def render_cards_html(
         '<main id="main">'
         "<h2>Score summary</h2>"
         f"{_table_html(recs)}"
+        f"{_exposure_panel_html(exposure_panel)}"
         "<h2>Recommendations</h2>"
         f"{cards}"
         "</main></body></html>"
