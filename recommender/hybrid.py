@@ -3,10 +3,12 @@
 The base score is a convex blend ``alpha * collaborative + (1 - alpha) * content``,
 each signal min-max normalised across candidates so neither dominates by scale.
 The values lens is then applied **boost-only** (see :mod:`recommender.rerank`),
-and every result is explained.
+followed by an optional identity-blind serendipity/diversification pass (see
+:mod:`recommender.diversify`), and every result is explained.
 
-At ``lens_strength = 0`` the output is the pure-taste hybrid ranking — which is
-what the offline eval compares against the popularity baseline.
+At ``lens_strength = 0`` and ``explore = 0`` (both defaults) the output is the
+pure-taste hybrid ranking — which is what the offline eval compares against
+the popularity baseline.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pipeline.models import Artist, ListeningProfile, Recommendation
 
 from recommender.collaborative import CollabResult, collaborative_scores
 from recommender.content import ContentResult, content_scores
+from recommender.diversify import diversify
 from recommender.explain import build_explanation
 from recommender.rerank import sort_and_rank, values_boost_for_artist
 
@@ -32,11 +35,16 @@ def recommend(
     k: int = 20,
     alpha: float = 0.5,
     lens_strength: float = 0.0,
+    explore: float = 0.0,
 ) -> list[Recommendation]:
     """Produce the top-``k`` explained recommendations.
 
     ``alpha`` weights collaborative vs content (0 = content only, 1 = collab only).
     ``lens_strength`` ∈ [0, 1] controls the values lens; 0 = pure taste ranking.
+    ``explore`` ∈ [0, 1] controls the serendipity/diversification pass (see
+    :mod:`recommender.diversify`); 0 = pure relevance ranking (default,
+    unchanged behaviour — this is what the offline eval compares against the
+    popularity baseline), 1 = maximum tag-space diversity.
     """
     if not (0.0 <= alpha <= 1.0):
         raise ValueError("alpha must be in [0, 1]")
@@ -71,4 +79,5 @@ def recommend(
             )
         )
 
-    return sort_and_rank(recs)[:k]
+    ranked = sort_and_rank(recs)
+    return diversify(ranked, explore)[:k]

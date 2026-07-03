@@ -35,7 +35,12 @@ def _cmd_eval(args: argparse.Namespace) -> int:
 
 def _cmd_recommend(args: argparse.Namespace) -> int:
     recs = recommend(
-        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+        demo_profile(),
+        demo_catalog(),
+        demo_source(),
+        k=args.k,
+        lens_strength=args.lens,
+        explore=args.explore,
     )
     for rec in recs:
         why = why_this_artist(rec)
@@ -47,7 +52,12 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
 
 def _cmd_export(args: argparse.Namespace) -> int:
     recs = recommend(
-        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+        demo_profile(),
+        demo_catalog(),
+        demo_source(),
+        k=args.k,
+        lens_strength=args.lens,
+        explore=args.explore,
     )
     tracks = recommendations_to_tracks(recs)
     text = render(tracks, ExportFormat(args.format), playlist_name="Women-Artist Discovery")
@@ -73,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     p_rec = sub.add_parser("recommend", help="print demo recommendations")
     p_rec.add_argument("--k", type=int, default=10)
     p_rec.add_argument("--lens", type=float, default=0.5)
+    p_rec.add_argument(
+        "--explore",
+        type=float,
+        default=0.0,
+        help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
+    )
     p_rec.set_defaults(func=_cmd_recommend)
 
     p_exp = sub.add_parser("export", help="export demo recommendations to a portable playlist file")
@@ -81,6 +97,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_exp.add_argument("--k", type=int, default=10)
     p_exp.add_argument("--lens", type=float, default=0.5)
+    p_exp.add_argument(
+        "--explore",
+        type=float,
+        default=0.0,
+        help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
+    )
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
 
