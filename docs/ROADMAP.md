@@ -54,6 +54,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
+### Build log addendum (2026-07-03) — scale the scoring path (FIX-13)
+- **numpy dropped, not adopted.** `numpy>=1.26` was a declared runtime dependency imported nowhere in the codebase; `recommender/content.py`'s tag-cosine is a sparse dict dot product over a handful of shared tags per candidate, which does not benefit from dense numpy vectors. Removed from `pyproject.toml` `[project.dependencies]` and `uv.lock` regenerated (`pandas`, an `app`-extra dependency, still pulls numpy transitively — that's fine, it's no longer *our* declared runtime surface). One fewer runtime dep for `pip-audit` and reviewers to carry.
+- **`make bench` / `scripts/bench.py`** added: a seeded, reproducible synthetic world (200 known + 5,000 candidate artists, 50,000 scrobbles, built from `pipeline.models`/`pipeline.lastfm.FixtureLastfm`) times `collaborative_scores`, `content_scores`, and end-to-end `recommend()` over 20 iterations and reports p50/p95. All randomness (`random.Random(seed=20260703)`) is confined to world generation — the scored path never touches the RNG — so `tests/test_reproducibility.py`'s byte-stable snapshots are unaffected (verified directly: two independent `build_world()` calls produce identical profiles/catalogs and identical `recommend()` output).
+- **Measured p95 at ~140 ms** for end-to-end `recommend()` on the 5k-candidate / 50k-scrobble world (this machine), well under the 2 s "excellent looks like" bar. `content_scores` (~60 ms p95) is the larger of the two signal costs, not `collaborative_scores` (~11 ms p95) — neither is a hotspot at this scale, so the optional candidate-set pruning in `collaborative_scores` was **not** added; the benchmark didn't show a case for it, and the item's own guidance was to add it only if needed.
+
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
 |--------|--------|-------------|------|

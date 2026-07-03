@@ -7,7 +7,7 @@ PIP    ?= .venv/bin/pip
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval i18n audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval i18n bench audit clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -73,6 +73,9 @@ eval: ## Stage 7 — offline eval; fails unless the hybrid beats the baseline
 
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh
+
+bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble world
+	$(PYTHON) scripts/bench.py
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
