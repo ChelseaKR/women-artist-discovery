@@ -58,7 +58,7 @@ def rerank(recs: list[Recommendation], lens_strength: float) -> list[Recommendat
     boosted: list[Recommendation] = []
     for rec in recs:
         delta = values_boost(rec, lens_strength)
-        assert delta >= 0.0  # invariant: the lens never penalises  # noqa: S101
+        assert delta >= 0.0  # invariant: the lens never penalises
         boosted.append(replace(rec, rerank_delta=delta))
 
     return sort_and_rank(boosted)
