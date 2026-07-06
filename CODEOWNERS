@@ -1,0 +1,28 @@
+# Code owners (CQ-39, CICD-17/18). GitHub reads this file from the repo root,
+# `.github/`, or `docs/` — it lives at the root here alongside CONTRIBUTING.md.
+#
+# Single-maintainer posture: this repo has one maintainer, so CODEOWNERS routes
+# review attention rather than gating on a second approver (documented decision:
+# PR-required + required-checks-required, review-count requirement waived — see
+# docs/adr/0001-single-maintainer-review-posture.md).
+#
+# NOTE: CI-CD-STANDARD.md:182's own worked example names the wrong path
+# (`tests/test_no_identity_inference.py`) — the real guardrail file is
+# `tests/test_no_inference.py`; routed correctly below.
+
+* @ChelseaKR
+
+# The safety core: identity resolution, boost-only re-rank, and the AST
+# no-inference regression test — anything touching these gets the closest look.
+/tests/test_no_inference.py    @ChelseaKR
+/pipeline/identity.py           @ChelseaKR
+/pipeline/models.py             @ChelseaKR
+/recommender/rerank.py          @ChelseaKR
+
+# CI/CD and merge-gate configuration.
+/.github/workflows/             @ChelseaKR
+/CODEOWNERS                     @ChelseaKR
+
+# Committed audit/compliance artifacts.
+/docs/audits/                   @ChelseaKR
+/DEFINITION_OF_DONE.md           @ChelseaKR
