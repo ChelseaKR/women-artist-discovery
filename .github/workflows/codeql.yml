@@ -1,7 +1,7 @@
 name: codeql
 
 # SEC-08 / CICD-20: static analysis over both the Python source and the
-# workflow files themselves. Nightly (catches newly-published query packs
+# workflow files themselves. Weekly (catches newly-published query packs
 # against unchanged code) plus every PR/push to main.
 
 on:
