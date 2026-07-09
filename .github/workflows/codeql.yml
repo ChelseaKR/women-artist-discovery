@@ -2,12 +2,11 @@ name: codeql
 
 # SEC-08 / CICD-20: static analysis over both the Python source and the
 # workflow files themselves. Weekly (catches newly-published query packs
-# against unchanged code) plus every PR/push to main.
+# against unchanged code) plus every push to main. PRs skip CodeQL because code
+# scanning is not enabled for this private repo.
 
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   schedule:
     - cron: "17 3 * * 1"  # weekly, offset off the hour
