@@ -10,10 +10,14 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "17 3 * * *"  # nightly, offset off the hour
+    - cron: "17 3 * * 1"  # weekly, offset off the hour
 
 permissions:
   contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
