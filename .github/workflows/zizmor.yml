@@ -5,9 +5,7 @@ name: zizmor
 # Scoped to changes under .github/workflows/ so it doesn't run on every PR.
 
 on:
-  push:
-    branches: [main]
-    paths: [".github/workflows/**"]
+  workflow_dispatch: {}
 
 permissions:
   contents: read

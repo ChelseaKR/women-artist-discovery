@@ -5,10 +5,7 @@ name: scorecard
 # see docs/audits/branch-ruleset.json) can be made a required check.
 
 on:
-  push:
-    branches: [main]
-  schedule:
-    - cron: "31 5 * * 1"  # weekly, Monday
+  workflow_dispatch: {}
 
 permissions:
   contents: read

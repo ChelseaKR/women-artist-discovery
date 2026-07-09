@@ -6,10 +6,7 @@ name: codeql
 # scanning is not enabled for this private repo.
 
 on:
-  push:
-    branches: [main]
-  schedule:
-    - cron: "17 3 * * 1"  # weekly, offset off the hour
+  workflow_dispatch: {}
 
 permissions:
   contents: read
