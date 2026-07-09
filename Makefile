@@ -78,7 +78,9 @@ security: ## Stage 4 — dependency vulnerability + secret scan
 a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
 	$(PYTHON) -m app.build_static
 	@if command -v pa11y >/dev/null 2>&1; then \
-		echo "running pa11y (axe runtime)"; pa11y --runner axe $(A11Y_HTML); \
+		echo "running pa11y (axe runtime)"; \
+		printf '%s\n' '{"chromeLaunchConfig":{"args":["--no-sandbox"]}}' > /tmp/pa11y-ci.json; \
+		pa11y --runner axe --config /tmp/pa11y-ci.json $(A11Y_HTML); \
 	else \
 		echo "pa11y not installed — using built-in static a11y checker"; \
 		$(PYTHON) -m app.a11y_check $(A11Y_HTML); \
