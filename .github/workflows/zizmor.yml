@@ -2,9 +2,16 @@ name: zizmor
 
 # CICD-19 / RTF-06 (zizmor half): static analysis of the workflow files
 # themselves (excessive permissions, script injection, unpinned actions, …).
-# Scoped to changes under .github/workflows/ so it doesn't run on every PR.
+# Scoped to changes under .github/workflows/ so it doesn't run on every PR —
+# only on PRs/pushes that touch workflow files.
 
 on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/**"]
+  pull_request:
+    branches: [main]
+    paths: [".github/workflows/**"]
   workflow_dispatch: {}
 
 permissions:
@@ -34,3 +41,10 @@ jobs:
           # worth a whole package-lock.json for. Blocks on medium+ so a *new*
           # issue still fails the check.
           min-severity: medium
+          # Code scanning/GHAS isn't purchasable for a private repo on this
+          # account tier, so the action's built-in SARIF-upload-to-Security-tab
+          # step (which requires it) always failed here. Use inline PR/commit
+          # annotations instead — the real gate is this step's own exit code,
+          # which already fails on medium+ findings.
+          advanced-security: false
+          annotations: true
