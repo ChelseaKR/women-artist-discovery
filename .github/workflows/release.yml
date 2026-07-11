@@ -1,0 +1,108 @@
+name: release
+
+# P1-4 / REL-13/14/15, SEC-27/29: tag-triggered release. Nothing in `ci.yml`'s PR
+# green check is trusted here — this re-runs the full `make verify` gate set at
+# the exact tagged commit, then builds, SBOMs, signs, and publishes.
+#
+# NOT YET USED: no `v*` tag exists in this repo yet (see SECURITY.md/CHANGELOG.md
+# — release stance is "unreleased pre-1.0"). This workflow is prepared ahead of
+# the first tag so the tag-cut moment doesn't also require writing CI from
+# scratch. Cutting `v0.1.0` (`git tag -s v0.1.0 -m "..." && git push --tags`) is
+# a maintainer decision, not something this remediation pass performs — see the
+# execution log for the exact command.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to create the GitHub Release
+      id-token: write # cosign keyless signing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history so the CHANGELOG/tag correspondence is checkable
+
+      # No caching in this job (CICD-24 + zizmor cache-poisoning): a release job
+      # publishes runtime-generated artifacts, so a poisoned cache is a real
+      # supply-chain risk here in a way it isn't in ci.yml.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+        with:
+          python-version: "3.13"
+          enable-cache: false
+
+      # This action has no input to disable its own Node-distribution tool-cache
+      # (unlike the `cache:` package-manager cache, which is opt-in and left
+      # unset below); zizmor itself notes Low confidence for this instance.
+      - name: Set up Node (for the pa11y/axe a11y runner)
+        # zizmor: ignore[cache-poisoning] no per-action toggle for the Node tool-cache; low-confidence finding
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          # no `cache:` input set — actions/setup-node only caches package-manager
+          # dependencies when this is set to npm/yarn/pnpm; left unset deliberately.
+
+      - name: Install project (dev + app groups, pinned via uv.lock)
+        run: |
+          uv sync --frozen --group dev --extra app
+          npm install -g pa11y@9.1.1
+
+      # REL-14: never trust the PR's green check — re-verify at the tagged commit.
+      - name: make verify (re-run at the tagged commit)
+        run: make verify
+
+      # REL-10: the tag must have a matching CHANGELOG section, extracted verbatim
+      # into the GitHub Release body — a missing section fails the release outright.
+      - name: Extract this version's CHANGELOG section
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ ("^## \\[" ver "\\]") { found=1; print; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section (REL-10) — add one before tagging" >&2
+            exit 1
+          fi
+
+      # REL-13 / CQ-10: a real wheel + sdist build via hatchling, no caching in a
+      # release job (CICD-24 — always build from a clean, freshly-resolved state).
+      - name: Build sdist + wheel
+        run: uv build
+
+      # SEC-27: CycloneDX SBOM of the exact released environment.
+      - name: Generate CycloneDX SBOM
+        run: uvx --from cyclonedx-bom cyclonedx-py environment .venv -o dist/sbom.cdx.json
+
+      # SEC-29: cosign keyless signing (Sigstore OIDC) of every published artifact.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign release artifacts
+        run: |
+          for f in dist/*.whl dist/*.tar.gz dist/sbom.cdx.json; do
+            cosign sign-blob --yes "$f" \
+              --output-signature "$f.sig" \
+              --output-certificate "$f.pem"
+          done
+
+      # `gh` ships preinstalled on GitHub-hosted runners — prefer it over a
+      # third-party action for the one built-in-covered step (zizmor
+      # superfluous-actions), which is one fewer external action to trust/pin.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            dist/*.whl dist/*.tar.gz dist/sbom.cdx.json dist/*.sig dist/*.pem

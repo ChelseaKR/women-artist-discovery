@@ -3,7 +3,7 @@
 # STANDARD §"enforcement pipeline"), in order.
 
 PYTHON ?= .venv/bin/python
-PIP    ?= .venv/bin/pip
+UV     ?= uv
 A11Y_HTML := docs/audits/dashboard.html
 
 .DEFAULT_GOAL := help
@@ -13,12 +13,14 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-$(PYTHON): ## Bootstrap the virtualenv + dev/app deps
-	python3 -m venv .venv
-	$(PIP) install -q --upgrade pip
-	$(PIP) install -q -e ".[dev,app]"
+# Bootstraps from uv.lock (CQ-09/SEC-13): `--frozen` refuses to update the lock,
+# so this is also the local lockfile-drift check — if pyproject.toml and uv.lock
+# have drifted apart, this fails loudly instead of silently re-resolving.
+$(PYTHON): pyproject.toml uv.lock ## Bootstrap the virtualenv + dev/app deps from uv.lock (uv sync --frozen)
+	$(UV) sync --frozen --group dev --extra app
+	touch $(PYTHON)
 
-install: $(PYTHON) ## Install the project (editable) with dev + app extras
+install: $(PYTHON) ## Install the project (editable) with dev + app extras, pinned via uv.lock
 
 dev: install ## Run the Streamlit dashboard (demo mode; no API key needed)
 	$(PYTHON) -m streamlit run app/dashboard.py
@@ -33,6 +35,20 @@ format: ## Auto-format the code
 lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset)
 	$(PYTHON) -m ruff format --check .
 	$(PYTHON) -m ruff check .
+	@# CQ-34: locks in the currently-clean state — fails on any bare TODO/FIXME/HACK
+	@# marker or unqualified `# noqa` (a qualified `# noqa: CODE` is fine and is
+	@# ruff's own job to police via RUF100 "unused noqa").
+	@if grep -rInE "TODO|FIXME|HACK" pipeline recommender app export tests scripts 2>/dev/null; then \
+		echo "lint: bare TODO/FIXME/HACK marker found (CQ-34) — resolve or file a tracked issue" >&2; exit 1; \
+	fi
+	@if grep -rInE "#\s*noqa\s*($$|[^:])" pipeline recommender app export tests 2>/dev/null; then \
+		echo "lint: blanket '# noqa' with no rule code found (CQ-35) — qualify it" >&2; exit 1; \
+	fi
+	@# DOC-08: CITATION.cff must stay schema-valid. Version-pinned (not bare
+	@# `uvx cffconvert`) so this merge-blocking check doesn't drift silently.
+	uvx cffconvert==2.0.0 --validate
+	@# DOC-15: every governance/audit doc carries a currency stamp.
+	@./scripts/check-staleness.sh
 
 typecheck: ## Stage 2 — strict static typing (mypy --strict)
 	$(PYTHON) -m mypy
@@ -62,7 +78,9 @@ security: ## Stage 4 — dependency vulnerability + secret scan
 a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
 	$(PYTHON) -m app.build_static
 	@if command -v pa11y >/dev/null 2>&1; then \
-		echo "running pa11y (axe runtime)"; pa11y --runner axe $(A11Y_HTML); \
+		echo "running pa11y (axe runtime)"; \
+		printf '%s\n' '{"chromeLaunchConfig":{"args":["--no-sandbox"]}}' > /tmp/pa11y-ci.json; \
+		pa11y --runner axe --config /tmp/pa11y-ci.json $(A11Y_HTML); \
 	else \
 		echo "pa11y not installed — using built-in static a11y checker"; \
 		$(PYTHON) -m app.a11y_check $(A11Y_HTML); \

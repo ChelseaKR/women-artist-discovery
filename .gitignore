@@ -8,6 +8,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+dist/
+build/
 
 # Local cache (personal listening data — never committed; privacy: local-first)
 data/*.db

@@ -1,7 +1,7 @@
 # Women-Artist Discovery — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
-> **Last verified: 2026-05-31 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change.**
+> **Last verified: 2026-07-05 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change, or per standards-conformance remediation pass.**
 
 ## 1. Snapshot
 A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking layer and a sourced-not-inferred identity model. Python pipeline + Streamlit dashboard; local-first. The technical novelty is doing identity-aware recommendation responsibly — never guessing, always citing, treating unknown as normal.
@@ -75,6 +75,19 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
   added `import requests` in `app/dashboard.py` was confirmed to fail the
   source-scan gate, then reverted.
 
+### Build log addendum (2026-07-05) — standards-conformance remediation
+Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
+control-by-control status). Highlights: README now carries a real Standards Conformance table
+(replacing silent "Inherits /STANDARDS"); the phantom "0.1.x release" claim in SECURITY.md/
+CITATION.cff corrected to an honest "unreleased pre-1.0" stance (`CHANGELOG.md` added); CI now
+installs via `uv sync --frozen` against `uv.lock` instead of pip-from-floors (the lockfile is
+finally what CI actually runs on); build backend moved setuptools → hatchling (closes CQ-10) with
+a prepared (not-yet-triggered) tag-release workflow; CODEOWNERS + a target branch-ruleset artifact
+committed (live application is a manual, human-authorized step — see the remediation log);
+CodeQL/zizmor/osv-scanner/Scorecard workflows added. Nothing in the identity/fairness safety core
+(`pipeline/identity.py`, `recommender/rerank.py`, `tests/test_no_inference.py`,
+`tests/test_unknown_first_class.py`) was touched.
+
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
 |--------|--------|-------------|------|
@@ -86,6 +99,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 | axe violations (dashboard) | 0 | pa11y-ci | merge-blocking |
 | External API rate-limit compliance | within limits, cached | integration test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
+| Release stage | unreleased pre-1.0 (declared, not silent) | `SECURITY.md`, `CHANGELOG.md` | review-gated |
+| Observability tier | Tier C (declared) | README `## Observability` | review-gated |
+| AI-evaluation status | narrow-applies (declared); eval-beats-baseline active | `docs/RESPONSIBLE-TECH-AUDITS.md`, `make eval` | merge-blocking (eval half) |
+
+**DORA note.** The git history was reset 2026-06-29 (see `audit-2026-07-05/women-artist-discovery-AUDIT.md` §3), so deployment-frequency/lead-time/change-failure-rate/MTTR cannot be measured before that date — pre-reset delivery evidence no longer exists in this clone. Measurement restarts from 2026-06-29: 8 commits landed 2026-06-29→2026-07-02 (dependency/security/docs remediation), then this standards-conformance pass on 2026-07-05. No production deploys or incidents exist yet (pre-release, personal project), so change-failure-rate/MTTR are not yet meaningful; commit cadence is the only DORA-adjacent signal available today. Revisit once releases exist.
 
 **Testing.** Unit (identity resolver refuses inference; re-rank math; unknown handling), integration (Last.fm/MusicBrainz/Discogs/Wikidata adapters with cached fixtures), eval (offline recommender quality vs popularity baseline), a11y.
 

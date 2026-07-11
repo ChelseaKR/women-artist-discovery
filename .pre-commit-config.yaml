@@ -1,0 +1,27 @@
+# Local pre-commit mirror of the fast half of `make verify` (CQ-12, SEC-17).
+# `make verify` remains the authoritative gate (CI runs it, not this file) — this
+# just catches lint/format/secret issues before they reach a commit, and mypy
+# before a push (it's slow enough that pre-commit itself discourages it at commit
+# time). Install once per clone: `pre-commit install && pre-commit install --hook-type pre-push`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        stages: [pre-push]
+        additional_dependencies: ["types-requests"]
+        files: ^(pipeline|recommender|app|export)/
+        pass_filenames: false
+        args: []

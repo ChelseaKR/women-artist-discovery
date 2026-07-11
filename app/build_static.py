@@ -29,4 +29,4 @@ def build(out: Path = DEFAULT_OUT, lens_strength: float = 0.5) -> Path:
 
 if __name__ == "__main__":
     path = build()
-    print(f"wrote {path}")  # noqa: T201
+    print(f"wrote {path}")
