@@ -1,6 +1,6 @@
 # Project Scope
 
-Last reviewed: 2026-07-08. Base branch: `main`.
+Last verified: 2026-07-08 · Recheck cadence: per docs change. Base branch: `main`.
 
 This file is a plain-language map of the project as it exists on `main`. It does not replace the README, roadmap, audit docs, or source comments. It points to them so a reviewer can see the whole shape without reading every file first.
 
@@ -68,7 +68,7 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked 24 hand-authored doc or metadata files, 18 test files, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and large generated artifact history.
+This pass checked 24 hand-authored doc or metadata files, 18 files under `tests/` (16 test modules plus `conftest.py` and `__init__.py`), and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and large generated artifact history.
 
 Primary docs checked:
 

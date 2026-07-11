@@ -1,6 +1,6 @@
 # Documentation Audit
 
-Last reviewed: 2026-07-08. Base branch: `main`.
+Last verified: 2026-07-08 · Recheck cadence: per docs change. Base branch: `main`.
 
 This audit records the documentation sweep and remediation loop for this repository. It checks the docs as a system: entry points, root-level process and legal files, project scope, setup and validation notes, safety and privacy posture, architecture and planning docs, local links, and the places where code, tests, workflows, and docs meet.
 
