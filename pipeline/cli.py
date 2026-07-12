@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast
 
+from app.render import render_cards_html
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
 from recommender.eval import check_regression, evaluate, fairness_report, to_report
@@ -216,6 +217,23 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    recs = recommend(
+        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+    )
+    html = render_cards_html(recs, lens_strength=args.lens, username=DEMO_USER)
+    privacy_footer = (
+        "<footer><p><strong>Privacy note:</strong> this report contains listening "
+        "taste and recommendation data. Share it only with people you intend to.</p></footer>"
+    )
+    html = html.replace("</body>", f"{privacy_footer}</body>")
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    print(f"wrote {out}")  # noqa: T201
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -243,6 +261,14 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_report = sub.add_parser(
+        "report", help="write a self-contained, accessible HTML discovery report"
+    )
+    p_report.add_argument("--k", type=int, default=10)
+    p_report.add_argument("--lens", type=float, default=0.5)
+    p_report.add_argument("--out", default="my-discoveries.html")
+    p_report.set_defaults(func=_cmd_report)
 
     p_ref = sub.add_parser(
         "refresh", help="re-enrich the local cache, reporting identity-label changes"

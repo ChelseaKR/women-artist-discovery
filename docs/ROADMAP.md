@@ -17,7 +17,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
   - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
-  - *Could:* acoustic/content features; a "discovery report"; additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -80,6 +80,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
   lens is applied. Every shared why-card surface states whether the lens moved
   the pick and, if so, from which rank to which rank. Unknown-identity picks
   are test-asserted never to improve from a boost they did not receive.
+
+### Build log addendum (2026-07-03) — EXP-11: shareable static discovery report
+- `wad report` writes a self-contained HTML file with the same renderer and
+  accessibility gate as the committed dashboard artifact. `--k`, `--lens`,
+  and `--out` make it a user feature without adding a second rendering path.
 
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
