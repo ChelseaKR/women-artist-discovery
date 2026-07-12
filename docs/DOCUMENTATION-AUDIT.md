@@ -10,9 +10,9 @@ This audit records the documentation sweep and remediation loop for this reposit
 | --- | --- | --- |
 | Entry docs | pass | `README.md` present |
 | Security/process docs | pass | CONTRIBUTING.md, SECURITY.md, CHANGELOG.md |
-| Architecture/planning docs | pass | 4 ADRs; roadmap plus 5 ideation docs |
+| Architecture/planning docs | pass | 4 ADRs; roadmap, 5 ideation docs, and 2 research docs |
 | Safety/privacy/audit docs | pass | 11 safety/privacy/accessibility/audit docs |
-| Validation surface | pass | 36 Python test files; 7 workflow files |
+| Validation surface | pass | 38 Python test files; 7 workflow files |
 | Local doc links | pass | Authored-doc relative links rechecked; 0 unresolved |
 
 ## Root-Level Documentation Audit
@@ -87,7 +87,7 @@ Workflow files checked:
 | architecture and interfaces | 4 | `docs/adr/0000-record-architecture-decisions.md`, `docs/adr/0001-single-maintainer-review-posture.md`, `docs/adr/0002-python-floor-3.10-not-3.12.md`, `docs/adr/0003-hatchling-build-backend.md` |
 | entry points and repo process | 9 | `.github/PULL_REQUEST_TEMPLATE.md`, `CHANGELOG.md`, `CITATION.cff`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, `README.md`, plus 1 more |
 | other docs | 5 | `CODEOWNERS`, `DEFINITION_OF_DONE.md`, `docs/I18N.md`, `docs/PROJECT-SCOPE.md`, `docs/README.md` |
-| planning and research | 6 | `docs/ROADMAP.md` and `docs/ideation/` |
+| planning and research | 8 | `docs/ROADMAP.md`, `docs/RESEARCH-ROADMAP.md`, `docs/USER-RESEARCH.md`, and `docs/ideation/` |
 | safety, privacy, accessibility, and audits | 11 | `docs/DOCUMENTATION-AUDIT.md`, `docs/RESPONSIBLE-TECH-AUDITS.md`, both accessibility reports, and the audit cards/registers under `docs/audits/` |
 | methods writeup | 1 | `docs/writeup/methods.md` |
 
@@ -109,6 +109,8 @@ Full hand-authored doc inventory checked by this pass:
 - `docs/PROJECT-SCOPE.md`
 - `docs/README.md`
 - `docs/RESPONSIBLE-TECH-AUDITS.md`
+- `docs/RESEARCH-ROADMAP.md`
+- `docs/USER-RESEARCH.md`
 - `docs/ROADMAP.md`
 - `docs/adr/0000-record-architecture-decisions.md`
 - `docs/adr/0001-single-maintainer-review-posture.md`

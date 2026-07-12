@@ -18,7 +18,7 @@ public figures (artists), never about the user.
 
 ## Outbound data flows
 
-There are exactly two outbound paths, both purpose-limited:
+There are two product data-flow purposes plus one opt-in diagnostic probe:
 
 1. **Last.fm / enrichment fetch** — confined to `pipeline/lastfm.py` (asserted by
    `tests/test_privacy.py`), cached locally, rate-limit-respecting.
@@ -36,6 +36,8 @@ There are exactly two outbound paths, both purpose-limited:
    (`WAD_SPOTIFY_CLIENT_ID`, `WAD_SPOTIFY_CLIENT_SECRET`, `WAD_SPOTIFY_REDIRECT_URI`)
    and the OAuth access/refresh tokens are held in memory for the session, never
    written to disk or committed.
+3. **Upstream diagnostics** — `wad doctor --check-upstream` performs explicit,
+   opt-in reachability probes and sends no listening history or identity data.
 
 ## Egress registry / allowlist (FIX-07)
 
@@ -84,10 +86,13 @@ new client will fail the merge-blocking privacy gate:
   recommended artist names (see "Outbound data flows" below).
 - **No telemetry / no third-party analytics.** Enforced by source scan:
   `tests/test_privacy.py` asserts no analytics SDK is imported and that network
-  egress exists **only** in the two modules on the "Egress registry /
-  allowlist" above (`pipeline/lastfm.py`, `export/spotify.py`); the cache uses
+  egress exists **only** in the three modules in the "Egress registry /
+  allowlist" above; the cache uses
   stdlib `sqlite3` only. Backed by a runtime socket guard (see below) so the
   claim holds even for indirect/transitive egress.
+- **Exports exclude identity data.** `tests/test_export_schema.py` checks every
+  portable format's schema and rendered content so gender, identity basis, and
+  provenance cannot silently become a redistributable sidecar.
 - **Data minimisation & lineage.** Only what's needed is stored, each row with a
   `fetched_at` timestamp (`pipeline/cache.py`, `tests/test_cache_serde.py`).
 - **Deletion path.** `make clean` removes the local cache (`data/*.db`); there is

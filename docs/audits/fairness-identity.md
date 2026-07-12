@@ -1,7 +1,7 @@
 # Fairness & Bias — Identity
 
 > Instantiates RESPONSIBLE-TECH-AUDITS §B.
-> **Last verified: 2026-05-31 · Recheck cadence: per recommender change.**
+> **Last verified: 2026-07-11 · Recheck cadence: per recommender change.**
 
 ## Segments
 
@@ -33,12 +33,30 @@ other), and by **popularity tier** (listener count).
    lens strength; he simply receives no boost. `tests/test_rerank.py`,
    `tests/test_unknown_first_class.py::test_man_and_unknown_are_not_penalised_*`.
 
+## Measurement & visibility
+
+Beyond the pass/fail gates above, two **descriptive** instruments report fairness
+per run (deliberately not target-driven — they measure, they do not set quotas):
+
+- **Identity-coverage readout** (`recommender/coverage.py`) — "N of K picks carry a
+  sourced identity; M surfaced on musical similarity alone." Makes *unknown is
+  first-class* legible in the CLI, the dashboard, and the committed static render,
+  framing the (common, expected) unknown case as normal, never a gap.
+  `tests/test_coverage_readout.py`.
+- **Exposure / rank metric** (`recommender/exposure.py`) — top-k exposure share,
+  unknown retention, mean rank shift by identity segment, and a popularity-tier
+  cross-tab across a lens sweep, reported in `eval-report.json`. It shows what the
+  bounded lens changes while separately enforcing that unknown artists are never
+  dropped or score-penalised. `tests/test_exposure.py`.
+
 ## Enforcement summary
 
 | Commitment | Gate | Where |
 |------------|------|-------|
 | Nonbinary representable end-to-end | auto | `tests/test_identity_model.py` |
 | Unknown retained, never penalised | auto | `tests/test_unknown_first_class.py` |
+| Unknown coverage surfaced, not buried | auto | `tests/test_coverage_readout.py` |
+| Per-segment exposure reported per run | auto | `tests/test_exposure.py`, `eval-report.json` |
 | Bounded, taste-preserving boost | auto | `tests/test_rerank.py` |
 | Hybrid beats popularity baseline | auto | `tests/test_eval.py`, `eval-report.json` |
 | Representational-harm judgement | review | fairness sign-off on change |

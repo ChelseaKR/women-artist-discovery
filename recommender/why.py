@@ -211,7 +211,11 @@ def rank_shift_statement(rank: int, base_rank: int) -> str:
 def why_this_artist(rec: Recommendation) -> WhyThisArtist:
     """Build the shared, transparent 'why this artist' view for a recommendation."""
     expl = rec.explanation
-    reasons = tuple(_reason_line(s.kind, s.detail) for s in expl.signals)
+    reasons = (
+        *(_reason_line(s.kind, s.detail) for s in expl.signals),
+        "ranking: popularity is not an input; this pick is taste, optional "
+        "per-artist feedback, and the bounded sourced-identity lens",
+    )
     headline = expl.signals[0].detail if expl.signals else "in your discovery catalog"
     provenance = tuple(ProvenanceItem.from_source(s) for s in expl.identity_sources)
     return WhyThisArtist(

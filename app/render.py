@@ -21,12 +21,27 @@ from html import escape
 from typing import cast
 
 from pipeline.models import Recommendation
+from recommender.coverage import IdentityCoverage, identity_coverage
 from recommender.upstream import upstream_edit_url
 from recommender.why import ProvenanceItem, WhyThisArtist, why_this_artist
 
 
 def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
+
+
+def _coverage_html(coverage: IdentityCoverage) -> str:
+    rows = [
+        f"<li>{escape(label)}: {count}</li>"
+        for label, count in coverage.basis_breakdown()
+        if count > 0 or label.startswith("Unknown")
+    ]
+    return (
+        '<section aria-labelledby="coverage-h">'
+        '<h2 id="coverage-h">Identity coverage</h2>'
+        f"<p>{escape(coverage.summary_line())}</p>"
+        "<ul>" + "".join(rows) + "</ul><p>This readout is descriptive, not a quota.</p></section>"
+    )
 
 
 def _rank_shift_line(why: WhyThisArtist) -> str:
@@ -243,6 +258,7 @@ def render_cards_html(
     ``"light"``/``"dark"`` pin that palette so the a11y gate audits both schemes.
     """
     cards = "".join(_card_html(r) for r in recs)
+    coverage_html = _coverage_html(identity_coverage(recs))
     lens_pct = f"{lens_strength:.0%}"
     return (
         "<!doctype html>"
@@ -259,6 +275,7 @@ def render_cards_html(
         "score, and artists with unknown identity are surfaced on musical merit "
         "alone.</p></header>"
         '<main id="main">'
+        f"{coverage_html}"
         "<h2>Score summary</h2>"
         f"{_table_html(recs)}"
         f"{_exposure_panel_html(exposure_panel)}"

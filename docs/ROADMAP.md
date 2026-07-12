@@ -16,8 +16,8 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Vision.** Discovery that respects both taste and identity, without essentialism.
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
-  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune future rankings~~ (implemented 2026-07-11).
-  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Should:* ~~playlist/export~~; ~~thumbs feedback to tune future rankings~~ (implemented). ListenBrainz collaborative signal is deferred pending a separate provider/privacy/live-data validation pass.
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses only after affected-community and sourcing review.
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -33,7 +33,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 
 ## 6. Architecture
 - **Shape.** Python pipeline (ingest → enrich → recommend → re-rank → explain) + SQLite cache + Streamlit UI.
-- **Recommender.** Collaborative (Last.fm/ListenBrainz similar-artist signal) + content (tags/genres) hybrid; a re-rank layer applies *sourced* identity weights.
+- **Recommender.** Collaborative Last.fm similar-artist signal + content (tags/genres) hybrid; a re-rank layer applies *sourced* identity weights.
 - **Identity resolver.** Pulls only from permitted sources, attaches source + confidence to every label, and defaults to unknown. There is deliberately **no** inference path.
 - **Key decisions (ADRs).** Streamlit over React (solo speed, data-app shape; React noted as a later option). Hybrid over single-method (cold-start + serendipity). Identity = sourced-only with unknown-first-class (rejected: name/voice/image/genre inference — unethical and inaccurate). Cache + rate-limit respect (rejected: aggressive scraping).
 

@@ -42,6 +42,7 @@ from pipeline.demo import DEMO_USER, demo_catalog, demo_scrobbles, demo_source
 from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation, Scrobble
+from recommender.coverage import identity_coverage
 from recommender.exposure import observability_panel
 from recommender.feedback import Feedback
 from recommender.hybrid import recommend
@@ -276,6 +277,14 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         lens_strength=lens,
         explore=explore,
         feedbacks=feedbacks,
+    )
+
+    coverage = identity_coverage(recs)
+    st.subheader("Identity coverage")
+    st.write(coverage.summary_line())
+    st.caption(
+        "This is descriptive, not a quota. Unknown identity is a normal, "
+        "first-class outcome and never lowers an artist's score."
     )
 
     st.subheader("Score summary")

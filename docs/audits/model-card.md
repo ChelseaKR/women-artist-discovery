@@ -25,7 +25,7 @@ component anywhere in the pipeline — see the AI-evaluation status declaration 
 ## Inputs
 
 - The user's Last.fm scrobbles and tags (`pipeline/lastfm.py`, cached locally).
-- Enrichment from MusicBrainz/ListenBrainz, Wikidata, and Discogs, resolved through
+- Enrichment evidence from MusicBrainz, Wikidata, Discogs, and cited artist statements, resolved through
   `pipeline/identity.py` into a sourced, cited `IdentityLabel` or `BandComposition` — never
   inferred from name, voice, image, or genre (see `docs/audits/identity-data-ethics.md`).
 

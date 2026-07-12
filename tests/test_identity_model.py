@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from pipeline.identity import IdentityEvidence, resolve_composition, resolve_identity
 from pipeline.models import (
@@ -46,6 +48,28 @@ def test_wikidata_qids_map_respectfully() -> None:
             [IdentityEvidence(SourceKind.WIKIDATA_P21, qid, "wd://x", "2026-05-31")]
         )
         assert label.gender is expected, qid
+
+
+@pytest.mark.parametrize(
+    ("qid", "expected", "boosted"),
+    [
+        ("Q1052281", Gender.WOMAN, True),
+        ("Q1097630", Gender.OTHER, False),
+    ],
+)
+def test_trans_and_intersex_labels_survive_end_to_end(
+    profile, catalog, source, qid: str, expected: Gender, boosted: bool
+) -> None:
+    label = resolve_identity(
+        [IdentityEvidence(SourceKind.WIKIDATA_P21, qid, "wd://x", "2026-07-11")]
+    )
+    changed_catalog = dict(catalog)
+    changed_catalog["mystery-act"] = replace(catalog["mystery-act"], identity=label)
+    recs = recommend(profile, changed_catalog, source, k=99, lens_strength=1.0)
+    result = next(rec for rec in recs if rec.artist.artist_id == "mystery-act")
+    assert result.artist.identity.gender is expected
+    assert result.explanation.identity_basis is IdentityBasis.SELF_IDENTIFIED
+    assert (result.rerank_delta > 0) is boosted
 
 
 def test_unrecognised_qid_stays_unknown() -> None:

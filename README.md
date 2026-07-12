@@ -19,7 +19,7 @@
 Your library leans toward women and female-fronted bands by taste, but no recommender helps you lean into that on purpose without either ignoring identity entirely or guessing it crudely. Doing this *well* — sourced, transparent, non-essentialist — is the whole point and the interesting part.
 
 ## What it does
-- **Pulls your listening** (scrobbles + tags) from Last.fm; enriches with MusicBrainz/ListenBrainz, Wikidata, and Discogs.
+- **Pulls your listening** (scrobbles + tags) from Last.fm; the identity model accepts cited MusicBrainz, Wikidata, Discogs-lineup, and artist-statement evidence through explicit adapters/fixtures.
 - **Hybrid recommendations:** collaborative similarity + content/tags, then a values-aware re-rank.
 - **Sourced identity, never inferred:** identity basis is shown and cited; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
 - **Explains every pick:** a shared "Why this artist" view — why (which signals) + identity basis + provenance (the *raw value each source asserted*, never inferred).

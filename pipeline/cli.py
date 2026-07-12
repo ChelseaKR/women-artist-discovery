@@ -19,6 +19,7 @@ from typing import cast
 from app.render import render_cards_html
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
+from recommender.coverage import identity_coverage
 from recommender.eval import (
     check_regression,
     eval_real,
@@ -229,6 +230,7 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         explore=args.explore,
         feedbacks=feedbacks,
     )
+    print(f"Identity coverage: {identity_coverage(recs).summary_line()}")  # noqa: T201
     for rec in recs:
         why = why_this_artist(rec)
         print(f"{rec.rank:>2}. {rec.artist.name:<22} score={rec.score:.3f}")  # noqa: T201

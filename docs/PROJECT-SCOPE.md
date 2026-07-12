@@ -68,7 +68,7 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked the 31 authored Markdown files, 36 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
+This pass checked the 33 authored Markdown files, 38 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
 
 Primary docs checked:
 
@@ -83,6 +83,8 @@ Primary docs checked:
 - `SECURITY.md`
 - `docs/I18N.md`
 - `docs/RESPONSIBLE-TECH-AUDITS.md`
+- `docs/RESEARCH-ROADMAP.md`
+- `docs/USER-RESEARCH.md`
 - `docs/ROADMAP.md`
 - `docs/adr/0000-record-architecture-decisions.md`
 - `docs/adr/0001-single-maintainer-review-posture.md`

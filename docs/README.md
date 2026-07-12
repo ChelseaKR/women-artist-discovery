@@ -20,4 +20,6 @@ Last verified: 2026-07-11 · Recheck cadence: per docs change.
 - [Contributing](../CONTRIBUTING.md)
 - [I18N](I18N.md)
 - [Ideation and sequencing](ideation/README.md)
+- [Synthetic user-research hypotheses](USER-RESEARCH.md)
+- [Research-backed roadmap and dispositions](RESEARCH-ROADMAP.md)
 - [Methods writeup](writeup/methods.md)
