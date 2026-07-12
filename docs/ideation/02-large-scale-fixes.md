@@ -1,6 +1,26 @@
 # Large-Scale Fixes (2026-07-01)
 
-Deep structural fixes, all net-new (none appears in `docs/ROADMAP.md`).
+Last verified: 2026-07-11
+
+## Current disposition
+
+This was an ideation backlog, not a promise to ship every entry. After the PR
+drain, the ledger is:
+
+- **Implemented:** FIX-02 and FIX-04 through FIX-08, plus FIX-10 through
+  FIX-14. Their acceptance paths are covered by the cache/ingest, fairness,
+  OAuth, property, operability, benchmark, and confidence tests and docs.
+- **Deferred:** FIX-01 (live username-to-enriched-catalog orchestration) and
+  FIX-03 (cross-provider canonical entity resolution). Shipping either without
+  real provider contracts, credentials, and live-data validation would turn a
+  demo into a falsely advertised production path. The README now states this
+  boundary explicitly.
+- **Human/external-gated:** FIX-09. The static product artifact passes three
+  pa11y/axe renders, but Streamlit DOM behavior and a VoiceOver/NVDA walkthrough
+  require an actual browser/assistive-technology pass. A re-platform is not
+  justified without findings from that pass.
+
+The original candidate descriptions follow for historical context.
 Effort tiers: S (≤1 day), M (2–5 days), L (1–3 weeks), XL (3+ weeks).
 
 Known nit, mentioned but **not** counted as a large-scale fix: `pip-audit`

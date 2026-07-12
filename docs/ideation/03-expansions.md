@@ -1,5 +1,23 @@
 # Expansions (2026-07-01)
 
+Last verified: 2026-07-11
+
+## Current disposition
+
+- **Implemented:** EXP-01 through EXP-06, EXP-10, and EXP-11.
+- **Deferred pending provider/live validation:** EXP-07. EXP-08 was reviewed
+  and rejected in its current form: ListenBrainz populated playlists require
+  MusicBrainz recording MBIDs, while this system recommends artists; claiming
+  all artist-name entries were matched would be false.
+- **Cross-repository/human-gated:** EXP-09 requires authority and coordinated
+  changes in another repository. EXP-13 requires affected-community input on
+  consent and revocation before a self-ID convention can be designed.
+- **Not accepted into the committed product scope:** EXP-12 and EXP-14 add
+  location or multi-person listening data and materially reopen the privacy
+  model. They remain ideas, not active roadmap work.
+
+The original horizon descriptions follow for historical context.
+
 Net-new expansion ideas in three horizons. Existing roadmap items are cited,
 never restated: ROADMAP already owns *ListenBrainz collaborative signal*,
 *thumbs feedback*, *acoustic/content features*, *a discovery report*, and
