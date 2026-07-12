@@ -30,6 +30,8 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from recommender.feedback import Feedback
+
 from pipeline.identity import IdentityEvidence
 from pipeline.models import Artist, Scrobble, SourceKind, UnsourcedIdentityError
 from pipeline.paths import default_db_path
@@ -38,7 +40,7 @@ from pipeline.serde import artist_from_dict, artist_to_dict
 DEFAULT_DB_PATH = default_db_path()
 
 #: Current on-disk schema version. Bump when a migration is added below.
-CACHE_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 4
 
 #: Default staleness horizon for cached HTTP responses / identity claims, in days.
 #: Applied by callers that pass ``ttl_days`` (or ``wad refresh``); the default is
@@ -93,6 +95,19 @@ CREATE TABLE IF NOT EXISTS corrections (
 CREATE INDEX IF NOT EXISTS idx_corrections_artist ON corrections(artist_id);
 """
 
+# v4: one current thumbs vote per listener and artist. Re-voting replaces the
+# prior value while retaining when the latest opinion was recorded.
+_MIGRATE_V4 = """
+CREATE TABLE IF NOT EXISTS feedback (
+    username   TEXT NOT NULL,
+    artist_id  TEXT NOT NULL,
+    vote       INTEGER NOT NULL CHECK(vote IN (-1, 1)),
+    ts         INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(username, artist_id)
+);
+"""
+
 
 class CacheSchemaError(RuntimeError):
     """Raised when a cache file's schema is newer than this code can safely read."""
@@ -110,11 +125,16 @@ def _migrate_to_v3(conn: sqlite3.Connection) -> None:
     conn.executescript(_MIGRATE_V3)
 
 
+def _migrate_to_v4(conn: sqlite3.Connection) -> None:
+    conn.executescript(_MIGRATE_V4)
+
+
 #: Forward-only migrations keyed by the schema version they *produce*.
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_to_v1,
     2: _migrate_to_v2,
     3: _migrate_to_v3,
+    4: _migrate_to_v4,
 }
 
 
@@ -298,6 +318,41 @@ class Cache:
         self.conn.executemany("DELETE FROM http_cache WHERE url = ?", [(u,) for u in stale])
         self.conn.commit()
         return len(stale)
+
+    # -- listener feedback -------------------------------------------------
+    def record_feedback(self, feedback: Feedback, fetched_at: str) -> None:
+        """Store the listener's current vote for an artist."""
+        self.conn.execute(
+            "INSERT INTO feedback(username, artist_id, vote, ts, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(username, artist_id) DO UPDATE SET "
+            "vote=excluded.vote, ts=excluded.ts, updated_at=excluded.updated_at",
+            (
+                feedback.username,
+                feedback.artist_id,
+                feedback.vote,
+                feedback.ts,
+                fetched_at,
+            ),
+        )
+        self.conn.commit()
+
+    def load_feedback(self, username: str) -> list[Feedback]:
+        """Load one current vote per artist in deterministic order."""
+        rows = self.conn.execute(
+            "SELECT username, artist_id, vote, ts FROM feedback "
+            "WHERE username = ? ORDER BY ts, artist_id",
+            (username,),
+        ).fetchall()
+        return [
+            Feedback(
+                username=row["username"],
+                artist_id=row["artist_id"],
+                vote=row["vote"],
+                ts=row["ts"],
+            )
+            for row in rows
+        ]
 
     # -- local corrections ledger (FIX-10) ---------------------------------
     def put_correction(self, artist_id: str, evidence: IdentityEvidence, entered_at: str) -> None:

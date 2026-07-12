@@ -2,6 +2,8 @@
 
 The base score is a convex blend ``alpha * collaborative + (1 - alpha) * content``,
 each signal min-max normalised across candidates so neither dominates by scale.
+Optional, artist-scoped thumbs feedback applies a bounded nudge to that base
+score; it never reads or generalises across identity.
 The values lens is then applied **boost-only** (see :mod:`recommender.rerank`),
 followed by an optional identity-blind serendipity/diversification pass (see
 :mod:`recommender.diversify`), and every result is explained.
@@ -26,6 +28,7 @@ from recommender.collaborative import CollabResult, collaborative_scores
 from recommender.content import ContentResult, content_scores
 from recommender.diversify import diversify
 from recommender.explain import build_explanation
+from recommender.feedback import Feedback, feedback_adjustment
 from recommender.rerank import sort_and_rank, values_boost_for_artist
 
 
@@ -42,6 +45,8 @@ def recommend(
     alpha: float = 0.5,
     lens_strength: float = 0.0,
     explore: float = 0.0,
+    feedbacks: list[Feedback] | None = None,
+    feedback_strength: float = 1.0,
 ) -> list[Recommendation]:
     """Produce the top-``k`` explained recommendations.
 
@@ -51,6 +56,8 @@ def recommend(
     :mod:`recommender.diversify`); 0 = pure relevance ranking (default,
     unchanged behaviour — this is what the offline eval compares against the
     popularity baseline), 1 = maximum tag-space diversity.
+    ``feedbacks`` contains the listener's current per-artist votes. The bounded
+    adjustment is part of the taste-side base score, before the values lens.
     """
     if not (0.0 <= alpha <= 1.0):
         raise ValueError("alpha must be in [0, 1]")
@@ -73,6 +80,9 @@ def recommend(
         t_res = content.get(aid, ContentResult())
         base = alpha * _normalise(c_res.score, collab_peak) + (1 - alpha) * _normalise(
             t_res.score, content_peak
+        )
+        base += feedback_adjustment(
+            artist, feedbacks or (), feedback_strength, username=profile.username
         )
         delta = values_boost_for_artist(artist, lens_strength)
         explanation = build_explanation(artist, c_res, t_res, delta, lens_strength)

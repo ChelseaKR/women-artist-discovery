@@ -16,7 +16,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Vision.** Discovery that respects both taste and identity, without essentialism.
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
-  - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
+  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune future rankings~~ (implemented 2026-07-11).
   - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
@@ -58,6 +58,10 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **numpy dropped, not adopted.** It was declared but never imported; the tag scorer uses sparse dictionary operations, so a dense-array dependency increased the runtime and audit surface without helping this workload. The app extra may still bring it transitively through pandas.
 - **`make bench` / `scripts/bench.py`** adds a seeded synthetic benchmark with 200 known artists, 5,000 candidates, and 50,000 scrobbles. It reports p50/p95 for collaborative, content, and end-to-end scoring without changing production randomness or ranking behavior.
 - **Measured p95 was approximately 140 ms** end-to-end on the implementation machine, below the two-second target. Content scoring was the largest component, but the evidence did not justify candidate pruning or a more complex representation.
+
+### Build log addendum (2026-07-11) — per-artist thumbs feedback
+- Added local, per-listener thumbs votes in cache schema v4, exposed in the dashboard and `wad feedback`. A re-vote replaces the current opinion for that listener/artist pair.
+- Feedback is a bounded adjustment to the taste-side base score. It is keyed only by listener and artist ID, never identity, so the values lens remains independently boost-only and its rank-shift counterfactual remains inspectable.
 
 ### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
 - **Done.** The "core network confined to `lastfm.py`" privacy guarantee was

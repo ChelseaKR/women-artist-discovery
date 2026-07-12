@@ -28,6 +28,7 @@ from recommender.eval import (
     to_report,
 )
 from recommender.exposure import observability_panel
+from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.upstream import upstream_edit_url
 from recommender.why import why_this_artist
@@ -216,13 +217,17 @@ def _cmd_pending_corrections(args: argparse.Namespace) -> int:
 
 
 def _cmd_recommend(args: argparse.Namespace) -> int:
+    profile = demo_profile()
+    with Cache(DEFAULT_DB_PATH) as cache:
+        feedbacks = cache.load_feedback(profile.username)
     recs = recommend(
-        demo_profile(),
+        profile,
         demo_catalog(),
         demo_source(),
         k=args.k,
         lens_strength=args.lens,
         explore=args.explore,
+        feedbacks=feedbacks,
     )
     for rec in recs:
         why = why_this_artist(rec)
@@ -234,13 +239,17 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
+    profile = demo_profile()
+    with Cache(DEFAULT_DB_PATH) as cache:
+        feedbacks = cache.load_feedback(profile.username)
     recs = recommend(
-        demo_profile(),
+        profile,
         demo_catalog(),
         demo_source(),
         k=args.k,
         lens_strength=args.lens,
         explore=args.explore,
+        feedbacks=feedbacks,
     )
     tracks = recommendations_to_tracks(recs)
     text = render(tracks, ExportFormat(args.format), playlist_name="Women-Artist Discovery")
@@ -251,6 +260,22 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"wrote {out}")  # noqa: T201
     else:
         print(text)  # noqa: T201
+    return 0
+
+
+def _cmd_feedback(args: argparse.Namespace) -> int:
+    """Record or replace one listener's vote for an artist."""
+    now = datetime.now(timezone.utc)
+    feedback = Feedback(
+        username=args.user,
+        artist_id=args.artist,
+        vote=1 if args.up else -1,
+        ts=int(now.timestamp()),
+    )
+    with Cache(args.db) as cache:
+        cache.record_feedback(feedback, fetched_at=now.date().isoformat())
+    direction = "up" if feedback.vote > 0 else "down"
+    print(f"recorded thumbs-{direction} for {args.artist} ({args.user})")  # noqa: T201
     return 0
 
 
@@ -337,6 +362,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_feedback = sub.add_parser("feedback", help="record a thumbs vote that tunes future rankings")
+    p_feedback.add_argument("--artist", required=True, help="artist_id to vote on")
+    p_feedback.add_argument("--user", default=DEMO_USER)
+    p_feedback.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    feedback_vote = p_feedback.add_mutually_exclusive_group(required=True)
+    feedback_vote.add_argument("--up", action="store_true")
+    feedback_vote.add_argument("--down", action="store_true")
+    p_feedback.set_defaults(func=_cmd_feedback)
 
     p_report = sub.add_parser(
         "report", help="write a self-contained, accessible HTML discovery report"

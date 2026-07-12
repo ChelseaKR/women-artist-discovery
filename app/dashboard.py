@@ -37,11 +37,13 @@ from export.spotify import (
     parse_redirect,
 )
 from export.tracklist import recommendations_to_tracks, render
+from pipeline.cache import DEFAULT_DB_PATH, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_scrobbles, demo_source
 from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation, Scrobble
 from recommender.exposure import observability_panel
+from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.lens import VALUES_LENS
 from recommender.why import why_this_artist
@@ -264,7 +266,17 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         era_start=era_start,
         era_end=era_end,
     )
-    recs = recommend(profile, catalog, source, k=10, lens_strength=lens, explore=explore)
+    with Cache(DEFAULT_DB_PATH) as cache:
+        feedbacks = cache.load_feedback(username)
+    recs = recommend(
+        profile,
+        catalog,
+        source,
+        k=10,
+        lens_strength=lens,
+        explore=explore,
+        feedbacks=feedbacks,
+    )
 
     st.subheader("Score summary")
     st.table(
@@ -279,7 +291,7 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
     )
 
     recs_by_lens = {
-        value: recommend(profile, catalog, source, k=10, lens_strength=value)
+        value: recommend(profile, catalog, source, k=10, lens_strength=value, feedbacks=feedbacks)
         for value in sorted({*LENS_GRID, lens})
     }
     panel = observability_panel(recs_by_lens, current_lens=lens, k=OBSERVABILITY_K)
@@ -324,6 +336,27 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
                     )
             else:
                 st.caption("Identity unknown — no sources, surfaced on merit.")
+            up_col, down_col = st.columns(2)
+            vote: int | None = None
+            if up_col.button(f"Thumbs up {rec.artist.name}", key=f"up-{rec.artist.artist_id}"):
+                vote = 1
+            if down_col.button(
+                f"Thumbs down {rec.artist.name}", key=f"down-{rec.artist.artist_id}"
+            ):
+                vote = -1
+            if vote is not None:
+                now = datetime.now(timezone.utc)
+                with Cache(DEFAULT_DB_PATH) as cache:
+                    cache.record_feedback(
+                        Feedback(
+                            username=username,
+                            artist_id=rec.artist.artist_id,
+                            vote=vote,
+                            ts=int(now.timestamp()),
+                        ),
+                        fetched_at=now.date().isoformat(),
+                    )
+                st.rerun()
 
     _render_export(recs, username)
 
