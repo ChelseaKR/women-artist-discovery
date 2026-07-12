@@ -61,10 +61,12 @@ def diversify(
     limit = len(recs) if k is None else max(0, min(k, len(recs)))
     if limit == 0:
         return []
-    # The relevance-only default must remain linear. Greedy MMR would produce
-    # the same order at quadratic cost on large catalogs.
+    # The relevance-only default must remain non-quadratic. Greedy MMR would produce
+    # the same order at quadratic cost on large catalogs. Sorting also preserves
+    # this public function's contract when a caller supplies an unranked list.
     if explore == 0.0:
-        return [rec.with_rank(i + 1) for i, rec in enumerate(recs[:limit])]
+        ordered = sorted(recs, key=lambda rec: (-rec.score, rec.artist.artist_id))
+        return [rec.with_rank(i + 1) for i, rec in enumerate(ordered[:limit])]
 
     remaining = list(recs)
     if not remaining:
