@@ -2,8 +2,8 @@ name: codeql
 
 # SEC-08 / CICD-20: static analysis over both the Python source and the
 # workflow files themselves. Weekly (catches newly-published query packs
-# against unchanged code) plus every push to main. PRs skip CodeQL because code
-# scanning is not enabled for this private repo.
+# against unchanged code) plus manual dispatch. Results stay in-run because
+# code scanning is not enabled for this private repo.
 
 on:
   workflow_dispatch: {}
@@ -22,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
       actions: read
     strategy:
       fail-fast: false
