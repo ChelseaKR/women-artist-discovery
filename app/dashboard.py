@@ -22,19 +22,24 @@ from __future__ import annotations
 
 import os
 import secrets
+from typing import Any, cast
 
 from export.models import ExportError, ExportFormat
 from export.spotify import (
+    PkcePair,
     RequestsTransport,
     SpotifyClient,
     SpotifyCredentials,
     SpotifyOAuth,
+    capture_redirect,
     export_recommendations,
+    parse_redirect,
 )
 from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
+from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 from recommender.lens import VALUES_LENS
 from recommender.why import why_this_artist
@@ -50,6 +55,85 @@ _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
     ("M3U playlist", ExportFormat.M3U, "audio/x-mpegurl"),
     ("JSPF (JSON)", ExportFormat.JSPF, "application/json"),
 )
+LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+OBSERVABILITY_K = 3
+
+
+def _finish_spotify_export(
+    st: Any,
+    oauth: SpotifyOAuth,
+    pkce: PkcePair,
+    code: str,
+    recs: list[Recommendation],
+    username: str,
+    make_public: bool,
+) -> None:
+    try:
+        token = oauth.exchange_code(code, code_verifier=pkce.verifier)
+        client = SpotifyClient(token, RequestsTransport())
+        result = export_recommendations(recs, client, username=username, public=make_public)
+    except ExportError as exc:
+        st.error(f"Export failed: {exc}")
+        return
+    st.success(
+        f"Created “{result.playlist_name}” with {result.matched_count}/"
+        f"{result.track_count} tracks matched."
+    )
+    if result.playlist_url:
+        st.markdown(f"[Open your playlist]({result.playlist_url})")
+    if result.unmatched:
+        st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+
+
+def _parse_spotify_redirect(st: Any, redirected: str, expected_state: str) -> str | None:
+    try:
+        return parse_redirect(redirected, expected_state)
+    except ExportError as exc:
+        st.error(f"Authorization failed: {exc}")
+        return None
+
+
+def _capture_spotify_redirect(st: Any, redirect_uri: str, state: str) -> str | None:
+    try:
+        with st.spinner("Waiting for Spotify to redirect back to 127.0.0.1…"):
+            redirected = capture_redirect(redirect_uri)
+    except ExportError as exc:
+        st.error(f"Authorization failed: {exc}")
+        return None
+    return _parse_spotify_redirect(st, redirected, state)
+
+
+def _render_spotify_panel(st: Any, recs: list[Recommendation], username: str) -> None:
+    try:
+        creds = SpotifyCredentials.from_env(os.environ)
+    except ExportError as exc:
+        st.info(
+            f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
+            "live Spotify export. The portable formats above work without it."
+        )
+        return
+    oauth = SpotifyOAuth(creds, RequestsTransport())
+    st.session_state.setdefault("spotify_state", secrets.token_urlsafe(16))
+    st.session_state.setdefault("spotify_pkce", PkcePair.generate())
+    pkce: PkcePair = st.session_state["spotify_pkce"]
+    state: str = st.session_state["spotify_state"]
+    auth_url = oauth.authorize_url(state, code_challenge=pkce.challenge)
+    st.markdown(f"1. [Authorize on Spotify]({auth_url})")
+    make_public = st.checkbox("Make the playlist public", value=False)
+    st.markdown("2. Waiting on the local redirect — or paste the URL yourself:")
+
+    if st.button("Listen for the Spotify redirect (recommended)"):
+        code = _capture_spotify_redirect(st, creds.redirect_uri, state)
+        if code:
+            _finish_spotify_export(st, oauth, pkce, code, recs, username, make_public)
+
+    redirected_url = st.text_input(
+        "…or paste the full URL you were redirected to (fallback)", type="password"
+    )
+    if st.button("Create Spotify playlist from pasted URL") and redirected_url:
+        code = _parse_spotify_redirect(st, redirected_url, state)
+        if code:
+            _finish_spotify_export(st, oauth, pkce, code, recs, username, make_public)
 
 
 def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma: no cover - UI glue
@@ -73,40 +157,7 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
         )
 
     with st.expander("Connect Spotify and push a playlist"):
-        try:
-            creds = SpotifyCredentials.from_env(os.environ)
-        except ExportError as exc:
-            st.info(
-                f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
-                "live Spotify export. The portable formats above work without it."
-            )
-            return
-
-        oauth = SpotifyOAuth(creds, RequestsTransport())
-        if "spotify_state" not in st.session_state:
-            st.session_state["spotify_state"] = secrets.token_urlsafe(16)
-        auth_url = oauth.authorize_url(st.session_state["spotify_state"])
-        st.markdown(
-            f"1. [Authorize on Spotify]({auth_url}) and copy the `code` you're redirected to."
-        )
-        code = st.text_input("2. Paste the authorization code", type="password")
-        make_public = st.checkbox("Make the playlist public", value=False)
-        if st.button("Create Spotify playlist") and code:
-            try:
-                token = oauth.exchange_code(code)
-                client = SpotifyClient(token, RequestsTransport())
-                result = export_recommendations(recs, client, username=username, public=make_public)
-            except ExportError as exc:
-                st.error(f"Export failed: {exc}")
-                return
-            st.success(
-                f"Created “{result.playlist_name}” with {result.matched_count}/"
-                f"{result.track_count} tracks matched."
-            )
-            if result.playlist_url:
-                st.markdown(f"[Open your playlist]({result.playlist_url})")
-            if result.unmatched:
-                st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+        _render_spotify_panel(st, recs, username)
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime
@@ -154,6 +205,29 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         }
     )
 
+    recs_by_lens = {
+        value: recommend(profile, catalog, source, k=10, lens_strength=value)
+        for value in sorted({*LENS_GRID, lens})
+    }
+    panel = observability_panel(recs_by_lens, current_lens=lens, k=OBSERVABILITY_K)
+    exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    retention_row = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention_row["by_lens"])
+    st.subheader(f"Fairness observability (top {OBSERVABILITY_K})")
+    st.table(
+        {
+            "Identity segment": [row["segment"] for row in exposure_rows],
+            "Base share": [f"{cast(float, row['base_share']):.0%}" for row in exposure_rows],
+            "Current share": [f"{cast(float, row['current_share']):.0%}" for row in exposure_rows],
+        }
+    )
+    st.table(
+        {
+            "Identity segment": [retention_row["segment"]],
+            **{f"Lens {key}": [f"{value:.0%}"] for key, value in by_lens.items()},
+        }
+    )
+
     st.subheader("Recommendations")
     for rec in recs:
         why = why_this_artist(rec)
@@ -164,6 +238,7 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
                 f"+ values lens {rec.rerank_delta:.3f}"
             )
             st.write(f"● Identity: {why.identity_statement}")
+            st.caption(f"Rank shift: {why.rank_shift}")
             st.markdown("**Why this artist**")
             for reason in why.reasons:
                 st.markdown(f"- {reason}")

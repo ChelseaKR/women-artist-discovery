@@ -1,7 +1,7 @@
 # Residual-Risk Register
 
 > Instantiates RESPONSIBLE-TECH-AUDITS §F (security narrative + residual risk).
-> **Last verified: 2026-06-30 (Python 3.10+ migration — RR-1 + RR-4 resolved) · Recheck cadence: per dependency / threat-model change.**
+> **Last verified: 2026-07-03 (Spotify OAuth hardening — FIX-08 landed) · Recheck cadence: per dependency / threat-model change.**
 
 ## Threat model (STRIDE-lite) of the data flows
 
@@ -13,6 +13,7 @@
 | Tampering | corrupt cache row asserting an unsourced identity | model invariants re-run on load — fails closed (`tests/test_cache_serde.py::test_corrupt_cache_row_*`) |
 | Info disclosure | API key leakage | key from env only; secret scan merge-blocking (`scripts/secret-scan.sh`, CI gitleaks) |
 | Info disclosure | listening data exfiltration | local-first; no telemetry; network confined to the API client (`tests/test_privacy.py`) |
+| Spoofing / CSRF | authorization-code interception or forged `state` in the Spotify export OAuth flow | PKCE (S256 challenge/verifier, `PkcePair`) binds the token exchange to the party that started the flow; `state` is generated per session and verified on return (`parse_redirect` raises `ExportError("OAuth state mismatch — possible CSRF")` on mismatch — a tested failure path, not just a generated-but-unchecked value); the redirect is captured by a loopback listener bound to `127.0.0.1` (`capture_redirect`) rather than requiring the user to hand-copy a bare code across tabs (`export/spotify.py`, `tests/test_export.py`) |
 | DoS / abuse | hammering upstream APIs | `RateLimiter` + response cache (`pipeline/lastfm.py`, `tests/test_adapters.py`) |
 | Elevation / supply chain | vulnerable dependency | `pip-audit` merge-blocking; ruff bandit (`S`) SAST subset |
 
