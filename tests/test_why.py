@@ -10,6 +10,7 @@ from recommender.why import (
     WhyThisArtist,
     artist_identity_phrase,
     conflict_note,
+    rank_shift_statement,
     why_this_artist,
 )
 
@@ -29,6 +30,7 @@ def test_every_recommendation_yields_a_why(profile, catalog, source) -> None:
         assert why.headline
         assert why.reasons
         assert why.identity_statement
+        assert why.rank_shift
 
 
 def test_sourced_woman_shows_provenance_not_inference(profile, catalog, source) -> None:
@@ -79,6 +81,33 @@ def test_markdown_and_text_round_trip_the_reasons(profile, catalog, source) -> N
         # Reasons appear in both renderings (markdown bullet / text bullet).
         assert reason in md
         assert reason in txt
+    assert why.rank_shift in md and why.rank_shift in txt
+
+
+def test_rank_shift_statement_wording() -> None:
+    assert rank_shift_statement(4, 9) == "the values lens moved this pick from #9 to #4"
+    assert rank_shift_statement(3, 3) == "the values lens did not change this pick's position"
+    assert rank_shift_statement(5, 0) == "the values lens did not change this pick's position"
+
+
+def test_rank_shift_reflects_boost(profile, catalog, source) -> None:
+    rec = _rec_for(profile, catalog, source, "boygenius", lens=1.0)
+    assert rec.base_rank == 3 and rec.rank == 2
+    assert why_this_artist(rec).rank_shift == "the values lens moved this pick from #3 to #2"
+
+
+def test_rank_shift_unchanged_at_zero_lens(profile, catalog, source) -> None:
+    for rec in recommend(profile, catalog, source, k=99, lens_strength=0.0):
+        assert rec.rank == rec.base_rank
+        assert why_this_artist(rec).rank_shift == (
+            "the values lens did not change this pick's position"
+        )
+
+
+def test_unknown_identity_never_shows_lens_caused_improvement(profile, catalog, source) -> None:
+    for rec in recommend(profile, catalog, source, k=99, lens_strength=1.0):
+        if why_this_artist(rec).identity_basis is IdentityBasis.UNKNOWN:
+            assert rec.rank >= rec.base_rank
 
 
 def test_artist_identity_phrase_matches_statement(profile, catalog, source) -> None:

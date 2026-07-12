@@ -28,6 +28,10 @@ def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
 
 
+def _rank_shift_line(why: WhyThisArtist) -> str:
+    return f"Rank shift: {escape(why.rank_shift)}"
+
+
 def _fix_at_source_link(item: ProvenanceItem) -> str:
     edit_url = upstream_edit_url(item.source_kind, item.citation)
     if edit_url is None:
@@ -91,6 +95,7 @@ def _card_html(rec: Recommendation) -> str:
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
         f'<p class="identity" data-basis="{basis}" data-inferred="false">'
         f"{_identity_line(why)}</p>"
+        f'<p class="rank-shift">{_rank_shift_line(why)}</p>'
         f"{_conflict_html(why, aid)}"
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
         f"{_provenance_html(why, aid)}"

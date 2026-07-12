@@ -351,6 +351,7 @@ class Recommendation:
     rerank_delta: float  # boost applied by the lens (>= 0, never negative)
     explanation: Explanation
     rank: int = 0
+    base_rank: int = 0  # counterfactual rank at lens_strength=0 (pure taste)
 
     @property
     def score(self) -> float:
@@ -358,3 +359,6 @@ class Recommendation:
 
     def with_rank(self, rank: int) -> Recommendation:
         return replace(self, rank=rank)
+
+    def with_base_rank(self, base_rank: int) -> Recommendation:
+        return replace(self, base_rank=base_rank)

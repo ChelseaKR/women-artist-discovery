@@ -89,6 +89,7 @@ class WhyThisArtist:
     provenance: tuple[ProvenanceItem, ...]
     inferred: bool = False
     conflict_note: str = ""
+    rank_shift: str = "the values lens did not change this pick's position"
 
     @property
     def identity_is_known(self) -> bool:
@@ -99,6 +100,7 @@ class WhyThisArtist:
         lines = [
             f"Why {self.artist_name}: {self.headline}",
             f"  Identity: {self.identity_statement}",
+            f"  Rank shift: {self.rank_shift}",
         ]
         if self.conflict_note:
             lines.append(f"  {self.conflict_note}")
@@ -122,6 +124,7 @@ class WhyThisArtist:
             f"**Why {self.artist_name}** — {self.headline}",
             "",
             f"_Identity:_ {self.identity_statement}",
+            f"_Rank shift:_ {self.rank_shift}",
         ]
         if self.conflict_note:
             parts.append("")
@@ -198,6 +201,13 @@ def _reason_line(kind: str, detail: str) -> str:
     return f"{kind}: {detail}"
 
 
+def rank_shift_statement(rank: int, base_rank: int) -> str:
+    """Explain lens movement against the pure-taste counterfactual."""
+    if base_rank == 0 or rank == base_rank:
+        return "the values lens did not change this pick's position"
+    return f"the values lens moved this pick from #{base_rank} to #{rank}"
+
+
 def why_this_artist(rec: Recommendation) -> WhyThisArtist:
     """Build the shared, transparent 'why this artist' view for a recommendation."""
     expl = rec.explanation
@@ -213,4 +223,5 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         provenance=provenance,
         inferred=False,
         conflict_note=conflict_note(rec.artist),
+        rank_shift=rank_shift_statement(rec.rank, rec.base_rank),
     )

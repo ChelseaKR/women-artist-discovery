@@ -75,6 +75,12 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
   added `import requests` in `app/dashboard.py` was confirmed to fail the
   source-scan gate, then reverted.
 
+### Build log addendum (2026-07-03) — EXP-02: rank-shift transparency — done
+- Every recommendation records its pure-taste `base_rank` before the values
+  lens is applied. Every shared why-card surface states whether the lens moved
+  the pick and, if so, from which rank to which rank. Unknown-identity picks
+  are test-asserted never to improve from a boost they did not receive.
+
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
 control-by-control status). Highlights: README now carries a real Standards Conformance table

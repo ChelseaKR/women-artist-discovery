@@ -7,6 +7,11 @@ and every result is explained.
 
 At ``lens_strength = 0`` the output is the pure-taste hybrid ranking — which is
 what the offline eval compares against the popularity baseline.
+
+Every recommendation also carries a ``base_rank``: its counterfactual position
+in that pure-taste ordering (``lens_strength = 0``), computed *before* the lens
+is applied. This lets every why-card say, in plain language, how the lens moved
+a pick — see :mod:`recommender.why`.
 """
 
 from __future__ import annotations
@@ -70,5 +75,13 @@ def recommend(
                 explanation=explanation,
             )
         )
+
+    # Counterfactual pure-taste rank (lens_strength=0): same tie-break as
+    # sort_and_rank, but keyed on base_score alone, so every card can say how
+    # (or whether) the values lens moved it. At lens_strength=0 this is
+    # identical to the lens-applied order by construction (score == base_score).
+    base_ordered = sorted(recs, key=lambda r: (-r.base_score, r.artist.artist_id))
+    base_rank_of = {r.artist.artist_id: i + 1 for i, r in enumerate(base_ordered)}
+    recs = [rec.with_base_rank(base_rank_of[rec.artist.artist_id]) for rec in recs]
 
     return sort_and_rank(recs)[:k]
