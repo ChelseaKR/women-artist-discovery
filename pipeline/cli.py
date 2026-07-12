@@ -17,7 +17,9 @@ from recommender.eval import evaluate, to_report
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
+from pipeline.cache import DEFAULT_DB_PATH, DEFAULT_HTTP_TTL_DAYS, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
+from pipeline.ingest import refresh_catalog
 
 
 def _cmd_eval(args: argparse.Namespace) -> int:
@@ -30,6 +32,32 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     if not report["hybrid_beats_popularity"]:
         print("FAIL: hybrid did not beat the popularity baseline", file=sys.stderr)  # noqa: T201
         return 1
+    return 0
+
+
+def _cmd_refresh(args: argparse.Namespace) -> int:
+    """FIX-04: force re-enrichment, report identity-label changes, expire stale http cache."""
+    from datetime import date
+
+    catalog = demo_catalog()
+    if args.artist:
+        catalog = {aid: a for aid, a in catalog.items() if aid == args.artist}
+        if not catalog:
+            print(f"no such artist: {args.artist}", file=sys.stderr)  # noqa: T201
+            return 1
+    today = date.today().isoformat()
+    with Cache(args.db) as cache:
+        expired = cache.expire_http_cache(ttl_days=args.ttl_days, now=today)
+        changes = refresh_catalog(cache, catalog, fetched_at=today)
+    if changes:
+        for change in changes:
+            print(  # noqa: T201
+                f"{change.artist_id}: {change.old.gender} -> {change.new.gender} "
+                f"(sources: {len(change.old.sources)} -> {len(change.new.sources)})"
+            )
+    else:
+        print("no identity-label changes")  # noqa: T201
+    print(f"expired {expired} stale http-cache row(s)")  # noqa: T201
     return 0
 
 
@@ -83,6 +111,19 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
     p_exp.set_defaults(func=_cmd_export)
+
+    p_ref = sub.add_parser(
+        "refresh", help="re-enrich the local cache, reporting identity-label changes"
+    )
+    p_ref.add_argument("--db", default=str(DEFAULT_DB_PATH), help="cache database path")
+    p_ref.add_argument("--artist", default=None, help="refresh only this artist_id")
+    p_ref.add_argument(
+        "--ttl-days",
+        type=int,
+        default=DEFAULT_HTTP_TTL_DAYS,
+        help="expire http-cache rows older than this many days",
+    )
+    p_ref.set_defaults(func=_cmd_refresh)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
