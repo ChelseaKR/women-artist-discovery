@@ -158,6 +158,9 @@ unknown-first-class test patterns ship *in the library* so every future
 adopter inherits the guardrails by default.
 
 ### EXP-10 — The methods writeup as a reproducible artifact
+**Status:** ✅ Implemented — `docs/writeup/methods.md` ties the threat model,
+type invariants, fairness evidence, and evaluation limits to reproducible
+artifacts; `scripts/writeup-check.py` prevents its reported metrics drifting.
 **Pitch:** Write the engineering-ethics piece ROADMAP §9 calls "the artifact"
 — "values-aware recommendation without inferring identity" — as a
 docs-plus-runnable-demo bundle.
