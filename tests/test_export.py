@@ -287,6 +287,23 @@ def test_parse_redirect_raises_when_code_missing() -> None:
         parse_redirect(url, expected_state="xyz")
 
 
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://127.0.0.1:8080/callback",
+        "http://0.0.0.0:8080/callback",
+        "http://192.168.1.10:8080/callback",
+    ],
+)
+def test_loopback_listener_rejects_non_loopback_or_https_uris(uri: str) -> None:
+    with pytest.raises(ExportError, match="HTTP loopback"):
+        sp._loopback_port(uri)
+
+
+def test_loopback_listener_accepts_localhost_and_returns_port() -> None:
+    assert sp._loopback_port("http://localhost:8765/callback") == 8765
+
+
 def test_refresh_reuses_old_refresh_token_when_absent() -> None:
     class NoRefresh(FakeTransport):
         def request(self, method, url, **kw):  # type: ignore[override]

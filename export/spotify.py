@@ -298,7 +298,7 @@ def parse_redirect(url: str, expected_state: str) -> str:
 class _RedirectCaptureHandler(http.server.BaseHTTPRequestHandler):
     """Stashes the redirected path/query on the server, then closes the tab."""
 
-    def do_GET(self) -> None:  # noqa: N802 - stdlib handler naming  # pragma: no cover
+    def do_GET(self) -> None:  # pragma: no cover - stdlib handler naming
         self.server.captured_path = self.path  # type: ignore[attr-defined]
         body = b"<html><body>Spotify authorized. You can close this tab.</body></html>"
         self.send_response(200)
@@ -311,6 +311,17 @@ class _RedirectCaptureHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def _loopback_port(redirect_uri: str) -> int:
+    """Validate a native-app loopback redirect and return its port."""
+    parsed = urllib.parse.urlparse(redirect_uri)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        raise ExportError("Spotify redirect URI must use HTTP loopback (127.0.0.1 or localhost)")
+    try:
+        return parsed.port or 80
+    except ValueError as exc:
+        raise ExportError("Spotify redirect URI has an invalid port") from exc
+
+
 def capture_redirect(  # pragma: no cover - binds a real socket, verified manually
     redirect_uri: str, timeout: float = _CAPTURE_TIMEOUT
 ) -> str:
@@ -321,10 +332,8 @@ def capture_redirect(  # pragma: no cover - binds a real socket, verified manual
     ``timeout`` elapses) — the native-app-recommended way to receive the OAuth
     redirect without the user having to copy-paste a URL by hand.
     """
-    parsed = urllib.parse.urlparse(redirect_uri)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 80
-    server = http.server.HTTPServer((host, port), _RedirectCaptureHandler)
+    port = _loopback_port(redirect_uri)
+    server = http.server.HTTPServer(("127.0.0.1", port), _RedirectCaptureHandler)
     server.timeout = timeout
     server.captured_path = None  # type: ignore[attr-defined]
     try:

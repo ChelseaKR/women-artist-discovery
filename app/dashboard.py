@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from typing import Any
 
 from export.models import ExportError, ExportFormat
 from export.spotify import (
@@ -54,6 +55,83 @@ _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
 )
 
 
+def _finish_spotify_export(
+    st: Any,
+    oauth: SpotifyOAuth,
+    pkce: PkcePair,
+    code: str,
+    recs: list[Recommendation],
+    username: str,
+    make_public: bool,
+) -> None:
+    try:
+        token = oauth.exchange_code(code, code_verifier=pkce.verifier)
+        client = SpotifyClient(token, RequestsTransport())
+        result = export_recommendations(recs, client, username=username, public=make_public)
+    except ExportError as exc:
+        st.error(f"Export failed: {exc}")
+        return
+    st.success(
+        f"Created “{result.playlist_name}” with {result.matched_count}/"
+        f"{result.track_count} tracks matched."
+    )
+    if result.playlist_url:
+        st.markdown(f"[Open your playlist]({result.playlist_url})")
+    if result.unmatched:
+        st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
+
+
+def _parse_spotify_redirect(st: Any, redirected: str, expected_state: str) -> str | None:
+    try:
+        return parse_redirect(redirected, expected_state)
+    except ExportError as exc:
+        st.error(f"Authorization failed: {exc}")
+        return None
+
+
+def _capture_spotify_redirect(st: Any, redirect_uri: str, state: str) -> str | None:
+    try:
+        with st.spinner("Waiting for Spotify to redirect back to 127.0.0.1…"):
+            redirected = capture_redirect(redirect_uri)
+    except ExportError as exc:
+        st.error(f"Authorization failed: {exc}")
+        return None
+    return _parse_spotify_redirect(st, redirected, state)
+
+
+def _render_spotify_panel(st: Any, recs: list[Recommendation], username: str) -> None:
+    try:
+        creds = SpotifyCredentials.from_env(os.environ)
+    except ExportError as exc:
+        st.info(
+            f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
+            "live Spotify export. The portable formats above work without it."
+        )
+        return
+    oauth = SpotifyOAuth(creds, RequestsTransport())
+    st.session_state.setdefault("spotify_state", secrets.token_urlsafe(16))
+    st.session_state.setdefault("spotify_pkce", PkcePair.generate())
+    pkce: PkcePair = st.session_state["spotify_pkce"]
+    state: str = st.session_state["spotify_state"]
+    auth_url = oauth.authorize_url(state, code_challenge=pkce.challenge)
+    st.markdown(f"1. [Authorize on Spotify]({auth_url})")
+    make_public = st.checkbox("Make the playlist public", value=False)
+    st.markdown("2. Waiting on the local redirect — or paste the URL yourself:")
+
+    if st.button("Listen for the Spotify redirect (recommended)"):
+        code = _capture_spotify_redirect(st, creds.redirect_uri, state)
+        if code:
+            _finish_spotify_export(st, oauth, pkce, code, recs, username, make_public)
+
+    redirected_url = st.text_input(
+        "…or paste the full URL you were redirected to (fallback)", type="password"
+    )
+    if st.button("Create Spotify playlist from pasted URL") and redirected_url:
+        code = _parse_spotify_redirect(st, redirected_url, state)
+        if code:
+            _finish_spotify_export(st, oauth, pkce, code, recs, username, make_public)
+
+
 def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma: no cover - UI glue
     import streamlit as st
 
@@ -75,65 +153,7 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
         )
 
     with st.expander("Connect Spotify and push a playlist"):
-        try:
-            creds = SpotifyCredentials.from_env(os.environ)
-        except ExportError as exc:
-            st.info(
-                f"{exc}. Set WAD_SPOTIFY_CLIENT_ID / _SECRET / _REDIRECT_URI to enable "
-                "live Spotify export. The portable formats above work without it."
-            )
-            return
-
-        oauth = SpotifyOAuth(creds, RequestsTransport())
-        if "spotify_state" not in st.session_state:
-            st.session_state["spotify_state"] = secrets.token_urlsafe(16)
-        if "spotify_pkce" not in st.session_state:
-            st.session_state["spotify_pkce"] = PkcePair.generate()
-        pkce: PkcePair = st.session_state["spotify_pkce"]
-        auth_url = oauth.authorize_url(
-            st.session_state["spotify_state"], code_challenge=pkce.challenge
-        )
-        st.markdown(f"1. [Authorize on Spotify]({auth_url})")
-        make_public = st.checkbox("Make the playlist public", value=False)
-
-        def _finish(code: str) -> None:
-            try:
-                token = oauth.exchange_code(code, code_verifier=pkce.verifier)
-                client = SpotifyClient(token, RequestsTransport())
-                result = export_recommendations(recs, client, username=username, public=make_public)
-            except ExportError as exc:
-                st.error(f"Export failed: {exc}")
-                return
-            st.success(
-                f"Created “{result.playlist_name}” with {result.matched_count}/"
-                f"{result.track_count} tracks matched."
-            )
-            if result.playlist_url:
-                st.markdown(f"[Open your playlist]({result.playlist_url})")
-            if result.unmatched:
-                st.caption("No Spotify match found for: " + ", ".join(result.unmatched))
-
-        st.markdown("2. Waiting on the local redirect — or paste the URL yourself:")
-        if st.button("Listen for the Spotify redirect (recommended)"):
-            with st.spinner("Waiting for Spotify to redirect back to 127.0.0.1…"):
-                try:
-                    redirected = capture_redirect(creds.redirect_uri)
-                    code = parse_redirect(redirected, st.session_state["spotify_state"])
-                except ExportError as exc:
-                    st.error(f"Authorization failed: {exc}")
-                    return
-            _finish(code)
-
-        redirected_url = st.text_input(
-            "…or paste the full URL you were redirected to (fallback)", type="password"
-        )
-        if st.button("Create Spotify playlist from pasted URL") and redirected_url:
-            try:
-                code = parse_redirect(redirected_url, st.session_state["spotify_state"])
-            except ExportError as exc:
-                st.error(f"Authorization failed: {exc}")
-                return
-            _finish(code)
+        _render_spotify_panel(st, recs, username)
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime
