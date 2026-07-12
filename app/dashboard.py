@@ -41,6 +41,7 @@ from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
 from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
+from recommender.lens import VALUES_LENS
 from recommender.why import why_this_artist
 
 
@@ -182,6 +183,10 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             "boosts — it never lowers anyone's score, and never penalises unknown."
         ),
     )
+    st.caption(f"Active lens: **{VALUES_LENS.name}**")
+    with st.expander("What exactly does this lens boost, and why?"):
+        st.write(VALUES_LENS.rationale)
+        st.caption(VALUES_LENS.harms_note)
 
     if os.environ.get("WAD_LASTFM_API_KEY") and username != DEMO_USER:
         st.info("Live mode would fetch this user; this demo build uses cached data.")

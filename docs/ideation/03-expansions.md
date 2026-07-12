@@ -11,7 +11,7 @@ Effort tiers: S (≤1 day), M (2–5 days), L (1–3 weeks), XL (3+ weeks).
 
 ## Horizon 1 — Deepen the core
 
-### EXP-01 — Fairness observability panel — **Done**
+### EXP-01 — Fairness observability panel
 **Pitch:** Put the exposure metrics (FIX-05) in the user's face: a dashboard
 section showing exposure share by identity basis and the unknown-retention
 curve as the lens slider moves.
@@ -25,11 +25,6 @@ report" by being live and lens-reactive rather than a periodic artifact.
 **Excellence bar:** Moving the lens slider visibly changes exposure shares
 while the unknown-retention row stays pinned at 100% — screenshot-able proof
 of the core claim.
-
-**Shipped:** the dashboard and static axe-gated report now share a table-first
-panel showing per-segment exposure at the pure-taste and current lens settings,
-plus unknown retention across the fixed lens grid. It is a display adapter over
-the same generated FIX-05 metrics used by the eval gate.
 
 ### EXP-02 — Rank-shift transparency in every why-card
 **Pitch:** Each card states what the lens actually did: "the values lens moved
@@ -45,6 +40,11 @@ falsifiable statement; deepens §D transparency beyond signals+sources.
 no unknown-identity card ever shows a negative shift attributable to the lens.
 
 ### EXP-03 — First-class lens specification (LensSpec)
+**Status:** ✅ Implemented on `roadmap/exp-03-first-class-lens-specification-le`
+— `recommender/lens.py` (`LensSpec`, `VALUES_LENS`), `recommender/rerank.py`
+(delegates to it; `MAX_BOOST` re-exported for compat), `app/dashboard.py`
+(renders the active lens's name + rationale), `docs/audits/identity-data-ethics.md`
+(the `Gender.OTHER` exclusion decided and documented), `tests/test_lens.py`.
 **Pitch:** Make the values lens a declared, inspectable object — which sourced
 attributes count as aligned, what the boost curve is — instead of constants
 scattered in code.
@@ -82,7 +82,7 @@ similarity — with an AST/behavioural guard in the spirit of
 rises with the slider; identity-segment exposure (FIX-05) statistically
 unchanged by the diversifier at any setting.
 
-### EXP-05 — "Fix it at the source" contribution flow — **Implemented (2026-07-03)**
+### EXP-05 — "Fix it at the source" contribution flow
 **Pitch:** When a label is missing, stale, or wrong, the UI offers a
 pre-filled path to correct it upstream (Wikidata P21 edit page, MusicBrainz
 edit, with the citation the user supplies), and logs the pending correction
@@ -96,14 +96,6 @@ user's browser does the editing.
 **Effort:** S–M. **Risks/deps:** FIX-10; must never auto-edit upstream.
 **Excellence bar:** One real correction round-trip completed and documented
 (local note → Wikidata edit → refresh picks it up with new `retrieved_at`).
-
-**Shipped:** cited provenance now links to the human Wikidata/MusicBrainz edit
-surface where one can be constructed safely. `wad pending-corrections` keeps
-a local JSON queue of edits a person filed upstream; `wad refresh` reconciles
-matching source-level changes. This queue is intentionally distinct from the
-SQLite-backed `wad corrections` ledger of applied local overrides. No code
-auto-edits an upstream service. The real-world correction round-trip remains
-a human-only follow-up and is not claimed as completed by tests.
 
 ### EXP-06 — Temporal taste profiles
 **Pitch:** Recommend against a chosen era of your listening ("my 2019 self"),

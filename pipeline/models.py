@@ -53,9 +53,19 @@ class Gender(enum.Enum):
         return self.value
 
 
-#: Genders the values-lens is configured to surface (sourced only). Note this is
-#: a *re-rank* concern, not an identity concern: ``UNKNOWN`` is deliberately absent
-#: here yet is never penalised — see :mod:`recommender.rerank`.
+#: Genders the values-lens is configured to surface (sourced only). This is the
+#: canonical aligned set, consumed by :class:`recommender.lens.LensSpec`
+#: (:data:`recommender.lens.VALUES_LENS`) — it lives here, not in
+#: ``recommender``, to avoid a circular import (``recommender`` already depends
+#: on ``pipeline``). Note this is a *re-rank* concern, not an identity concern:
+#: ``UNKNOWN`` is deliberately absent here yet is never penalised — see
+#: :mod:`recommender.rerank`. ``Gender.OTHER``'s exclusion is likewise
+#: deliberate, not an oversight: it is a heterogeneous sourced bucket (intersex,
+#: third-gender, terms outside the common vocabulary) that does not map cleanly
+#: to this lens's stated purpose of surfacing women and nonbinary artists; the
+#: full rationale — and the fact this is revisable per an identity-data-ethics
+#: review — is documented on :data:`recommender.lens.VALUES_LENS` and in
+#: ``docs/audits/identity-data-ethics.md``.
 VALUES_ALIGNED_GENDERS: frozenset[Gender] = frozenset({Gender.WOMAN, Gender.NONBINARY})
 
 
@@ -278,6 +288,13 @@ class Artist:
     @property
     def values_aligned(self) -> bool:
         """True iff *sourced* identity OR *sourced* composition aligns with the lens.
+
+        Delegates to the default lens's semantics — equivalent to
+        ``recommender.lens.VALUES_LENS.aligned(self)`` — kept here as a
+        convenience property so callers that only care about the default lens
+        don't need to import :mod:`recommender.lens`. :class:`recommender.lens.LensSpec`
+        is the declared, inspectable manifest (name, aligned predicate, boost
+        bound, rationale) that this property mirrors.
 
         Unknown returns ``False`` here — but "not aligned" must never translate
         into a penalty; it only means "received no boost". See the re-rank layer.
