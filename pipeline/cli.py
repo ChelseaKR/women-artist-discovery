@@ -19,7 +19,14 @@ from typing import cast
 from app.render import render_cards_html
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
-from recommender.eval import check_regression, evaluate, fairness_report, to_report
+from recommender.eval import (
+    check_regression,
+    eval_real,
+    evaluate,
+    evaluate_worlds,
+    fairness_report,
+    to_report,
+)
 from recommender.hybrid import recommend
 from recommender.upstream import upstream_edit_url
 from recommender.why import why_this_artist
@@ -38,6 +45,8 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     scrobbles, catalog, source = demo_scrobbles(), demo_catalog(), demo_source()
     results = evaluate(DEMO_USER, scrobbles, catalog, source, k=args.k)
     report = to_report(results)
+    multiworld = evaluate_worlds(k=args.k)
+    report["multiworld"] = multiworld
     # FIX-05: computed exposure / rank-fairness metrics, emitted alongside the eval.
     fairness = fairness_report(DEMO_USER, scrobbles, catalog, source, k=args.k)
     report["fairness"] = fairness
@@ -81,7 +90,22 @@ def _cmd_eval(args: argparse.Namespace) -> int:
             f"FAIL: hybrid metrics regressed vs docs/audits/eval-baseline.json: {regression}",
             file=sys.stderr,
         )
-    return 0 if (beat_baseline and unknown_retained and not regressed) else 1
+    multiworld_passed = bool(multiworld["hybrid_beats_popularity"])
+    if not multiworld_passed:
+        print("FAIL: hybrid did not beat popularity across fixture worlds", file=sys.stderr)  # noqa: T201
+    return 0 if (beat_baseline and unknown_retained and not regressed and multiworld_passed) else 1
+
+
+def _cmd_eval_real(args: argparse.Namespace) -> int:
+    """LOCAL ONLY: summarize evaluation against the operator's cached plays."""
+    report = eval_real(args.user, args.scrobbles, demo_catalog(), demo_source(), k=args.k)
+    text = json.dumps(report, indent=2)
+    print(text)  # noqa: T201
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+    return 0
 
 
 def _cmd_refresh(args: argparse.Namespace) -> int:
@@ -259,6 +283,15 @@ def main(argv: list[str] | None = None) -> int:
         help="committed baseline metrics to regression-check against (AIEV-26/27)",
     )
     p_eval.set_defaults(func=_cmd_eval)
+
+    p_eval_real = sub.add_parser(
+        "eval-real", help="LOCAL ONLY: eval against your cached scrobbles; never CI"
+    )
+    p_eval_real.add_argument("--user", required=True)
+    p_eval_real.add_argument("--scrobbles", required=True, metavar="PATH")
+    p_eval_real.add_argument("--k", type=int, default=10)
+    p_eval_real.add_argument("--out", default=None)
+    p_eval_real.set_defaults(func=_cmd_eval_real)
 
     p_rec = sub.add_parser("recommend", help="print demo recommendations")
     p_rec.add_argument("--k", type=int, default=10)

@@ -141,10 +141,16 @@ eval artifact.
   lens 0.0/0.5/1.0; CI fails if an unknown artist ever loses rank to the lens;
   `fairness-identity.md` cites computed numbers, not just tests.
 
-## FIX-06 — De-circularize the eval
+## FIX-06 — De-circularize the eval — **Done (synthetic leg)**
 
 **Pitch:** Stop grading the recommender on the fixture that was tuned to make
 it pass.
+
+> `make eval` now aggregates five labelled fixture worlds, reports effect
+> sizes, and embeds the tuning/synthetic-data caveat in its JSON artifact.
+> `make eval-real` is a separate local-only harness that summarizes the
+> operator's cached plays without emitting raw listening data; the real-data
+> run remains honestly human-gated.
 
 - **Why it matters:** `pipeline/demo.py`'s docstring admits the demo world is
   "tuned so the hybrid recommender recovers held-out discoveries". The CI eval

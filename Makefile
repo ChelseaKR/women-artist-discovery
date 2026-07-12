@@ -12,7 +12,11 @@ A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval i18n audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n audit clean
+
+# eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
+EVAL_REAL_USER ?=
+EVAL_REAL_DB ?=
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -102,8 +106,17 @@ a11y: ## Stage 5 — render the dashboard (auto + pinned light/dark) and run the
 		done; \
 	fi
 
-eval: ## Stage 7 — offline eval; fails unless the hybrid beats the baseline
+eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baseline on aggregate (FIX-06)
 	$(PYTHON) -m pipeline.cli eval --k 5 --out docs/audits/eval-report.json
+
+# NOT part of verify/audit, and must NEVER run in CI (FIX-06's human-gated
+# real-data leg — see recommender/eval.py::eval_real). Run locally only, on
+# your own cache DB, e.g.:
+#   make eval-real EVAL_REAL_USER=yourname EVAL_REAL_DB=data/cache.db
+eval-real: ## LOCAL-ONLY — real-data eval leg against your own cached scrobbles; never CI
+	@test -n "$(EVAL_REAL_USER)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
+	@test -n "$(EVAL_REAL_DB)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
+	$(PYTHON) -m pipeline.cli eval-real --user "$(EVAL_REAL_USER)" --scrobbles "$(EVAL_REAL_DB)"
 
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh
