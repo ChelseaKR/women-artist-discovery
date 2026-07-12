@@ -1,6 +1,8 @@
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+# hatchling, not setuptools (CQ-10): a real `uv build`/`python -m build` wheel is
+# part of the planned tag-triggered release workflow (release.yml).
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
 
 [project]
 name = "women-artist-discovery"
@@ -21,30 +23,35 @@ dependencies = [
 [project.optional-dependencies]
 # streamlit>=1.54 pulls fixed pillow>=12.2 / pyarrow>=23 / msgpack>=1.2.1 / tornado,
 # clearing the former RR-4 app-extra advisory cluster (3.10+-gated fixes).
+# Kept as a real runtime extra (PEP 735 dependency-groups is for dev-only tooling, not
+# installable extras) — `dev` moved to [dependency-groups] below (CQ-27).
 app = ["streamlit>=1.54", "pandas>=2.0"]
-dev = [
-    # pytest>=9.0.3 carries the fix for GHSA-6w46-j5rx-g56g (former RR-4 dev-only).
-    "pytest>=9.0.3",
-    "pytest-cov>=6",
-    "ruff>=0.6",
-    "mypy>=1.11",
-    "types-requests",
-    "pip-audit>=2.7",
-    # Property-based guardrail tests (FIX-11) — proves the no-inference /
-    # boost-only invariants hold over generated inputs, not just fixtures.
-    "hypothesis>=6",
-]
 
 [project.scripts]
 wad = "pipeline.cli:main"
 
-[tool.setuptools]
-packages = ["pipeline", "recommender", "app", "export"]
+# ---------------------------------------------------------------------------
+# PEP 735 dependency groups (CQ-27) — dev-only tooling, not an installable extra.
+# ---------------------------------------------------------------------------
+[dependency-groups]
+dev = [
+    # pytest>=9.0.3 carries the fix for GHSA-6w46-j5rx-g56g (former RR-4 dev-only).
+    "pytest>=9.0.3",
+    "pytest-cov>=6",
+    # CODE-QUALITY-STANDARD.md:109 named ruff>=0.6/mypy>=1.11 as mandatory tracked drift;
+    # floors raised to match the versions this repo actually lints/type-checks with.
+    "ruff>=0.15",
+    "mypy>=1.18",
+    "types-requests",
+    "pip-audit>=2.7",
+    # Property-based guardrail tests (FIX-11) exercise generated inputs.
+    "hypothesis>=6",
+]
 
-[tool.setuptools.package-data]
-pipeline = ["py.typed"]
-recommender = ["py.typed"]
-export = ["py.typed"]
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline", "recommender", "app", "export"]
+# py.typed markers ship automatically — hatchling includes every tracked file
+# under an included package directory, no separate package-data list needed.
 
 # ---------------------------------------------------------------------------
 # Lint / format gate (QUALITY-AND-METRICS-STANDARD §7, CI stage 1)
@@ -55,13 +62,17 @@ target-version = "py310"
 src = ["pipeline", "recommender", "app", "tests"]
 
 [tool.ruff.lint]
-# pycodestyle, pyflakes, isort, bugbear, comprehensions, pyupgrade, simplify,
-# and flake8-print (no stray prints) — flake8-bandit (S) for light SAST.
-select = ["E", "F", "I", "B", "C4", "UP", "SIM", "T20", "S"]
+# pycodestyle (+ warnings), pyflakes, isort, bugbear, comprehensions, pyupgrade,
+# simplify, flake8-print (no stray prints), flake8-bandit (S) for light SAST,
+# mccabe complexity (C90), and ruff's own extra rules (RUF).
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "T20", "S", "C90", "RUF"]
 # S101: assert is allowed in tests (scoped per-file below).
 # UP045: codebase uses explicit `Optional[...]`; not auto-rewritten to `X | None`
 # in this migration (keeps the diff to the version/floor changes).
 ignore = ["S101", "UP045"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106"]  # asserts and dummy secrets in fixtures
@@ -106,6 +117,9 @@ addopts = [
     "--cov-report=xml:docs/audits/coverage.xml",
     "--cov-fail-under=85",
     "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
 ]
 testpaths = ["tests"]
 filterwarnings = ["error::DeprecationWarning:pipeline.*", "error::DeprecationWarning:recommender.*"]
@@ -120,6 +134,9 @@ omit = [
 [tool.coverage.report]
 # Branch target is enforced via the line gate plus these exclusions for the
 # genuinely untestable live-network glue (parsers are tested via fixtures).
+# pipeline/identity.py (the identity resolver) additionally carries a per-module
+# >=95% floor via the scoped `coverage report --include=... --fail-under=95` step
+# in `make test` and CI (CODE-QUALITY-STANDARD, per-module floors).
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

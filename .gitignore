@@ -9,6 +9,8 @@ __pycache__/
 .coverage
 htmlcov/
 .hypothesis/
+dist/
+build/
 
 # Local cache (personal listening data — never committed; privacy: local-first)
 data/*.db
