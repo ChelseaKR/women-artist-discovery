@@ -64,11 +64,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
   1. **Source scan (gate 1)** — `tests/test_privacy.py::_core_files` now also
      walks `app/` and `export/`; `NETWORK_TOKENS` grew to cover indirect
      egress (`httpx`, `urllib3`, `aiohttp`, `webbrowser`); `NETWORK_ALLOWED`
-     is now `{"lastfm.py", "spotify.py"}` — the two live-client modules,
+     now names the exact `pipeline/lastfm.py` and `export/spotify.py` paths,
      matching `RequestsTransport`'s documented allowlist.
   2. **Runtime socket guard (gate 2)** — an autouse `_no_network` fixture in
-     `tests/conftest.py` patches `socket.socket.connect` and
-     `socket.create_connection` to raise for every test, proving the suite is
+     `tests/conftest.py` patches connection and datagram socket paths to raise
+     for every test, proving the suite is
      offline by construction rather than by convention.
 - **Verified:** `make test` is green (149 passed, 96% coverage on the gated
   `pipeline`+`recommender` scope, well above the 85% floor); a deliberately

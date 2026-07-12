@@ -15,6 +15,7 @@ text scan can't see.
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 
 import app
@@ -36,7 +37,7 @@ TELEMETRY_TOKENS = (
 # Network may only be reached from these modules — the live API clients. This
 # is the single source of truth for sanctioned egress; keep it in sync with
 # "Egress registry / allowlist" in docs/audits/privacy-notes.md.
-NETWORK_ALLOWED = {"lastfm.py", "spotify.py"}
+NETWORK_ALLOWED = {"pipeline/lastfm.py", "export/spotify.py"}
 NETWORK_TOKENS = (
     "import requests",
     "import httpx",
@@ -59,6 +60,10 @@ def _core_files() -> list[Path]:
     return [p for root in roots for p in root.rglob("*.py")]
 
 
+def _repo_path(path: Path) -> str:
+    return path.relative_to(Path(__file__).parents[1]).as_posix()
+
+
 def test_core_imports_no_telemetry_sdk() -> None:
     for path in _core_files():
         text = path.read_text(encoding="utf-8").lower()
@@ -68,11 +73,28 @@ def test_core_imports_no_telemetry_sdk() -> None:
 
 def test_network_access_is_confined_to_api_clients() -> None:
     for path in _core_files():
-        if path.name in NETWORK_ALLOWED:
+        if _repo_path(path) in NETWORK_ALLOWED:
             continue
         text = path.read_text(encoding="utf-8")
         for token in NETWORK_TOKENS:
             assert token not in text, f"{path.name} opens network outside an API client: {token}"
+
+
+def test_runtime_guard_blocks_connection_and_datagram_paths() -> None:
+    sock = socket.socket()
+    for operation in (
+        lambda: sock.connect(("127.0.0.1", 9)),
+        lambda: sock.connect_ex(("127.0.0.1", 9)),
+        lambda: sock.sendto(b"blocked", ("127.0.0.1", 9)),
+        lambda: socket.create_connection(("127.0.0.1", 9)),
+    ):
+        try:
+            operation()
+        except RuntimeError as exc:
+            assert "egress blocked" in str(exc)
+        else:
+            raise AssertionError("runtime egress guard did not block a socket path")
+    sock.close()
 
 
 def test_cache_uses_only_stdlib_sqlite() -> None:

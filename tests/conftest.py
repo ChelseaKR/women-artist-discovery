@@ -41,6 +41,8 @@ def _no_network(monkeypatch):
         raise RuntimeError("network egress blocked during tests (FIX-07)")
 
     monkeypatch.setattr(socket.socket, "connect", _blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", _blocked)
+    monkeypatch.setattr(socket.socket, "sendto", _blocked)
     monkeypatch.setattr(socket, "create_connection", _blocked)
 
 

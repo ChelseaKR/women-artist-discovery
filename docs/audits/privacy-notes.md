@@ -53,7 +53,8 @@ client) requires updating **both** of the following in the same change, or the
 new client will fail the merge-blocking privacy gate:
 
 1. This table.
-2. `NETWORK_ALLOWED` in `tests/test_privacy.py`.
+2. The exact repository-relative module path in `NETWORK_ALLOWED` in
+   `tests/test_privacy.py`.
 
 ### Two enforcement gates
 
@@ -65,8 +66,8 @@ new client will fail the merge-blocking privacy gate:
    the allowlist above. This catches egress statements added anywhere in the
    tree, including string-level additions that haven't run yet.
 2. **Runtime socket guard (gate 2)** — the autouse `_no_network` fixture in
-   `tests/conftest.py` patches `socket.socket.connect` and
-   `socket.create_connection` to raise for the duration of every test. This
+   `tests/conftest.py` patches `socket.socket.connect`, `connect_ex`, unconnected
+   UDP `sendto`, and `socket.create_connection` to raise for every test. This
    catches *indirect/transitive* egress a text scan can't see (e.g. a call
    reached through a third-party dependency's internals), proving the whole
    suite runs offline by construction rather than by convention. A
