@@ -2,11 +2,13 @@ name: codeql
 
 # SEC-08 / CICD-20: static analysis over both the Python source and the
 # workflow files themselves. Weekly (catches newly-published query packs
-# against unchanged code) plus every push to main. PRs skip CodeQL because code
-# scanning is not enabled for this private repo.
+# against unchanged code) plus manual dispatch. Results stay in-run because
+# code scanning is not enabled for this private repo.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: '17 4 * * 6' # weekly — re-armed 2026-07-11 (metrics plan Phase 0.2)
 
 permissions:
   contents: read
@@ -20,7 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
       actions: read
     strategy:
       fail-fast: false
@@ -40,3 +41,16 @@ jobs:
         uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a  # v4.36.3
         with:
           category: "/language:${{ matrix.language }}"
+          # No GHAS code scanning on this private repo — findings are checked in-run below.
+          upload: never
+          output: codeql-results
+
+      - name: Fail on findings (no GHAS on this private repo; SARIF checked in-run)
+        shell: bash
+        run: |
+          count=$(jq -s '[.[] | .runs[]?.results[]?] | length' codeql-results/*.sarif)
+          echo "CodeQL findings: ${count}"
+          if [ "${count:-0}" -gt 0 ]; then
+            jq -r '.runs[]?.results[]? | "\(.ruleId // "rule"): \(.locations[0].physicalLocation.artifactLocation.uri // "?"):\(.locations[0].physicalLocation.region.startLine // 0)"' codeql-results/*.sarif
+            exit 1
+          fi

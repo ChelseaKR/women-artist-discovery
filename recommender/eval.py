@@ -20,7 +20,17 @@ from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
 
+from recommender.exposure import exposure_report
 from recommender.hybrid import recommend
+
+#: Lens strengths swept for the fairness report (spans 0 -> 1 so retention is
+#: exercised "as lens strength varies", per FIX-05).
+DEFAULT_LENS_SWEEP: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+
+#: Default allowed relative drop vs the committed baseline before `wad eval`
+#: fails (AIEV-26/27): a metric more than this fraction below its baseline
+#: value is a regression, not noise.
+DEFAULT_REGRESSION_TOLERANCE = 0.10
 
 
 @dataclass(frozen=True)
@@ -94,6 +104,29 @@ def popularity_ranking(catalog: dict[str, Artist], exclude: set[str]) -> list[st
     return [a.artist_id for a in candidates]
 
 
+def _training_profile(
+    username: str,
+    scrobbles: list[Scrobble],
+    catalog: dict[str, Artist],
+    train_frac: float,
+) -> tuple[list[Scrobble], list[Scrobble], ListeningProfile]:
+    """Temporal train/test split plus the train-window profile with catalog tags.
+
+    Re-attaches tags from the catalog so the content signal works on train data.
+    Shared by :func:`evaluate` and :func:`fairness_report` so both grade the exact
+    same held-out world.
+    """
+    train, test = temporal_split(scrobbles, train_frac)
+    base_profile = build_profile(username, train)
+    train_profile = ListeningProfile(
+        username=base_profile.username,
+        play_counts=base_profile.play_counts,
+        artist_names=base_profile.artist_names,
+        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
+    )
+    return train, test, train_profile
+
+
 def evaluate(
     username: str,
     scrobbles: list[Scrobble],
@@ -104,16 +137,8 @@ def evaluate(
     train_frac: float = 0.7,
 ) -> dict[str, EvalResult]:
     """Run both models on a temporal hold-out. Returns results keyed by model."""
-    train, test = temporal_split(scrobbles, train_frac)
+    train, test, train_profile = _training_profile(username, scrobbles, catalog, train_frac)
     positives = ground_truth(train, test)
-    base_profile = build_profile(username, train)
-    # Re-attach tags from the catalog so the content signal works on train data.
-    train_profile = ListeningProfile(
-        username=base_profile.username,
-        play_counts=base_profile.play_counts,
-        artist_names=base_profile.artist_names,
-        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
-    )
     known = train_profile.known_artist_ids
 
     hybrid_recs = recommend(train_profile, catalog, source, k=len(catalog), lens_strength=0.0)
@@ -124,6 +149,67 @@ def evaluate(
         "hybrid": _score("hybrid", hybrid_ranked, positives, k),
         "popularity": _score("popularity", pop_ranked, positives, k),
     }
+
+
+def fairness_report(
+    username: str,
+    scrobbles: list[Scrobble],
+    catalog: dict[str, Artist],
+    source: ScrobbleSource,
+    *,
+    k: int = 10,
+    train_frac: float = 0.7,
+    lens_strengths: tuple[float, ...] = DEFAULT_LENS_SWEEP,
+) -> dict[str, object]:
+    """Compute the exposure / rank-fairness block for ``eval-report.json`` (FIX-05).
+
+    Ranks the *full* held-out candidate set at each lens strength and hands the
+    results to :func:`recommender.exposure.exposure_report`, which computes
+    exposure-by-identity, the unknown-retention curve, per-segment rank shift, and
+    the popularity x identity cross-tab. The ``guarantees`` sub-block is the
+    merge-blocking unknown-retention signal.
+    """
+    _, _, train_profile = _training_profile(username, scrobbles, catalog, train_frac)
+    recs_by_lens = {
+        lens: recommend(train_profile, catalog, source, k=len(catalog), lens_strength=lens)
+        for lens in lens_strengths
+    }
+    return exposure_report(recs_by_lens, k=k)
+
+
+def check_regression(
+    current: EvalResult,
+    baseline_metrics: dict[str, float],
+    *,
+    tolerance: float = DEFAULT_REGRESSION_TOLERANCE,
+) -> dict[str, object]:
+    """Compare the hybrid model's current metrics against a committed baseline.
+
+    Complements ``hybrid_beats_popularity`` (which only checks *this run's*
+    popularity baseline): this catches the hybrid quietly getting worse release
+    over release even while it still beats popularity. A metric absent from
+    ``baseline_metrics`` is skipped, so extending the metric set later doesn't
+    require rewriting the baseline file. Returns a JSON-able detail block with
+    an overall ``regressed`` flag.
+    """
+    fields = ("precision_at_k", "recall_at_k", "map_at_k")
+    detail: dict[str, dict[str, object]] = {}
+    regressed = False
+    for field in fields:
+        base = baseline_metrics.get(field)
+        if base is None:
+            continue
+        cur = getattr(current, field)
+        floor = base * (1.0 - tolerance)
+        field_regressed = cur < floor
+        regressed = regressed or field_regressed
+        detail[field] = {
+            "baseline": base,
+            "current": cur,
+            "floor": round(floor, 4),
+            "regressed": field_regressed,
+        }
+    return {"regressed": regressed, "tolerance": tolerance, "metrics": detail}
 
 
 def to_report(results: dict[str, EvalResult]) -> dict[str, object]:

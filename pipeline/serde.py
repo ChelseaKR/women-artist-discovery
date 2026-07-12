@@ -28,6 +28,7 @@ def source_to_dict(s: Source) -> dict[str, Any]:
         "citation": s.citation,
         "retrieved_at": s.retrieved_at,
         "detail": s.detail,
+        "is_local_correction": s.is_local_correction,
     }
 
 
@@ -37,6 +38,7 @@ def source_from_dict(d: dict[str, Any]) -> Source:
         citation=d["citation"],
         retrieved_at=d["retrieved_at"],
         detail=d.get("detail", ""),
+        is_local_correction=d.get("is_local_correction", False),
     )
 
 
@@ -46,6 +48,8 @@ def identity_to_dict(label: IdentityLabel) -> dict[str, Any]:
         "basis": label.basis.value,
         "sources": [source_to_dict(s) for s in label.sources],
         "confidence": label.confidence,
+        "conflict": label.conflict,
+        "conflicting_claims": [source_to_dict(s) for s in label.conflicting_claims],
     }
 
 
@@ -55,6 +59,8 @@ def identity_from_dict(d: dict[str, Any]) -> IdentityLabel:
         basis=IdentityBasis(d["basis"]),
         sources=tuple(source_from_dict(s) for s in d.get("sources", [])),
         confidence=d.get("confidence"),
+        conflict=d.get("conflict", False),
+        conflicting_claims=tuple(source_from_dict(s) for s in d.get("conflicting_claims", [])),
     )
 
 

@@ -12,13 +12,13 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, overload
 
 from pipeline.cache import Cache
 from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, ListeningProfile, Scrobble, Source
+from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, Source
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -47,10 +47,21 @@ def enrich_artist(
     *,
     listeners: int = 0,
     playcount: int = 0,
+    cache: Optional[Cache] = None,
 ) -> Artist:
-    """Build a fully enriched :class:`Artist` with sourced identity + composition."""
+    """Build a fully enriched :class:`Artist` with sourced identity + composition.
+
+    When ``cache`` is supplied, any locally-entered corrections (FIX-10) for
+    this artist are fed into the resolver alongside the enricher's evidence.
+    A correction is itself an ``ARTIST_STATEMENT`` — the resolver's existing
+    priority order (``ARTIST_STATEMENT`` highest) is what lets it win, with no
+    special-casing in :func:`~pipeline.identity.resolve_identity`.
+    """
     tags = source.artist_tags(artist_id)
-    identity = resolve_identity(enricher.gender_evidence(artist_id))
+    evidence = list(enricher.gender_evidence(artist_id))
+    if cache is not None:
+        evidence.extend(cache.get_corrections(artist_id))
+    identity = resolve_identity(evidence)
     fronts, comp_evidence = enricher.composition_evidence(artist_id)
     composition = resolve_composition(fronts, comp_evidence)
     return Artist(
@@ -62,94 +73,6 @@ def enrich_artist(
         listeners=listeners,
         playcount=playcount,
     )
-
-
-@dataclass(frozen=True)
-class IdentityLabelChange:
-    """One identity-source change detected by re-enriching a cached artist.
-
-    ``wad refresh`` re-runs enrichment for every cached artist and reports one
-    of these whenever a source *kind already on file* now asserts a different
-    value or carries a newer ``retrieved_at`` — the observable signal that an
-    upstream edit (e.g. a Wikidata P21 correction) has landed. This is the
-    minimal shape EXP-05's :mod:`pipeline.corrections` needs to reconcile a
-    locally-filed pending correction against; a fuller source-conflict ledger
-    is out of scope here (see roadmap FIX-10).
-    """
-
-    artist_id: str
-    source_kind: str
-    old_value: str
-    new_value: str
-    retrieved_at: str
-
-
-def _identity_sources(artist: Artist) -> tuple[Source, ...]:
-    sources: tuple[Source, ...] = artist.identity.sources
-    if artist.composition is not None:
-        sources = sources + artist.composition.sources
-    return sources
-
-
-def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
-    """Compare two enrichment passes for the same artist; report per-source changes.
-
-    Only source kinds present in *both* passes are compared — a kind that
-    newly appears or disappears is a bigger event (a full source-conflict view
-    is FIX-10's scope) than the narrow "this citation's value moved" signal
-    ``reconcile()`` needs.
-    """
-    old_by_kind = {s.kind: s for s in _identity_sources(old)}
-    new_by_kind = {s.kind: s for s in _identity_sources(new)}
-    changes: list[IdentityLabelChange] = []
-    for kind, new_src in new_by_kind.items():
-        old_src = old_by_kind.get(kind)
-        if old_src is None:
-            continue
-        if old_src.detail != new_src.detail or old_src.retrieved_at != new_src.retrieved_at:
-            changes.append(
-                IdentityLabelChange(
-                    artist_id=new.artist_id,
-                    source_kind=str(kind),
-                    old_value=old_src.detail,
-                    new_value=new_src.detail,
-                    retrieved_at=new_src.retrieved_at,
-                )
-            )
-    return changes
-
-
-def refresh_catalog(
-    cache: Cache,
-    source: ScrobbleSource,
-    enricher: EnrichmentSource,
-    *,
-    fetched_at: str,
-) -> list[IdentityLabelChange]:
-    """Re-enrich every cached artist; persist the refresh and report changes.
-
-    This is ``wad refresh``'s core: each cached artist is re-resolved through
-    the same :func:`enrich_artist` path ingest uses, the cache row is updated
-    with the new lineage timestamp, and any identity-source change is
-    reported so the caller (the CLI) can reconcile it against pending local
-    corrections (:mod:`pipeline.corrections`).
-    """
-    changes: list[IdentityLabelChange] = []
-    for artist_id in cache.list_artist_ids():
-        old = cache.get_artist(artist_id)
-        if old is None:  # pragma: no cover - defensive; id just came from this cache
-            continue
-        refreshed = enrich_artist(
-            artist_id,
-            old.name,
-            source,
-            enricher,
-            listeners=old.listeners,
-            playcount=old.playcount,
-        )
-        changes.extend(diff_identity_sources(old, refreshed))
-        cache.put_artist(refreshed, fetched_at=fetched_at)
-    return changes
 
 
 def ingest(
@@ -180,6 +103,7 @@ def ingest(
             source,
             enricher,
             playcount=profile.play_counts.get(artist_id, 0),
+            cache=cache,
         )
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags
@@ -194,3 +118,127 @@ def ingest(
         tags=tags_by_artist,
     )
     return profile, catalog
+
+
+@dataclass(frozen=True)
+class LabelChange:
+    """An identity label that changed on re-enrichment — the correction ledger row."""
+
+    artist_id: str
+    old: IdentityLabel
+    new: IdentityLabel
+
+
+@dataclass(frozen=True)
+class IdentityLabelChange:
+    """One cited source value/date change observed during re-enrichment."""
+
+    artist_id: str
+    source_kind: str
+    old_value: str
+    new_value: str
+    retrieved_at: str
+
+
+def _identity_sources(artist: Artist) -> tuple[Source, ...]:
+    sources = artist.identity.sources
+    if artist.composition is not None:
+        sources += artist.composition.sources
+    return sources
+
+
+def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
+    """Report source values or retrieval dates that changed between passes."""
+    return _diff_sources(old.artist_id, _identity_sources(old), _identity_sources(new))
+
+
+def _diff_sources(
+    artist_id: str, old_sources: tuple[Source, ...], new_sources: tuple[Source, ...]
+) -> list[IdentityLabelChange]:
+    old_by_kind = {source.kind: source for source in old_sources}
+    changes: list[IdentityLabelChange] = []
+    for new_source in new_sources:
+        old_source = old_by_kind.get(new_source.kind)
+        if old_source is None:
+            continue
+        if (
+            old_source.detail != new_source.detail
+            or old_source.retrieved_at != new_source.retrieved_at
+        ):
+            changes.append(
+                IdentityLabelChange(
+                    artist_id=artist_id,
+                    source_kind=str(new_source.kind),
+                    old_value=old_source.detail,
+                    new_value=new_source.detail,
+                    retrieved_at=new_source.retrieved_at,
+                )
+            )
+    return changes
+
+
+def diff_identity_labels(
+    artist_id: str, old: IdentityLabel, new: IdentityLabel
+) -> list[IdentityLabelChange]:
+    """Source-level detail for a label-level cache refresh change."""
+    return _diff_sources(artist_id, old.sources, new.sources)
+
+
+@overload
+def refresh_catalog(
+    cache: Cache, catalog: dict[str, Artist], *, fetched_at: str
+) -> list[LabelChange]: ...
+
+
+@overload
+def refresh_catalog(
+    cache: Cache,
+    source: ScrobbleSource,
+    enricher: EnrichmentSource,
+    *,
+    fetched_at: str,
+) -> list[IdentityLabelChange]: ...
+
+
+def refresh_catalog(
+    cache: Cache,
+    catalog_or_source: dict[str, Artist] | ScrobbleSource,
+    enricher: Optional[EnrichmentSource] = None,
+    *,
+    fetched_at: str,
+) -> list[LabelChange] | list[IdentityLabelChange]:
+    """Re-persist an enriched catalog, reporting identity-label changes (FIX-04).
+
+    The correction path (ROADMAP §9 / RR-2): each freshly-enriched artist is compared
+    against the label the cache currently holds; every changed identity label is
+    reported with its before/after, then the new label is written. Artists absent
+    from the cache are stored without being reported as "changes".
+    """
+    if isinstance(catalog_or_source, dict):
+        label_changes: list[LabelChange] = []
+        for artist_id, artist in catalog_or_source.items():
+            cached = cache.get_artist(artist_id)
+            if cached is not None and cached.identity != artist.identity:
+                label_changes.append(LabelChange(artist_id, cached.identity, artist.identity))
+            cache.put_artist(artist, fetched_at=fetched_at)
+        return label_changes
+
+    if enricher is None:
+        raise TypeError("source refresh requires an EnrichmentSource")
+    source_changes: list[IdentityLabelChange] = []
+    for artist_id in cache.list_artist_ids():
+        cached = cache.get_artist(artist_id)
+        if cached is None:  # pragma: no cover - id came from the same cache
+            continue
+        refreshed = enrich_artist(
+            artist_id,
+            cached.name,
+            catalog_or_source,
+            enricher,
+            listeners=cached.listeners,
+            playcount=cached.playcount,
+            cache=cache,
+        )
+        source_changes.extend(diff_identity_sources(cached, refreshed))
+        cache.put_artist(refreshed, fetched_at=fetched_at)
+    return source_changes

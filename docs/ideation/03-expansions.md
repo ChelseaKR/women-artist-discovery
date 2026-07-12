@@ -92,23 +92,13 @@ user's browser does the editing.
 **Excellence bar:** One real correction round-trip completed and documented
 (local note → Wikidata edit → refresh picks it up with new `retrieved_at`).
 
-**Shipped:** `recommender/upstream.py::upstream_edit_url` (pure, egress-free
-citation -> upstream *edit-UI* link, never an API-write URL); a local
-JSON-backed pending-corrections store (`pipeline/corrections.py`:
-`add_correction`/`list_corrections`/`reconcile`); a labelled "Fix at source"
-link in every why-card's provenance list where an edit surface exists
-(`app/render.py::_provenance_html`, a11y-checked — text label, never
-colour/icon alone); `wad corrections` / `wad corrections add`, and
-`wad refresh` (`pipeline/ingest.py::refresh_catalog` +
-`IdentityLabelChange`) which reconciles pending corrections against observed
-identity-source changes. Full test coverage in `tests/test_upstream.py`,
-`tests/test_corrections.py`, and extensions to `tests/test_ingest.py` /
-`tests/test_a11y.py`. FIX-10's fuller source-conflict ledger has not landed
-yet; `IdentityLabelChange` here is the minimal shape this item needs, kept
-compatible with that future work. **Outstanding (human follow-up, not code):**
-the excellence-bar live round-trip — a real, documented Wikidata edit against
-a genuinely stale claim, reconciled by a real `wad refresh` — is still TODO;
-see `CONTRIBUTING.md` § "Fix it at the source".
+**Shipped:** cited provenance now links to the human Wikidata/MusicBrainz edit
+surface where one can be constructed safely. `wad pending-corrections` keeps
+a local JSON queue of edits a person filed upstream; `wad refresh` reconciles
+matching source-level changes. This queue is intentionally distinct from the
+SQLite-backed `wad corrections` ledger of applied local overrides. No code
+auto-edits an upstream service. The real-world correction round-trip remains
+a human-only follow-up and is not claimed as completed by tests.
 
 ### EXP-06 — Temporal taste profiles
 **Pitch:** Recommend against a chosen era of your listening ("my 2019 self"),

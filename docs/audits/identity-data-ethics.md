@@ -35,6 +35,21 @@ source kind for a name, voice, image, or genre. Code: `pipeline/identity.py`.
 - **Correctability.** Labels are cache rows keyed to a citation; a wrong source is
   corrected at the source and re-enriched. Corrupt rows that violate a guardrail
   fail closed on load (`tests/test_cache_serde.py`).
+- **Confidence is a tier, never a percentage.** `IdentityLabel.confidence` is an
+  internal float used only to order/prioritise sources
+  (`pipeline/identity.py::_SOURCE_BASE_CONFIDENCE`: 0.95 artist statement, 0.80
+  Wikidata P21, 0.70 MusicBrainz gender); it is never rendered as a number. Any
+  surface that shows identity confidence uses the qualitative tier vocabulary
+  from `recommender/why.py::_confidence_tier`, derived from the actual citation:
+
+  | Cited source | Rendered tier |
+  |---|---|
+  | Artist statement | "directly stated by the artist" |
+  | Wikidata P21 | "recorded in Wikidata" |
+  | MusicBrainz gender | "editorial database entry" |
+
+  The numeric value cannot change the wording; no identity statement ever
+  shows an unexplained number. → FIX-14.
 
 ## Non-redistribution
 
