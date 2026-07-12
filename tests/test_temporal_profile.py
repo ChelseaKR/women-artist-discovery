@@ -46,6 +46,17 @@ def test_era_window_boundaries_are_inclusive() -> None:
     assert profile.play_counts == {"mitski": 1.0}
 
 
+@pytest.mark.parametrize("half_life", [0.0, -1.0])
+def test_half_life_must_be_positive(half_life: float) -> None:
+    with pytest.raises(ValueError, match="half_life_days must be positive"):
+        build_profile("demo", _FIXED_SCROBBLES, half_life_days=half_life)
+
+
+def test_era_window_rejects_reversed_bounds() -> None:
+    with pytest.raises(ValueError, match="era_start"):
+        build_profile("demo", _FIXED_SCROBBLES, era_start=20, era_end=10)
+
+
 def test_half_life_weights_a_play_now_about_2x_a_play_one_half_life_ago() -> None:
     """(c) A play at now_ts should weigh ~2x an otherwise-identical play one
     half-life earlier — same artist, so we isolate the ratio via two solo artists.

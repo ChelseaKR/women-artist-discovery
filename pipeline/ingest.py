@@ -11,13 +11,18 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 
 from __future__ import annotations
 
-from typing import Optional
+import logging
+import time
+from dataclasses import dataclass
+from typing import Optional, overload
 
 from pipeline.cache import Cache
 from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, ListeningProfile, Scrobble
+from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, Source
+
+log = logging.getLogger("wad.ingest")
 
 
 def build_profile(
@@ -29,33 +34,23 @@ def build_profile(
     era_start: Optional[int] = None,
     era_end: Optional[int] = None,
 ) -> ListeningProfile:
-    """Reduce raw scrobbles into per-artist play weights and names.
+    """Reduce scrobbles into reproducible, optionally time-shaped play weights.
 
-    Two independent, optional temporal shapings (EXP-06 — Temporal taste
-    profiles), applied in this order:
-
-    1. **Era window.** If ``era_start``/``era_end`` (unix seconds) are given,
-       scrobbles outside that *inclusive* ``[era_start, era_end]`` window are
-       dropped before anything is counted — a "my 2019 self" profile.
-    2. **Recency decay.** If ``half_life_days`` is given, each surviving play
-       is weighted ``0.5 ** ((now_ts - s.ts) / (half_life_days * 86400))``
-       instead of a flat ``1``, so a play exactly one half-life before
-       ``now_ts`` counts half as much as a play at ``now_ts``. ``now_ts``
-       defaults to the max timestamp among the (era-filtered) scrobbles —
-       *not* the wall clock — so the profile is reproducible from the same
-       scrobble list alone.
-
-    With both ``None`` (the default), this reproduces the exact play counts
-    of the original flat-count profile, as floats (``10.0 == 10``) — see
-    :class:`~pipeline.models.ListeningProfile`.
+    The inclusive era window is applied first. Recency weighting then uses the
+    newest retained scrobble as its reference unless ``now_ts`` is supplied,
+    avoiding wall-clock-dependent recommendations.
     """
+    if half_life_days is not None and half_life_days <= 0:
+        raise ValueError("half_life_days must be positive")
+    if era_start is not None and era_end is not None and era_start > era_end:
+        raise ValueError("era_start must be less than or equal to era_end")
+
     windowed = [
         s
         for s in scrobbles
         if (era_start is None or s.ts >= era_start) and (era_end is None or s.ts <= era_end)
     ]
     effective_now = now_ts if now_ts is not None else max((s.ts for s in windowed), default=0)
-
     play_counts: dict[str, float] = {}
     artist_names: dict[str, str] = {}
     for s in windowed:
@@ -64,7 +59,8 @@ def build_profile(
             continue
         weight = 1.0
         if half_life_days is not None:
-            weight = 0.5 ** ((effective_now - s.ts) / (half_life_days * 86400))
+            age_seconds = max(0, effective_now - s.ts)
+            weight = 0.5 ** (age_seconds / (half_life_days * 86400))
         play_counts[key] = play_counts.get(key, 0.0) + weight
         artist_names.setdefault(key, s.artist_name)
     return ListeningProfile(
@@ -83,10 +79,21 @@ def enrich_artist(
     *,
     listeners: int = 0,
     playcount: int = 0,
+    cache: Optional[Cache] = None,
 ) -> Artist:
-    """Build a fully enriched :class:`Artist` with sourced identity + composition."""
+    """Build a fully enriched :class:`Artist` with sourced identity + composition.
+
+    When ``cache`` is supplied, any locally-entered corrections (FIX-10) for
+    this artist are fed into the resolver alongside the enricher's evidence.
+    A correction is itself an ``ARTIST_STATEMENT`` — the resolver's existing
+    priority order (``ARTIST_STATEMENT`` highest) is what lets it win, with no
+    special-casing in :func:`~pipeline.identity.resolve_identity`.
+    """
     tags = source.artist_tags(artist_id)
-    identity = resolve_identity(enricher.gender_evidence(artist_id))
+    evidence = list(enricher.gender_evidence(artist_id))
+    if cache is not None:
+        evidence.extend(cache.get_corrections(artist_id))
+    identity = resolve_identity(evidence)
     fronts, comp_evidence = enricher.composition_evidence(artist_id)
     composition = resolve_composition(fronts, comp_evidence)
     return Artist(
@@ -111,24 +118,60 @@ def ingest(
 ) -> tuple[ListeningProfile, dict[str, Artist]]:
     """Run the full ingest. Returns the listening profile and an enriched catalog.
 
-    When a ``cache`` is supplied, scrobbles and enriched artists are persisted
-    with the given ``fetched_at`` lineage timestamp.
+    When a ``cache`` is supplied, ingest is paginated and incremental (FIX-02):
+    only scrobbles newer than the cache's watermark (``Cache.last_synced_ts``)
+    are fetched, merged into the cache (idempotently — refetching the same
+    range is harmless since only ``ts > since`` is ever requested), and the
+    listening profile is built from the *full* stored history so play counts
+    reflect everything synced so far, not just this run's delta. Enriched
+    artists are persisted with the given ``fetched_at`` lineage timestamp.
+
+    Without a ``cache``, ingest is a single-page snapshot, as before.
     """
-    scrobbles = source.recent_scrobbles(username, limit=limit)
-    if cache is not None:
-        cache.put_scrobbles(username, scrobbles)
+    ingest_start = time.monotonic()
+    log.info("stage=ingest event=start username=%s limit=%d", username, limit)
+    fetch_start = time.monotonic()
+    try:
+        if cache is not None:
+            since = cache.last_synced_ts(username)
+            fetched = source.scrobbles_since(username, since_ts=since, page_size=limit)
+            cache.put_scrobbles(username, fetched)
+            scrobbles = cache.get_scrobbles(username)
+        else:
+            scrobbles = source.recent_scrobbles(username, limit=limit)
+    except Exception:
+        log.exception(
+            "stage=fetch_scrobbles event=failed username=%s source=%s",
+            username,
+            type(source).__name__,
+        )
+        raise
+    log.info(
+        "stage=fetch_scrobbles event=end elapsed=%.3fs count=%d",
+        time.monotonic() - fetch_start,
+        len(scrobbles),
+    )
     profile = build_profile(username, scrobbles)
 
     catalog: dict[str, Artist] = {}
     tags_by_artist: dict[str, tuple[str, ...]] = {}
     for artist_id, name in profile.artist_names.items():
-        artist = enrich_artist(
-            artist_id,
-            name,
-            source,
-            enricher,
-            playcount=int(profile.play_counts.get(artist_id, 0)),
-        )
+        try:
+            artist = enrich_artist(
+                artist_id,
+                name,
+                source,
+                enricher,
+                playcount=profile.play_counts.get(artist_id, 0),
+                cache=cache,
+            )
+        except Exception:
+            log.exception(
+                "stage=enrich event=failed artist_id=%s enricher=%s",
+                artist_id,
+                type(enricher).__name__,
+            )
+            raise
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags
         if cache is not None:
@@ -141,4 +184,134 @@ def ingest(
         artist_names=profile.artist_names,
         tags=tags_by_artist,
     )
+    log.info(
+        "stage=ingest event=end elapsed=%.3fs username=%s artists=%d",
+        time.monotonic() - ingest_start,
+        username,
+        len(catalog),
+    )
     return profile, catalog
+
+
+@dataclass(frozen=True)
+class LabelChange:
+    """An identity label that changed on re-enrichment — the correction ledger row."""
+
+    artist_id: str
+    old: IdentityLabel
+    new: IdentityLabel
+
+
+@dataclass(frozen=True)
+class IdentityLabelChange:
+    """One cited source value/date change observed during re-enrichment."""
+
+    artist_id: str
+    source_kind: str
+    old_value: str
+    new_value: str
+    retrieved_at: str
+
+
+def _identity_sources(artist: Artist) -> tuple[Source, ...]:
+    sources = artist.identity.sources
+    if artist.composition is not None:
+        sources += artist.composition.sources
+    return sources
+
+
+def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
+    """Report source values or retrieval dates that changed between passes."""
+    return _diff_sources(old.artist_id, _identity_sources(old), _identity_sources(new))
+
+
+def _diff_sources(
+    artist_id: str, old_sources: tuple[Source, ...], new_sources: tuple[Source, ...]
+) -> list[IdentityLabelChange]:
+    old_by_kind = {source.kind: source for source in old_sources}
+    changes: list[IdentityLabelChange] = []
+    for new_source in new_sources:
+        old_source = old_by_kind.get(new_source.kind)
+        if old_source is None:
+            continue
+        if (
+            old_source.detail != new_source.detail
+            or old_source.retrieved_at != new_source.retrieved_at
+        ):
+            changes.append(
+                IdentityLabelChange(
+                    artist_id=artist_id,
+                    source_kind=str(new_source.kind),
+                    old_value=old_source.detail,
+                    new_value=new_source.detail,
+                    retrieved_at=new_source.retrieved_at,
+                )
+            )
+    return changes
+
+
+def diff_identity_labels(
+    artist_id: str, old: IdentityLabel, new: IdentityLabel
+) -> list[IdentityLabelChange]:
+    """Source-level detail for a label-level cache refresh change."""
+    return _diff_sources(artist_id, old.sources, new.sources)
+
+
+@overload
+def refresh_catalog(
+    cache: Cache, catalog_or_source: dict[str, Artist], *, fetched_at: str
+) -> list[LabelChange]: ...
+
+
+@overload
+def refresh_catalog(
+    cache: Cache,
+    catalog_or_source: ScrobbleSource,
+    enricher: EnrichmentSource,
+    *,
+    fetched_at: str,
+) -> list[IdentityLabelChange]: ...
+
+
+def refresh_catalog(
+    cache: Cache,
+    catalog_or_source: dict[str, Artist] | ScrobbleSource,
+    enricher: Optional[EnrichmentSource] = None,
+    *,
+    fetched_at: str,
+) -> list[LabelChange] | list[IdentityLabelChange]:
+    """Re-persist an enriched catalog, reporting identity-label changes (FIX-04).
+
+    The correction path (ROADMAP §9 / RR-2): each freshly-enriched artist is compared
+    against the label the cache currently holds; every changed identity label is
+    reported with its before/after, then the new label is written. Artists absent
+    from the cache are stored without being reported as "changes".
+    """
+    if isinstance(catalog_or_source, dict):
+        label_changes: list[LabelChange] = []
+        for artist_id, artist in catalog_or_source.items():
+            cached = cache.get_artist(artist_id)
+            if cached is not None and cached.identity != artist.identity:
+                label_changes.append(LabelChange(artist_id, cached.identity, artist.identity))
+            cache.put_artist(artist, fetched_at=fetched_at)
+        return label_changes
+
+    if enricher is None:
+        raise TypeError("source refresh requires an EnrichmentSource")
+    source_changes: list[IdentityLabelChange] = []
+    for artist_id in cache.list_artist_ids():
+        cached = cache.get_artist(artist_id)
+        if cached is None:  # pragma: no cover - id came from the same cache
+            continue
+        refreshed = enrich_artist(
+            artist_id,
+            cached.name,
+            catalog_or_source,
+            enricher,
+            listeners=cached.listeners,
+            playcount=cached.playcount,
+            cache=cache,
+        )
+        source_changes.extend(diff_identity_sources(cached, refreshed))
+        cache.put_artist(refreshed, fetched_at=fetched_at)
+    return source_changes

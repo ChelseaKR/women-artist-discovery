@@ -27,6 +27,17 @@ class ScrobbleSource(Protocol):
 
     def recent_scrobbles(self, username: str, limit: int = 200) -> list[Scrobble]: ...
 
+    def scrobbles_since(
+        self, username: str, since_ts: int = 0, page_size: int = 200
+    ) -> list[Scrobble]:
+        """Return every scrobble with ``ts > since_ts``, ascending, paginating as needed.
+
+        The since-cursor + pagination make full-history ingest resumable: a
+        caller persists the newest ``ts`` it has seen and passes it back in as
+        ``since_ts`` on the next call to fetch only what's new (FIX-02).
+        """
+        ...
+
     def artist_tags(self, artist_id: str) -> tuple[str, ...]: ...
 
     def similar_artists(self, artist_id: str) -> list[tuple[str, float]]: ...
@@ -74,6 +85,16 @@ class FixtureLastfm:
 
     def recent_scrobbles(self, username: str, limit: int = 200) -> list[Scrobble]:
         return list(self._scrobbles.get(username, []))[:limit]
+
+    def scrobbles_since(
+        self, username: str, since_ts: int = 0, page_size: int = 200
+    ) -> list[Scrobble]:
+        # `page_size` is accepted for Protocol parity; the fixture holds the
+        # whole (small, offline) history in memory, so there is nothing to
+        # actually paginate over — it simulates a fully-drained multi-page
+        # fetch by simply returning everything newer than the cursor.
+        ordered = sorted(self._scrobbles.get(username, []), key=lambda s: s.ts)
+        return [s for s in ordered if s.ts > since_ts]
 
     def artist_tags(self, artist_id: str) -> tuple[str, ...]:
         return self._tags.get(artist_id, ())
@@ -123,6 +144,43 @@ class LastfmClient:  # pragma: no cover - live network path, verified via integr
 
         body = self._get({"method": "user.getrecenttracks", "user": username, "limit": str(limit)})
         return parse_recent_tracks(json.loads(body))
+
+    def scrobbles_since(
+        self, username: str, since_ts: int = 0, page_size: int = 200
+    ) -> list[Scrobble]:
+        """Paginate user.getrecenttracks from a since-cursor until exhausted.
+
+        Loops with ``from=<since_ts>``, ``limit=<page_size>``, ``page=<n>``,
+        reading ``@attr.totalPages`` off each response to know when to stop.
+        Rate limiting happens in ``_get`` via the shared ``RateLimiter``, so a
+        full-history first sync naturally paces itself under Last.fm's limit.
+        """
+        import json
+
+        out: list[Scrobble] = []
+        page = 1
+        total_pages = 1
+        while page <= total_pages:
+            body = self._get(
+                {
+                    "method": "user.getrecenttracks",
+                    "user": username,
+                    "from": str(since_ts),
+                    "limit": str(page_size),
+                    "page": str(page),
+                }
+            )
+            payload = json.loads(body)
+            out.extend(parse_recent_tracks(payload))
+            container = payload.get("recenttracks", {}) if isinstance(payload, dict) else {}
+            attr = container.get("@attr", {}) if isinstance(container, dict) else {}
+            try:
+                total_pages = int(attr.get("totalPages", 1))
+            except (TypeError, ValueError):
+                total_pages = 1
+            page += 1
+        out.sort(key=lambda s: s.ts)
+        return [s for s in out if s.ts > since_ts]
 
     def artist_tags(self, artist_id: str) -> tuple[str, ...]:
         import json

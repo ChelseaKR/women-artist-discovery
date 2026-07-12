@@ -53,9 +53,19 @@ class Gender(enum.Enum):
         return self.value
 
 
-#: Genders the values-lens is configured to surface (sourced only). Note this is
-#: a *re-rank* concern, not an identity concern: ``UNKNOWN`` is deliberately absent
-#: here yet is never penalised — see :mod:`recommender.rerank`.
+#: Genders the values-lens is configured to surface (sourced only). This is the
+#: canonical aligned set, consumed by :class:`recommender.lens.LensSpec`
+#: (:data:`recommender.lens.VALUES_LENS`) — it lives here, not in
+#: ``recommender``, to avoid a circular import (``recommender`` already depends
+#: on ``pipeline``). Note this is a *re-rank* concern, not an identity concern:
+#: ``UNKNOWN`` is deliberately absent here yet is never penalised — see
+#: :mod:`recommender.rerank`. ``Gender.OTHER``'s exclusion is likewise
+#: deliberate, not an oversight: it is a heterogeneous sourced bucket (intersex,
+#: third-gender, terms outside the common vocabulary) that does not map cleanly
+#: to this lens's stated purpose of surfacing women and nonbinary artists; the
+#: full rationale — and the fact this is revisable per an identity-data-ethics
+#: review — is documented on :data:`recommender.lens.VALUES_LENS` and in
+#: ``docs/audits/identity-data-ethics.md``.
 VALUES_ALIGNED_GENDERS: frozenset[Gender] = frozenset({Gender.WOMAN, Gender.NONBINARY})
 
 
@@ -113,12 +123,44 @@ class Source:
     citation: str  # stable reference: URL, Wikidata QID, MBID, etc.
     retrieved_at: str  # ISO-8601 date the claim was fetched
     detail: str = ""  # the raw value the source asserted (e.g. "female")
+    #: True when this Source is a locally-entered correction (FIX-10) rather
+    #: than an upstream-fetched claim. Still an ``ARTIST_STATEMENT`` — the
+    #: "no citation, no override" invariant applies identically — but callers
+    #: (why-cards, renderers) can label it distinctly for transparency.
+    is_local_correction: bool = False
 
     def __post_init__(self) -> None:
         if not self.citation.strip():
             raise UnsourcedIdentityError("a Source must carry a non-empty citation")
         if self.kind not in PERMITTED_SOURCES:  # pragma: no cover - enum-exhaustive
             raise InferenceForbiddenError(f"{self.kind!r} is not a permitted source")
+        if self.is_local_correction and self.kind is not SourceKind.ARTIST_STATEMENT:
+            raise InferenceForbiddenError(
+                "a local correction must be recorded as an ARTIST_STATEMENT source"
+            )
+
+
+def _validate_individual_sources(sources: tuple[Source, ...]) -> None:
+    for source in sources:
+        if source.kind not in INDIVIDUAL_IDENTITY_SOURCES:
+            raise InferenceForbiddenError(
+                f"{source.kind} cannot establish an individual's gender; "
+                "it is a band-composition source"
+            )
+
+
+def _validate_conflict(conflict: bool, claims: tuple[Source, ...]) -> None:
+    if not conflict:
+        if claims:
+            raise IdentityError("conflicting_claims requires conflict=True")
+        return
+    if len(claims) < 2:
+        raise IdentityError("a conflict must carry at least two conflicting claims")
+    _validate_individual_sources(claims)
+    if len({source.detail for source in claims}) < 2:
+        raise IdentityError(
+            "conflict=True requires >=2 distinct asserted genders among conflicting_claims"
+        )
 
 
 @dataclass(frozen=True)
@@ -131,18 +173,33 @@ class IdentityLabel:
     * That source must be an *individual-identity* source — a band-composition
       source can never establish a person's gender.
     * A non-``UNKNOWN`` gender's basis must be ``SELF_IDENTIFIED``.
+    * ``conflict=True`` requires at least two distinct asserted genders among
+      ``conflicting_claims`` (FIX-10) — surfacing disagreement is itself a
+      sourced claim, never a bare assertion.
     """
 
     gender: Gender = Gender.UNKNOWN
     basis: IdentityBasis = IdentityBasis.UNKNOWN
     sources: tuple[Source, ...] = ()
     confidence: Optional[float] = None
+    #: True when permitted sources disagreed on this individual's gender. The
+    #: resolver still reports its highest-priority ``gender`` above, but a
+    #: conflict is never silently hidden — the disagreeing sources are kept
+    #: in ``conflicting_claims`` so it can be shown, not buried.
+    conflict: bool = False
+    #: The disagreeing sources behind a conflict (empty when ``conflict`` is
+    #: False). A superset of, or equal to, ``sources`` in practice — kept as
+    #: its own field so "what everyone asserted" survives independently of
+    #: "which source we chose to report".
+    conflicting_claims: tuple[Source, ...] = ()
 
     def __post_init__(self) -> None:
         if self.gender is Gender.UNKNOWN:
             # Unknown is first-class: no source required, basis must be UNKNOWN.
             if self.basis is not IdentityBasis.UNKNOWN:
                 raise IdentityError("unknown gender must carry UNKNOWN basis")
+            if self.conflict:
+                raise IdentityError("an unknown gender cannot carry a conflict")
             return
         if not self.sources:
             raise UnsourcedIdentityError(
@@ -150,14 +207,10 @@ class IdentityLabel:
             )
         if self.basis is not IdentityBasis.SELF_IDENTIFIED:
             raise InferenceForbiddenError("an individual gender must have a SELF_IDENTIFIED basis")
-        for src in self.sources:
-            if src.kind not in INDIVIDUAL_IDENTITY_SOURCES:
-                raise InferenceForbiddenError(
-                    f"{src.kind} cannot establish an individual's gender; "
-                    "it is a band-composition source"
-                )
+        _validate_individual_sources(self.sources)
         if self.confidence is not None and not (0.0 <= self.confidence <= 1.0):
             raise IdentityError("confidence must be in [0, 1]")
+        _validate_conflict(self.conflict, self.conflicting_claims)
 
     @property
     def is_known(self) -> bool:
@@ -235,6 +288,13 @@ class Artist:
     @property
     def values_aligned(self) -> bool:
         """True iff *sourced* identity OR *sourced* composition aligns with the lens.
+
+        Delegates to the default lens's semantics — equivalent to
+        ``recommender.lens.VALUES_LENS.aligned(self)`` — kept here as a
+        convenience property so callers that only care about the default lens
+        don't need to import :mod:`recommender.lens`. :class:`recommender.lens.LensSpec`
+        is the declared, inspectable manifest (name, aligned predicate, boost
+        bound, rationale) that this property mirrors.
 
         Unknown returns ``False`` here — but "not aligned" must never translate
         into a penalty; it only means "received no boost". See the re-rank layer.
@@ -314,6 +374,7 @@ class Recommendation:
     rerank_delta: float  # boost applied by the lens (>= 0, never negative)
     explanation: Explanation
     rank: int = 0
+    base_rank: int = 0  # counterfactual rank at lens_strength=0 (pure taste)
 
     @property
     def score(self) -> float:
@@ -321,3 +382,6 @@ class Recommendation:
 
     def with_rank(self, rank: int) -> Recommendation:
         return replace(self, rank=rank)
+
+    def with_base_rank(self, base_rank: int) -> Recommendation:
+        return replace(self, base_rank=base_rank)
