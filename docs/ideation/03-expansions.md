@@ -77,7 +77,7 @@ similarity — with an AST/behavioural guard in the spirit of
 rises with the slider; identity-segment exposure (FIX-05) statistically
 unchanged by the diversifier at any setting.
 
-### EXP-05 — "Fix it at the source" contribution flow
+### EXP-05 — "Fix it at the source" contribution flow — **Implemented (2026-07-03)**
 **Pitch:** When a label is missing, stale, or wrong, the UI offers a
 pre-filled path to correct it upstream (Wikidata P21 edit page, MusicBrainz
 edit, with the citation the user supplies), and logs the pending correction
@@ -91,6 +91,14 @@ user's browser does the editing.
 **Effort:** S–M. **Risks/deps:** FIX-10; must never auto-edit upstream.
 **Excellence bar:** One real correction round-trip completed and documented
 (local note → Wikidata edit → refresh picks it up with new `retrieved_at`).
+
+**Shipped:** cited provenance now links to the human Wikidata/MusicBrainz edit
+surface where one can be constructed safely. `wad pending-corrections` keeps
+a local JSON queue of edits a person filed upstream; `wad refresh` reconciles
+matching source-level changes. This queue is intentionally distinct from the
+SQLite-backed `wad corrections` ledger of applied local overrides. No code
+auto-edits an upstream service. The real-world correction round-trip remains
+a human-only follow-up and is not claimed as completed by tests.
 
 ### EXP-06 — Temporal taste profiles
 **Pitch:** Recommend against a chosen era of your listening ("my 2019 self"),

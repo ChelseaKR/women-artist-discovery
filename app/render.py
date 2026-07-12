@@ -10,7 +10,8 @@ Accessibility decisions baked in here:
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
 * a skip link to ``<main>`` and proper landmarks/heading order,
 * identity is conveyed as **text**, never colour alone,
-* the score "chart" ships with a real ``<table>`` data equivalent.
+* the score "chart" ships with a real ``<table>`` data equivalent,
+* upstream correction links are labelled text links, never icon/colour cues.
 """
 
 from __future__ import annotations
@@ -19,11 +20,22 @@ from collections.abc import Sequence
 from html import escape
 
 from pipeline.models import Recommendation
-from recommender.why import WhyThisArtist, why_this_artist
+from recommender.upstream import upstream_edit_url
+from recommender.why import ProvenanceItem, WhyThisArtist, why_this_artist
 
 
 def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
+
+
+def _fix_at_source_link(item: ProvenanceItem) -> str:
+    edit_url = upstream_edit_url(item.source_kind, item.citation)
+    if edit_url is None:
+        return ""
+    return (
+        f' <a class="fix-at-source" href="{escape(edit_url)}">'
+        f"Fix at source: correct this {escape(item.source_kind)} claim upstream</a>"
+    )
 
 
 def _conflict_html(why: WhyThisArtist, aid: str) -> str:
@@ -54,6 +66,7 @@ def _provenance_html(why: WhyThisArtist, aid: str) -> str:
             if p.is_local_correction
             else ""
         )
+        + _fix_at_source_link(p)
         + "</li>"
         for p in why.provenance
     )

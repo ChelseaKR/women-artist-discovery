@@ -20,12 +20,14 @@ from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
 from recommender.eval import check_regression, evaluate, fairness_report, to_report
 from recommender.hybrid import recommend
+from recommender.upstream import upstream_edit_url
 from recommender.why import why_this_artist
 
+from pipeline import corrections as pending_corrections
 from pipeline.cache import DEFAULT_DB_PATH, DEFAULT_HTTP_TTL_DAYS, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
 from pipeline.identity import IdentityEvidence
-from pipeline.ingest import refresh_catalog
+from pipeline.ingest import diff_identity_labels, refresh_catalog
 from pipeline.models import SourceKind, UnsourcedIdentityError
 
 
@@ -93,6 +95,15 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     with Cache(args.db) as cache:
         expired = cache.expire_http_cache(ttl_days=args.ttl_days, now=today)
         changes = refresh_catalog(cache, catalog, fetched_at=today)
+    source_changes = [
+        source_change
+        for change in changes
+        for source_change in diff_identity_labels(change.artist_id, change.old, change.new)
+    ]
+    pending_path = getattr(args, "pending_corrections", None) or pending_corrections.default_path(
+        args.db
+    )
+    reconciled = pending_corrections.reconcile(pending_path, source_changes)
     if changes:
         for change in changes:
             print(  # noqa: T201
@@ -102,6 +113,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     else:
         print("no identity-label changes")  # noqa: T201
     print(f"expired {expired} stale http-cache row(s)")  # noqa: T201
+    print(f"reconciled {reconciled} pending upstream correction(s)")  # noqa: T201
     return 0
 
 
@@ -140,6 +152,38 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                 f"{artist_id}: {evidence.value!r} — {evidence.citation} "
                 f"(retrieved {evidence.retrieved_at}, entered {entered_at})"
             )
+    return 0
+
+
+def _cmd_pending_corrections(args: argparse.Namespace) -> int:
+    """List or file human upstream edits awaiting a future refresh."""
+    path = args.path or str(pending_corrections.default_path(Path(args.db)))
+    if args.pending_command == "add":
+        edit_url = upstream_edit_url(args.source_kind, args.citation)
+        row = pending_corrections.add_correction(
+            path,
+            artist_id=args.artist,
+            source_kind=args.source_kind,
+            citation=args.citation,
+            current_value=args.current,
+            proposed_value=args.proposed,
+            note=args.note,
+            filed_at=datetime.now(timezone.utc).date().isoformat(),
+            edit_url=edit_url,
+        )
+        print(f"filed pending correction for {row.artist_id} ({row.source_kind})")  # noqa: T201
+        if row.edit_url:
+            print(f"  fix at source: {row.edit_url}")  # noqa: T201
+        return 0
+    rows = pending_corrections.list_corrections(path)
+    if not rows:
+        print("no pending corrections")  # noqa: T201
+        return 0
+    for row in rows:
+        print(  # noqa: T201
+            f"{row.artist_id} [{row.source_kind}] {row.current_value!r} -> "
+            f"{row.proposed_value!r} — filed {row.filed_at}: {row.note}"
+        )
     return 0
 
 
@@ -210,6 +254,11 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_HTTP_TTL_DAYS,
         help="expire http-cache rows older than this many days",
     )
+    p_ref.add_argument(
+        "--pending-corrections",
+        default=None,
+        help="pending upstream corrections file to reconcile",
+    )
     p_ref.set_defaults(func=_cmd_refresh)
 
     p_corr = sub.add_parser(
@@ -221,6 +270,21 @@ def main(argv: list[str] | None = None) -> int:
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
     p_corr.set_defaults(func=_cmd_corrections)
+
+    p_pending = sub.add_parser(
+        "pending-corrections", help="list or file pending human upstream edits (EXP-05)"
+    )
+    p_pending.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    p_pending.add_argument("--path", default=None, help="pending JSON file (default: beside --db)")
+    pending_sub = p_pending.add_subparsers(dest="pending_command")
+    p_pending_add = pending_sub.add_parser("add", help="file a pending upstream correction")
+    p_pending_add.add_argument("--artist", required=True)
+    p_pending_add.add_argument("--source-kind", required=True)
+    p_pending_add.add_argument("--citation", required=True)
+    p_pending_add.add_argument("--current", default="")
+    p_pending_add.add_argument("--proposed", required=True)
+    p_pending_add.add_argument("--note", default="")
+    p_pending.set_defaults(func=_cmd_pending_corrections)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

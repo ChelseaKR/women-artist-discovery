@@ -12,13 +12,13 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, overload
 
 from pipeline.cache import Cache
 from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble
+from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, Source
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -129,9 +129,84 @@ class LabelChange:
     new: IdentityLabel
 
 
+@dataclass(frozen=True)
+class IdentityLabelChange:
+    """One cited source value/date change observed during re-enrichment."""
+
+    artist_id: str
+    source_kind: str
+    old_value: str
+    new_value: str
+    retrieved_at: str
+
+
+def _identity_sources(artist: Artist) -> tuple[Source, ...]:
+    sources = artist.identity.sources
+    if artist.composition is not None:
+        sources += artist.composition.sources
+    return sources
+
+
+def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
+    """Report source values or retrieval dates that changed between passes."""
+    return _diff_sources(old.artist_id, _identity_sources(old), _identity_sources(new))
+
+
+def _diff_sources(
+    artist_id: str, old_sources: tuple[Source, ...], new_sources: tuple[Source, ...]
+) -> list[IdentityLabelChange]:
+    old_by_kind = {source.kind: source for source in old_sources}
+    changes: list[IdentityLabelChange] = []
+    for new_source in new_sources:
+        old_source = old_by_kind.get(new_source.kind)
+        if old_source is None:
+            continue
+        if (
+            old_source.detail != new_source.detail
+            or old_source.retrieved_at != new_source.retrieved_at
+        ):
+            changes.append(
+                IdentityLabelChange(
+                    artist_id=artist_id,
+                    source_kind=str(new_source.kind),
+                    old_value=old_source.detail,
+                    new_value=new_source.detail,
+                    retrieved_at=new_source.retrieved_at,
+                )
+            )
+    return changes
+
+
+def diff_identity_labels(
+    artist_id: str, old: IdentityLabel, new: IdentityLabel
+) -> list[IdentityLabelChange]:
+    """Source-level detail for a label-level cache refresh change."""
+    return _diff_sources(artist_id, old.sources, new.sources)
+
+
+@overload
 def refresh_catalog(
-    cache: Cache, catalog: dict[str, Artist], *, fetched_at: str
-) -> list[LabelChange]:
+    cache: Cache, catalog_or_source: dict[str, Artist], *, fetched_at: str
+) -> list[LabelChange]: ...
+
+
+@overload
+def refresh_catalog(
+    cache: Cache,
+    catalog_or_source: ScrobbleSource,
+    enricher: EnrichmentSource,
+    *,
+    fetched_at: str,
+) -> list[IdentityLabelChange]: ...
+
+
+def refresh_catalog(
+    cache: Cache,
+    catalog_or_source: dict[str, Artist] | ScrobbleSource,
+    enricher: Optional[EnrichmentSource] = None,
+    *,
+    fetched_at: str,
+) -> list[LabelChange] | list[IdentityLabelChange]:
     """Re-persist an enriched catalog, reporting identity-label changes (FIX-04).
 
     The correction path (ROADMAP §9 / RR-2): each freshly-enriched artist is compared
@@ -139,10 +214,31 @@ def refresh_catalog(
     reported with its before/after, then the new label is written. Artists absent
     from the cache are stored without being reported as "changes".
     """
-    changes: list[LabelChange] = []
-    for artist_id, artist in catalog.items():
+    if isinstance(catalog_or_source, dict):
+        label_changes: list[LabelChange] = []
+        for artist_id, artist in catalog_or_source.items():
+            cached = cache.get_artist(artist_id)
+            if cached is not None and cached.identity != artist.identity:
+                label_changes.append(LabelChange(artist_id, cached.identity, artist.identity))
+            cache.put_artist(artist, fetched_at=fetched_at)
+        return label_changes
+
+    if enricher is None:
+        raise TypeError("source refresh requires an EnrichmentSource")
+    source_changes: list[IdentityLabelChange] = []
+    for artist_id in cache.list_artist_ids():
         cached = cache.get_artist(artist_id)
-        if cached is not None and cached.identity != artist.identity:
-            changes.append(LabelChange(artist_id, cached.identity, artist.identity))
-        cache.put_artist(artist, fetched_at=fetched_at)
-    return changes
+        if cached is None:  # pragma: no cover - id came from the same cache
+            continue
+        refreshed = enrich_artist(
+            artist_id,
+            cached.name,
+            catalog_or_source,
+            enricher,
+            listeners=cached.listeners,
+            playcount=cached.playcount,
+            cache=cache,
+        )
+        source_changes.extend(diff_identity_sources(cached, refreshed))
+        cache.put_artist(refreshed, fetched_at=fetched_at)
+    return source_changes
