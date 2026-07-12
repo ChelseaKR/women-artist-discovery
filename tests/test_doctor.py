@@ -59,7 +59,7 @@ def test_present_env_keys_are_reported_present(monkeypatch, tmp_path) -> None:
 
 def test_doctor_never_prints_env_values(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("WAD_DATA_DIR", str(tmp_path))
-    secret = "super-secret-do-not-leak"  # noqa: S105 - dummy value asserted absent, not a real cred
+    secret = "super-secret-do-not-leak"
     monkeypatch.setenv("WAD_LASTFM_API_KEY", secret)
 
     report = doctor.run_diagnostics(check_upstream=False)

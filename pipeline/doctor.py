@@ -26,7 +26,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 
-from pipeline.cache import CACHE_SCHEMA_VERSION, Cache
+from pipeline.cache import CACHE_SCHEMA_VERSION, Cache, CacheSchemaError
 from pipeline.paths import default_db_path, resolve_data_dir
 
 # Environment variables the pipeline reads. None are strictly required for
@@ -108,6 +108,9 @@ def _check_cache() -> list[Check]:
 
     try:
         cache = Cache(db_path)
+    except CacheSchemaError as exc:
+        checks.append(Check("cache_schema_version", False, str(exc)))
+        return checks
     except (sqlite3.Error, OSError) as exc:
         checks.append(Check("cache_readable", False, f"cannot open cache: {exc}"))
         return checks

@@ -12,6 +12,7 @@ Support/wad``, …) on the machine running the tests.
 from __future__ import annotations
 
 import os
-import tempfile
+from tempfile import TemporaryDirectory
 
-os.environ.setdefault("WAD_DATA_DIR", tempfile.mkdtemp(prefix="wad-test-data-"))
+_TEST_DATA_DIR = TemporaryDirectory(prefix="wad-test-data-")
+os.environ.setdefault("WAD_DATA_DIR", _TEST_DATA_DIR.name)

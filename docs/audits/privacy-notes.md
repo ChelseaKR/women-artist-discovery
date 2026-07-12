@@ -46,6 +46,7 @@ network — enforced across `pipeline/`, `recommender/`, `app/`, and `export/`.
 | Module | What it does | Live transport |
 |--------|---------------|-----------------|
 | `pipeline/lastfm.py` | Last.fm scrobble/tag/similarity fetch, cached, rate-limited | `import requests` (lazy, inside the client) |
+| `pipeline/doctor.py` | Explicit `wad doctor --check-upstream` reachability probes; never runs by default | `import requests` (lazy, inside the opt-in check) |
 | `export/spotify.py` | Playlist export via OAuth; the only live implementation is `RequestsTransport` | `import requests` (lazy, inside `RequestsTransport.request`) |
 
 Adding a new live client (e.g. a FIX-01 MusicBrainz/Discogs/Wikidata HTTP
