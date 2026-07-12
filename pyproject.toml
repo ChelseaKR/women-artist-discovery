@@ -44,6 +44,8 @@ dev = [
     "mypy>=1.18",
     "types-requests",
     "pip-audit>=2.7",
+    # Property-based guardrail tests (FIX-11) exercise generated inputs.
+    "hypothesis>=6",
 ]
 
 [tool.hatch.build.targets.wheel]
