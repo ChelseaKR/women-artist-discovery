@@ -1,0 +1,32 @@
+name: osv-scanner
+
+# SEC-11/SEC-13 completion: scans uv.lock itself (not just the installed
+# environment pip-audit already covers in ci.yml), so a lockfile-only
+# transitive vulnerability is caught even before anything is installed from it.
+
+on:
+  push:
+    branches: [main]
+    paths: ["uv.lock", "pyproject.toml"]
+  pull_request:
+    branches: [main]
+    paths: ["uv.lock", "pyproject.toml"]
+  schedule:
+    - cron: "23 4 * * 1"  # weekly, Monday
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osv-scanner-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scan:
+    permissions:
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@9a498708959aeaef5ef730655706c5a1df1edbc2  # v2.3.8
+    with:
+      scan-args: |-
+        --lockfile=uv.lock

@@ -26,7 +26,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline.models import Artist, Gender, IdentityBasis, Recommendation, Source
+from pipeline.models import (
+    Artist,
+    Gender,
+    IdentityBasis,
+    IdentityLabel,
+    Recommendation,
+    Source,
+    SourceKind,
+)
 
 
 @dataclass(frozen=True)
@@ -136,6 +144,18 @@ class WhyThisArtist:
         return "\n".join(parts)
 
 
+def _confidence_tier(label: IdentityLabel) -> str:
+    """Describe the strongest cited source without interpreting its score."""
+    source_kinds = {source.kind for source in label.sources}
+    if SourceKind.ARTIST_STATEMENT in source_kinds:
+        return "directly stated by the artist"
+    if SourceKind.WIKIDATA_P21 in source_kinds:
+        return "recorded in Wikidata"
+    if SourceKind.MUSICBRAINZ_GENDER in source_kinds:
+        return "editorial database entry"
+    return "cited source"
+
+
 def artist_identity_phrase(artist: Artist) -> str:
     """The single sourced-or-unknown identity sentence, written in one place.
 
@@ -144,8 +164,9 @@ def artist_identity_phrase(artist: Artist) -> str:
     """
     label = artist.identity
     if label.gender is not Gender.UNKNOWN:
-        conf = f" (confidence {label.confidence:.0%})" if label.confidence else ""
-        return f"{label.gender}, self-identified{conf}"
+        tier = _confidence_tier(label)
+        suffix = f" ({tier})" if tier else ""
+        return f"{label.gender}, self-identified{suffix}"
     if artist.female_fronted is True:
         return "female-fronted band (sourced lineup), distinct from any member's gender"
     return "unknown — surfaced on musical similarity alone"

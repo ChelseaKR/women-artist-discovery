@@ -233,29 +233,13 @@ layer enforces it".
 disagreement; when a source is wrong, record the correction locally with a
 citation.
 
-> **Status: implemented** on `roadmap/fix-10-source-conflict-surfacing-and-a-l`.
-> `IdentityLabel` gained `conflict: bool` + `conflicting_claims: tuple[Source, ...]`
-> (`pipeline/models.py`), set by `resolve_identity` whenever permitted sources
-> disagree (`pipeline/identity.py`). `WhyThisArtist.conflict_note` renders a
-> neutral, cited "Sources disagree: …" line in `to_text()`/`to_markdown()`
-> (`recommender/why.py`), shown as a distinct `.conflict` callout in
-> `app/render.py`. The cache gained a versioned migration
-> (`CACHE_SCHEMA_VERSION` 2→3, `Cache._migrate_to_v3`) adding a `corrections`
-> table (citation `NOT NULL`, enforced non-empty via the same
-> `Source.__post_init__`/`UnsourcedIdentityError` path as any other source);
-> `Cache.put_correction`/`get_corrections`/`list_corrections` back a new
-> `wad corrections` CLI subcommand (list, or add with
-> `--artist/--value/--citation`, rejecting a missing citation) and a
-> `wad refresh` subcommand that expires only `http_cache` — corrections
-> persist across it (tested). Corrections apply at `pipeline/ingest.py`
-> resolve time as additional `ARTIST_STATEMENT` evidence (already the
-> resolver's highest-priority kind), flagged `is_local_correction=True` end to
-> end (`Source`/`IdentityEvidence`/`ProvenanceItem`) so they render as "local
-> correction" in provenance rather than blending in with upstream claims.
-> Tests: `tests/test_identity_model.py` (conflict/uncited-override
-> invariants), `tests/test_corrections.py` (citation requirement, priority
-> win, refresh survival), `tests/test_why.py` (conflict_note presence/absence).
-> `make verify` green; coverage 96.9%.
+> **Status: implemented.** `IdentityLabel` carries neutral conflict metadata;
+> `WhyThisArtist` and the accessible renderer show every disagreeing cited
+> claim. Cache schema v3 adds a cited local corrections ledger without
+> disturbing v2 dedupe/TTL migrations. `wad corrections` records or lists
+> corrections, and `wad refresh` expires stale HTTP rows while preserving the
+> ledger. Local corrections remain visibly labelled in provenance and enter
+> resolution only as cited `ARTIST_STATEMENT` evidence.
 
 - **Why it matters:** `pipeline/identity.py::resolve_identity` silently picks
   the highest-priority source on conflict and caps confidence at 0.5 — the
@@ -344,7 +328,7 @@ either use or drop the declared numpy dependency.
 - **Excellent looks like:** p95 end-to-end recommend < 2 s on a 50k-scrobble /
   5k-candidate profile, measured and committed; zero unused runtime deps.
 
-## FIX-14 — Honest confidence semantics
+## FIX-14 — Honest confidence semantics — **DONE (2026-07-03)**
 
 **Pitch:** Stop presenting hand-set constants as percentages.
 
@@ -363,3 +347,19 @@ either use or drop the declared numpy dependency.
 - **Risks/deps:** Pairs naturally with FIX-10; wording is review-gated.
 - **Excellent looks like:** No unexplained numbers in any identity statement;
   the tier vocabulary documented in `docs/audits/identity-data-ethics.md`.
+- **Landed:** `recommender/why.py::artist_identity_phrase` no longer renders
+  `label.confidence` as a `:.0%` percentage. `_confidence_tier(label)` maps the
+  actual cited `SourceKind` to one of three provenance-tied phrases —
+  `"directly stated by the artist"` (artist statement), `"recorded in
+  Wikidata"` (Wikidata P21), or `"editorial database entry"` (MusicBrainz).
+  The numeric value cannot alter that wording. `IdentityLabel.confidence` is kept
+  as an internal-only field for ordering, per the doc's second option — not
+  removed. `app/render.py` and `recommender/explain.py` needed no change
+  (the latter only calls `artist_identity_phrase`; the former never rendered
+  confidence). `tests/test_why.py` gained
+  `test_artist_identity_phrase_uses_qualitative_tier_not_percentage`,
+  asserting the rendered phrase contains `"directly stated by the artist"`
+  and no `%` character; `tests/test_explanation.py` and
+  `tests/test_unknown_first_class.py` had no hard-coded confidence-percentage
+  expectations to update. `docs/audits/identity-data-ethics.md` gained the
+  tier vocabulary under a new "Confidence tiers" policy bullet.

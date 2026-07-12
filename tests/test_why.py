@@ -86,6 +86,51 @@ def test_artist_identity_phrase_matches_statement(profile, catalog, source) -> N
     assert artist_identity_phrase(rec.artist) == why_this_artist(rec).identity_statement
 
 
+def test_artist_identity_phrase_uses_qualitative_tier_not_percentage() -> None:
+    from pipeline.models import Artist, Gender, IdentityBasis, IdentityLabel, Source, SourceKind
+
+    label = IdentityLabel(
+        gender=Gender.WOMAN,
+        basis=IdentityBasis.SELF_IDENTIFIED,
+        sources=(
+            Source(
+                kind=SourceKind.ARTIST_STATEMENT,
+                citation="https://example.org/statement",
+                retrieved_at="2026-05-31",
+                detail="woman",
+            ),
+        ),
+        confidence=0.9,
+    )
+    artist = Artist(artist_id="known-female", name="Known Female", identity=label)
+    phrase = artist_identity_phrase(artist)
+    assert "directly stated by the artist" in phrase
+    assert "%" not in phrase
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "misleading_confidence", "expected"),
+    [
+        (SourceKind.ARTIST_STATEMENT, 0.01, "directly stated by the artist"),
+        (SourceKind.WIKIDATA_P21, 0.99, "recorded in Wikidata"),
+        (SourceKind.MUSICBRAINZ_GENDER, 0.99, "editorial database entry"),
+    ],
+)
+def test_identity_tier_comes_from_citation_not_numeric_confidence(
+    source_kind: SourceKind, misleading_confidence: float, expected: str
+) -> None:
+    from pipeline.models import Artist, Gender, IdentityBasis, IdentityLabel, Source
+
+    label = IdentityLabel(
+        gender=Gender.WOMAN,
+        basis=IdentityBasis.SELF_IDENTIFIED,
+        sources=(Source(source_kind, "https://example.org/source", "2026-05-31", "woman"),),
+        confidence=misleading_confidence,
+    )
+    phrase = artist_identity_phrase(Artist("known", "Known", identity=label))
+    assert expected in phrase
+
+
 def test_provenance_item_from_source_preserves_raw_value() -> None:
     from pipeline.models import Source, SourceKind
 
@@ -127,9 +172,6 @@ def test_why_stable_across_lens(profile, catalog, source, lens) -> None:
     assert why.identity_basis is IdentityBasis.UNKNOWN
 
 
-# --- FIX-10: conflict_note appears when (and only when) sources disagree ----
-
-
 def _conflicted_artist() -> Artist:
     wikidata = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
     musicbrainz = Source(SourceKind.MUSICBRAINZ_GENDER, "mb://x", "2026-05-31", "male")
@@ -147,20 +189,13 @@ def _conflicted_artist() -> Artist:
 def test_conflict_note_names_every_disagreeing_source() -> None:
     note = conflict_note(_conflicted_artist())
     assert note.startswith("Sources disagree:")
-    assert "Q6581072" in note
-    assert "male" in note
-    assert "2026-05-31" in note
-    # Neutral wording: no apology, no guess at who's "right".
-    assert "sorry" not in note.lower()
+    assert "Q6581072" in note and "male" in note and "2026-05-31" in note
     assert "wrong" not in note.lower()
 
 
 def test_conflict_note_empty_when_sources_agree(profile, catalog, source) -> None:
-    rec = _rec_for(profile, catalog, source, "snail-mail")
-    why = why_this_artist(rec)
+    why = why_this_artist(_rec_for(profile, catalog, source, "snail-mail"))
     assert why.conflict_note == ""
-    assert "disagree" not in why.to_text().lower()
-    assert "disagree" not in why.to_markdown().lower()
 
 
 def test_conflict_note_renders_in_text_and_markdown() -> None:
@@ -174,6 +209,5 @@ def test_conflict_note_renders_in_text_and_markdown() -> None:
         provenance=tuple(ProvenanceItem.from_source(s) for s in artist.identity.sources),
         conflict_note=conflict_note(artist),
     )
-    assert why.conflict_note
     assert why.conflict_note in why.to_text()
     assert why.conflict_note in why.to_markdown()

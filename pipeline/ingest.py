@@ -11,13 +11,14 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 from pipeline.cache import Cache
 from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, ListeningProfile, Scrobble
+from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -117,3 +118,31 @@ def ingest(
         tags=tags_by_artist,
     )
     return profile, catalog
+
+
+@dataclass(frozen=True)
+class LabelChange:
+    """An identity label that changed on re-enrichment — the correction ledger row."""
+
+    artist_id: str
+    old: IdentityLabel
+    new: IdentityLabel
+
+
+def refresh_catalog(
+    cache: Cache, catalog: dict[str, Artist], *, fetched_at: str
+) -> list[LabelChange]:
+    """Re-persist an enriched catalog, reporting identity-label changes (FIX-04).
+
+    The correction path (ROADMAP §9 / RR-2): each freshly-enriched artist is compared
+    against the label the cache currently holds; every changed identity label is
+    reported with its before/after, then the new label is written. Artists absent
+    from the cache are stored without being reported as "changes".
+    """
+    changes: list[LabelChange] = []
+    for artist_id, artist in catalog.items():
+        cached = cache.get_artist(artist_id)
+        if cached is not None and cached.identity != artist.identity:
+            changes.append(LabelChange(artist_id, cached.identity, artist.identity))
+        cache.put_artist(artist, fetched_at=fetched_at)
+    return changes

@@ -1,0 +1,12 @@
+{
+  "baseline_date": "2026-07-05",
+  "baseline_source": "docs/audits/eval-report.json as of this date (demo fixture world, k=5)",
+  "k": 5,
+  "metrics": {
+    "precision_at_k": 0.6,
+    "recall_at_k": 0.75,
+    "map_at_k": 0.6875
+  },
+  "tolerance": 0.10,
+  "note": "AIEV-26/27: `wad eval` fails if any current hybrid metric drops more than `tolerance` (relative) below its baseline value here, in addition to the existing beats-popularity gate. Update this file deliberately (with a rationale in the PR) when a real recommender change intentionally moves these numbers — never silently, and never as a side effect of an ordinary `make eval` run."
+}
