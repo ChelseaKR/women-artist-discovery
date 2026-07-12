@@ -146,7 +146,7 @@ def test_corrections_survive_refresh(mem_cache) -> None:
     mem_cache.put_correction("mystery-act", correction, entered_at="2026-07-01")
     mem_cache.put_cached_response("https://example.org/some-api-call", "{}", "2026-07-01")
 
-    cleared = mem_cache.expire_http_cache()
+    cleared = mem_cache.expire_http_cache(ttl_days=0, now="2026-07-02")
 
     assert cleared >= 1
     assert mem_cache.get_cached_response("https://example.org/some-api-call") is None

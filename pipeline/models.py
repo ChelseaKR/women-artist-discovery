@@ -130,6 +130,29 @@ class Source:
             )
 
 
+def _validate_individual_sources(sources: tuple[Source, ...]) -> None:
+    for source in sources:
+        if source.kind not in INDIVIDUAL_IDENTITY_SOURCES:
+            raise InferenceForbiddenError(
+                f"{source.kind} cannot establish an individual's gender; "
+                "it is a band-composition source"
+            )
+
+
+def _validate_conflict(conflict: bool, claims: tuple[Source, ...]) -> None:
+    if not conflict:
+        if claims:
+            raise IdentityError("conflicting_claims requires conflict=True")
+        return
+    if len(claims) < 2:
+        raise IdentityError("a conflict must carry at least two conflicting claims")
+    _validate_individual_sources(claims)
+    if len({source.detail for source in claims}) < 2:
+        raise IdentityError(
+            "conflict=True requires >=2 distinct asserted genders among conflicting_claims"
+        )
+
+
 @dataclass(frozen=True)
 class IdentityLabel:
     """An artist's identity as *sourced*. Defaults to first-class ``UNKNOWN``.
@@ -174,30 +197,10 @@ class IdentityLabel:
             )
         if self.basis is not IdentityBasis.SELF_IDENTIFIED:
             raise InferenceForbiddenError("an individual gender must have a SELF_IDENTIFIED basis")
-        for src in self.sources:
-            if src.kind not in INDIVIDUAL_IDENTITY_SOURCES:
-                raise InferenceForbiddenError(
-                    f"{src.kind} cannot establish an individual's gender; "
-                    "it is a band-composition source"
-                )
+        _validate_individual_sources(self.sources)
         if self.confidence is not None and not (0.0 <= self.confidence <= 1.0):
             raise IdentityError("confidence must be in [0, 1]")
-        if self.conflict:
-            if len(self.conflicting_claims) < 2:
-                raise IdentityError("a conflict must carry at least two conflicting claims")
-            for src in self.conflicting_claims:
-                if src.kind not in INDIVIDUAL_IDENTITY_SOURCES:
-                    raise InferenceForbiddenError(
-                        f"{src.kind} cannot establish an individual's gender; "
-                        "it is a band-composition source"
-                    )
-            asserted = {src.detail for src in self.conflicting_claims}
-            if len(asserted) < 2:
-                raise IdentityError(
-                    "conflict=True requires >=2 distinct asserted genders among conflicting_claims"
-                )
-        elif self.conflicting_claims:
-            raise IdentityError("conflicting_claims requires conflict=True")
+        _validate_conflict(self.conflict, self.conflicting_claims)
 
     @property
     def is_known(self) -> bool:
