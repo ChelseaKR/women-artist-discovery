@@ -216,3 +216,38 @@ def exposure_report(
             "unknown_downranked_count": downranked,
         },
     }
+
+
+def observability_panel(
+    recs_by_lens: dict[float, list[Recommendation]],
+    current_lens: float,
+    *,
+    k: int,
+    base_lens: float = 0.0,
+) -> dict[str, object]:
+    """Reshape the generated fairness metrics into table-ready UI rows."""
+    if base_lens not in recs_by_lens:
+        raise ValueError(f"base_lens {base_lens!r} not present in recs_by_lens")
+    if current_lens not in recs_by_lens:
+        raise ValueError(f"current_lens {current_lens!r} not present in recs_by_lens")
+    base_exposure = exposure_at_k(recs_by_lens[base_lens], k)
+    current_exposure = exposure_at_k(recs_by_lens[current_lens], k)
+    retention = unknown_retention(recs_by_lens, base_lens=base_lens)
+    return {
+        "k": k,
+        "base_lens": base_lens,
+        "current_lens": current_lens,
+        "segments": list(SEGMENTS),
+        "exposure_rows": [
+            {
+                "segment": segment,
+                "base_share": base_exposure[segment],
+                "current_share": current_exposure[segment],
+            }
+            for segment in SEGMENTS
+        ],
+        "retention_row": {"segment": UNKNOWN, "by_lens": retention},
+        "rank_shift_row": rank_shift_by_segment(
+            recs_by_lens[base_lens], recs_by_lens[current_lens]
+        ),
+    }

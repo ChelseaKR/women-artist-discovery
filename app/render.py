@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from html import escape
+from typing import cast
 
 from pipeline.models import Recommendation
 from recommender.upstream import upstream_edit_url
@@ -126,6 +127,38 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
+def _exposure_panel_html(panel: dict[str, object] | None) -> str:
+    if panel is None:
+        return ""
+    rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    k = cast(int, panel["k"])
+    base_pct = f"{cast(float, panel['base_lens']):.0%}"
+    current_pct = f"{cast(float, panel['current_lens']):.0%}"
+    body = "".join(
+        f'<tr><th scope="row">{escape(str(row["segment"]))}</th>'
+        f"<td>{cast(float, row['base_share']):.0%}</td>"
+        f"<td>{cast(float, row['current_share']):.0%}</td></tr>"
+        for row in rows
+    )
+    retention = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention["by_lens"])
+    retention_headers = "".join(f'<th scope="col">Lens {escape(key)}</th>' for key in by_lens)
+    retention_cells = "".join(f"<td>{value:.0%}</td>" for value in by_lens.values())
+    return (
+        "<h2>Fairness observability</h2>"
+        "<p>Exposure changes are shown alongside the merge-blocking "
+        "unknown-retention guarantee.</p>"
+        f"<table><caption>Top-{k} exposure share by identity segment — base lens "
+        f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
+        '<th scope="col">Identity segment</th><th scope="col">Base share</th>'
+        f'<th scope="col">Current share</th></tr></thead><tbody>{body}</tbody></table>'
+        "<table><caption>Unknown-identity retention across the lens</caption><thead><tr>"
+        f'<th scope="col">Identity segment</th>{retention_headers}</tr></thead><tbody><tr>'
+        f'<th scope="row">{escape(str(retention["segment"]))}</th>{retention_cells}'
+        "</tr></tbody></table>"
+    )
+
+
 #: Explicit per-scheme design tokens (BUG-1 fix). The old stylesheet declared
 #: ``color-scheme: light dark`` with **no** explicit colours, so under an OS dark
 #: theme every pair fell back to UA defaults and produced real axe contrast
@@ -202,6 +235,7 @@ def render_cards_html(
     lens_strength: float,
     username: str = "demo",
     scheme: str = "auto",
+    exposure_panel: dict[str, object] | None = None,
 ) -> str:
     """Render a complete, accessible HTML document for the given recommendations.
 
@@ -227,6 +261,7 @@ def render_cards_html(
         '<main id="main">'
         "<h2>Score summary</h2>"
         f"{_table_html(recs)}"
+        f"{_exposure_panel_html(exposure_panel)}"
         "<h2>Recommendations</h2>"
         f"{cards}"
         "</main></body></html>"

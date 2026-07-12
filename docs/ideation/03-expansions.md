@@ -11,7 +11,7 @@ Effort tiers: S (≤1 day), M (2–5 days), L (1–3 weeks), XL (3+ weeks).
 
 ## Horizon 1 — Deepen the core
 
-### EXP-01 — Fairness observability panel
+### EXP-01 — Fairness observability panel — **Done**
 **Pitch:** Put the exposure metrics (FIX-05) in the user's face: a dashboard
 section showing exposure share by identity basis and the unknown-retention
 curve as the lens slider moves.
@@ -25,6 +25,11 @@ report" by being live and lens-reactive rather than a periodic artifact.
 **Excellence bar:** Moving the lens slider visibly changes exposure shares
 while the unknown-retention row stays pinned at 100% — screenshot-able proof
 of the core claim.
+
+**Shipped:** the dashboard and static axe-gated report now share a table-first
+panel showing per-segment exposure at the pure-taste and current lens settings,
+plus unknown retention across the fixed lens grid. It is a display adapter over
+the same generated FIX-05 metrics used by the eval gate.
 
 ### EXP-02 — Rank-shift transparency in every why-card
 **Pitch:** Each card states what the lens actually did: "the values lens moved

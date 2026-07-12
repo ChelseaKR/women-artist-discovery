@@ -27,6 +27,7 @@ from recommender.eval import (
     fairness_report,
     to_report,
 )
+from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 from recommender.upstream import upstream_edit_url
 from recommender.why import why_this_artist
@@ -244,10 +245,18 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    recs = recommend(
-        demo_profile(), demo_catalog(), demo_source(), k=args.k, lens_strength=args.lens
+    profile, catalog, source = demo_profile(), demo_catalog(), demo_source()
+    recs_by_lens = {
+        lens: recommend(profile, catalog, source, k=args.k, lens_strength=lens)
+        for lens in sorted({0.0, 0.25, 0.5, 0.75, 1.0, args.lens})
+    }
+    panel = observability_panel(recs_by_lens, current_lens=args.lens, k=min(3, args.k))
+    html = render_cards_html(
+        recs_by_lens[args.lens],
+        lens_strength=args.lens,
+        username=DEMO_USER,
+        exposure_panel=panel,
     )
-    html = render_cards_html(recs, lens_strength=args.lens, username=DEMO_USER)
     privacy_footer = (
         "<footer><p><strong>Privacy note:</strong> this report contains listening "
         "taste and recommendation data. Share it only with people you intend to.</p></footer>"

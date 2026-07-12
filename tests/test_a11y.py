@@ -10,12 +10,24 @@ from __future__ import annotations
 from app.a11y_check import check_html
 from app.render import render_cards_html
 from pipeline.models import Explanation, IdentityBasis, Recommendation, Signal
+from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 
 
 def _html(profile, catalog, source, lens=0.5):
     recs = recommend(profile, catalog, source, k=10, lens_strength=lens)
     return render_cards_html(recs, lens_strength=lens, username="demo")
+
+
+def _html_with_observability(profile, catalog, source, lens=0.5):
+    recs_by_lens = {
+        value: recommend(profile, catalog, source, k=10, lens_strength=value)
+        for value in {0.0, 0.25, 0.5, 0.75, 1.0, lens}
+    }
+    panel = observability_panel(recs_by_lens, current_lens=lens, k=10)
+    return render_cards_html(
+        recs_by_lens[lens], lens_strength=lens, username="demo", exposure_panel=panel
+    )
 
 
 def _wrap_as_recommendation(artist, rank: int = 1) -> Recommendation:
@@ -46,6 +58,15 @@ def _wrap_as_recommendation(artist, rank: int = 1) -> Recommendation:
 def test_rendered_dashboard_has_zero_a11y_violations(profile, catalog, source) -> None:
     violations = check_html(_html(profile, catalog, source))
     assert violations == [], violations
+
+
+def test_observability_panel_is_table_first_and_accessible(profile, catalog, source) -> None:
+    html = _html_with_observability(profile, catalog, source)
+    assert check_html(html) == []
+    assert "Fairness observability" in html
+    assert "exposure share by identity segment" in html
+    assert "Unknown-identity retention" in html
+    assert html.count("<table>") >= 3
 
 
 def test_identity_is_text_not_colour_only(profile, catalog, source) -> None:

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from typing import Any
+from typing import Any, cast
 
 from export.models import ExportError, ExportFormat
 from export.spotify import (
@@ -39,6 +39,7 @@ from export.tracklist import recommendations_to_tracks, render
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
+from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 from recommender.why import why_this_artist
 
@@ -53,6 +54,8 @@ _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
     ("M3U playlist", ExportFormat.M3U, "audio/x-mpegurl"),
     ("JSPF (JSON)", ExportFormat.JSPF, "application/json"),
 )
+LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+OBSERVABILITY_K = 3
 
 
 def _finish_spotify_export(
@@ -194,6 +197,29 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             "Values boost": [round(r.rerank_delta, 3) for r in recs],
             "Total": [round(r.score, 3) for r in recs],
             "Identity basis": [str(r.explanation.identity_basis) for r in recs],
+        }
+    )
+
+    recs_by_lens = {
+        value: recommend(profile, catalog, source, k=10, lens_strength=value)
+        for value in sorted({*LENS_GRID, lens})
+    }
+    panel = observability_panel(recs_by_lens, current_lens=lens, k=OBSERVABILITY_K)
+    exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    retention_row = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention_row["by_lens"])
+    st.subheader(f"Fairness observability (top {OBSERVABILITY_K})")
+    st.table(
+        {
+            "Identity segment": [row["segment"] for row in exposure_rows],
+            "Base share": [f"{cast(float, row['base_share']):.0%}" for row in exposure_rows],
+            "Current share": [f"{cast(float, row['current_share']):.0%}" for row in exposure_rows],
+        }
+    )
+    st.table(
+        {
+            "Identity segment": [retention_row["segment"]],
+            **{f"Lens {key}": [f"{value:.0%}"] for key, value in by_lens.items()},
         }
     )
 
