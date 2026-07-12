@@ -1,5 +1,7 @@
 # Research-Backed Roadmap — Women-Artist Discovery
 
+Last verified: 2026-07-11
+
 > **What this is.** A research-grounded, persona-triaged backlog that **complements**
 > [`docs/ROADMAP.md`](./ROADMAP.md) — it does not replace it. The implementation
 > roadmap owns the build plan (M0–M6), the MoSCoW scope, and the quality gates; *this*
@@ -25,6 +27,24 @@
 >    composition kept distinct from any individual's gender.
 > Items that touch identity are marked **⚖︎** as a reminder that they ship *only* if
 > they preserve both.
+
+## Current disposition
+
+The June 2026 panel remains a hypothesis-generating snapshot. The engineering
+queue was reconciled on 2026-07-11; this table is the current source of truth so
+the historical backlog below is not mistaken for open committed work.
+
+| IDs | Disposition |
+| --- | --- |
+| R1, R4, R5, R6, R9, R10, R11 | Implemented: identity coverage; exposure/retention/rank-shift metrics; explicit popularity-independent wording; artist-statement priority; exact source/runtime egress guards plus identity-free export schemas; trans/intersex end-to-end tests; no-inference documentation and tests. |
+| R2 | Partially implemented by the cited local corrections ledger, pending-upstream queue, edit links, and refresh reconciliation. A public artist opt-out/intake route is not shipped because it requires consultation, authentication, and a hosted service. |
+| R3, R8 | Human-gated: automated axe checks pass in three color schemes, but a real VoiceOver/NVDA walkthrough and dynamic-announcement judgment cannot be fabricated in code. |
+| R7 | Superseded by per-card counterfactual rank-shift wording and the lens-reactive fairness panel, which show what the lens changed without duplicating the whole result set. |
+| R12 | Accepted operational follow-up rather than a product feature: dated audit docs carry recheck cadences; upstream changes are reviewed when dependency/API updates land. |
+| E1, E3, E4, E7, E8, E9, E10 | Implemented: bounded per-artist feedback; cited artist-statement source; static discovery report; LensSpec extension point and guard tests; respectful unknown explainer; correction queue/refresh workflow; reproducible methods writeup. |
+| E2 | Rejected: exporting identity/provenance would conflict with data minimization and the promise not to create a portable musician-identity dataset. Portable exports intentionally contain artist names and non-identity recommendation reasons only. |
+| E5 | Human/ethics-gated. New identity-related lenses need affected-community review and a defensible sourced vocabulary before code. No placeholder BIPOC or similar classifier will be invented. |
+| E6 | Deferred, not represented as shipped. A ListenBrainz adapter needs a separate provider-contract, privacy, and live-data validation pass. |
 
 ---
 
@@ -227,8 +247,3 @@ keeps them true.
 → The personas and simulated interviews behind this triage:
 [`USER-RESEARCH.md`](./USER-RESEARCH.md). → The build plan and correctness gates this
 complements: [`docs/ROADMAP.md`](./ROADMAP.md).
-</content>
-
----
-## Implementation status — 2026-06-30 (working tree, uncommitted)
-Shipped this pass: **R1** per-run identity-coverage readout (keeps "unknown" first-class) · **R4** exposure/rank-fairness metric · **R9** egress allow-list + export-schema tests. Verify: ruff + mypy + 171 tests green (the `security` pip-audit step errors on the editable install — environmental). Deferred: R3 manual screen-reader walkthrough (human).

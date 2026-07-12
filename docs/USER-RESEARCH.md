@@ -1,5 +1,7 @@
 # User Research — Synthetic Personas & Simulated Interviews
 
+Last verified: 2026-07-11
+
 > [!WARNING]
 > **These personas and interviews are synthetic.** They were generated as a
 > structured brainstorming device — *not* conducted with real people. No real
@@ -14,6 +16,10 @@
 > especially the **artists as identity-data subjects** (B-group), whose consent and
 > correctness this project most directly affects.
 > **Last assembled: 2026-06-30.**
+>
+> This is a dated research snapshot, so some simulated frictions were resolved
+> after assembly. Current implementation/defer/reject decisions live in the
+> disposition table at the top of `RESEARCH-ROADMAP.md`.
 
 ## Why do this at all
 
@@ -275,5 +281,3 @@ it to design the questions for, and lower the cost of, real conversations.
 → Triaged findings, the evidence base, and a sequenced plan that **complements**
 [`docs/ROADMAP.md`](./ROADMAP.md) live in
 [**`RESEARCH-ROADMAP.md`**](./RESEARCH-ROADMAP.md).
-</content>
-</invoke>

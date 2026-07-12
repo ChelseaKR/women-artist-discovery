@@ -17,117 +17,375 @@
       "recall_at_k": 0.25,
       "map_at_k": 0.0833,
       "n_positives": 4
+    },
+    "hybrid_decay": {
+      "model": "hybrid_decay",
+      "k": 5,
+      "precision_at_k": 0.6,
+      "recall_at_k": 0.75,
+      "map_at_k": 0.6875,
+      "n_positives": 4
     }
   },
+  "map_delta": 0.6042,
+  "recall_delta": 0.5,
+  "lift": 8.2533,
   "hybrid_beats_popularity": true,
-  "exposure": {
-    "taste": {
-      "k": 5,
-      "total": 11,
-      "segments": [
-        {
-          "segment": "woman",
-          "count": 5,
-          "share": 0.4545,
-          "first_rank": 1,
-          "mean_rank": 4.2,
-          "top_k_share": 0.8
+  "verdict": "hybrid",
+  "decay_map_at_k_delta": 0.0,
+  "decay_improves_map_at_k": false,
+  "multiworld": {
+    "k": 5,
+    "train_frac": 0.7,
+    "n_worlds": 5,
+    "worlds_hybrid_wins": 5,
+    "mean_map_delta": 0.5375,
+    "mean_recall_delta": 0.1,
+    "hybrid_beats_popularity": true,
+    "verdict": "hybrid",
+    "worlds": {
+      "demo-tuned-indie": {
+        "k": 5,
+        "n_positives": 4,
+        "models": {
+          "hybrid": {
+            "model": "hybrid",
+            "k": 5,
+            "precision_at_k": 0.6,
+            "recall_at_k": 0.75,
+            "map_at_k": 0.6875,
+            "n_positives": 4
+          },
+          "popularity": {
+            "model": "popularity",
+            "k": 5,
+            "precision_at_k": 0.2,
+            "recall_at_k": 0.25,
+            "map_at_k": 0.0833,
+            "n_positives": 4
+          },
+          "hybrid_decay": {
+            "model": "hybrid_decay",
+            "k": 5,
+            "precision_at_k": 0.6,
+            "recall_at_k": 0.75,
+            "map_at_k": 0.6875,
+            "n_positives": 4
+          }
         },
-        {
-          "segment": "nonbinary",
-          "count": 1,
-          "share": 0.0909,
-          "first_rank": 8,
-          "mean_rank": 8.0,
-          "top_k_share": 0.0
+        "map_delta": 0.6042,
+        "recall_delta": 0.5,
+        "lift": 8.2533,
+        "hybrid_beats_popularity": true,
+        "verdict": "hybrid",
+        "decay_map_at_k_delta": 0.0,
+        "decay_improves_map_at_k": false
+      },
+      "sparse-tags": {
+        "k": 5,
+        "n_positives": 2,
+        "models": {
+          "hybrid": {
+            "model": "hybrid",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          },
+          "popularity": {
+            "model": "popularity",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.4167,
+            "n_positives": 2
+          },
+          "hybrid_decay": {
+            "model": "hybrid_decay",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          }
         },
-        {
-          "segment": "man",
-          "count": 2,
-          "share": 0.1818,
-          "first_rank": 7,
-          "mean_rank": 8.5,
-          "top_k_share": 0.0
+        "map_delta": 0.5833,
+        "recall_delta": 0.0,
+        "lift": 2.3998,
+        "hybrid_beats_popularity": true,
+        "verdict": "hybrid",
+        "decay_map_at_k_delta": 0.0,
+        "decay_improves_map_at_k": false
+      },
+      "popularity-skewed": {
+        "k": 5,
+        "n_positives": 2,
+        "models": {
+          "hybrid": {
+            "model": "hybrid",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          },
+          "popularity": {
+            "model": "popularity",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.4167,
+            "n_positives": 2
+          },
+          "hybrid_decay": {
+            "model": "hybrid_decay",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          }
         },
-        {
-          "segment": "other",
-          "count": 0,
-          "share": 0.0,
-          "first_rank": 0,
-          "mean_rank": 0.0,
-          "top_k_share": 0.0
+        "map_delta": 0.5833,
+        "recall_delta": 0.0,
+        "lift": 2.3998,
+        "hybrid_beats_popularity": true,
+        "verdict": "hybrid",
+        "decay_map_at_k_delta": 0.0,
+        "decay_improves_map_at_k": false
+      },
+      "no-collaborative-signal": {
+        "k": 5,
+        "n_positives": 2,
+        "models": {
+          "hybrid": {
+            "model": "hybrid",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          },
+          "popularity": {
+            "model": "popularity",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.4167,
+            "n_positives": 2
+          },
+          "hybrid_decay": {
+            "model": "hybrid_decay",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 1.0,
+            "n_positives": 2
+          }
         },
-        {
-          "segment": "female-fronted",
-          "count": 1,
-          "share": 0.0909,
-          "first_rank": 6,
-          "mean_rank": 6.0,
-          "top_k_share": 0.0
+        "map_delta": 0.5833,
+        "recall_delta": 0.0,
+        "lift": 2.3998,
+        "hybrid_beats_popularity": true,
+        "verdict": "hybrid",
+        "decay_map_at_k_delta": 0.0,
+        "decay_improves_map_at_k": false
+      },
+      "adversarial-near-misses": {
+        "k": 5,
+        "n_positives": 2,
+        "models": {
+          "hybrid": {
+            "model": "hybrid",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.75,
+            "n_positives": 2
+          },
+          "popularity": {
+            "model": "popularity",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.4167,
+            "n_positives": 2
+          },
+          "hybrid_decay": {
+            "model": "hybrid_decay",
+            "k": 5,
+            "precision_at_k": 0.5,
+            "recall_at_k": 1.0,
+            "map_at_k": 0.75,
+            "n_positives": 2
+          }
         },
-        {
-          "segment": "unknown",
-          "count": 2,
-          "share": 0.1818,
-          "first_rank": 5,
-          "mean_rank": 7.0,
-          "top_k_share": 0.2
-        }
-      ]
+        "map_delta": 0.3333,
+        "recall_delta": 0.0,
+        "lift": 1.7999,
+        "hybrid_beats_popularity": true,
+        "verdict": "hybrid",
+        "decay_map_at_k_delta": 0.0,
+        "decay_improves_map_at_k": false
+      }
     },
-    "values_lens": {
-      "k": 5,
-      "total": 11,
-      "segments": [
-        {
-          "segment": "woman",
-          "count": 5,
-          "share": 0.4545,
-          "first_rank": 1,
-          "mean_rank": 3.6,
-          "top_k_share": 0.8
-        },
-        {
-          "segment": "nonbinary",
-          "count": 1,
-          "share": 0.0909,
-          "first_rank": 6,
-          "mean_rank": 6.0,
-          "top_k_share": 0.0
-        },
-        {
-          "segment": "man",
-          "count": 2,
-          "share": 0.1818,
-          "first_rank": 9,
-          "mean_rank": 10.0,
-          "top_k_share": 0.0
-        },
-        {
-          "segment": "other",
-          "count": 0,
-          "share": 0.0,
-          "first_rank": 0,
-          "mean_rank": 0.0,
-          "top_k_share": 0.0
-        },
-        {
-          "segment": "female-fronted",
-          "count": 1,
-          "share": 0.0909,
-          "first_rank": 5,
-          "mean_rank": 5.0,
-          "top_k_share": 0.2
-        },
-        {
-          "segment": "unknown",
-          "count": 2,
-          "share": 0.1818,
-          "first_rank": 7,
-          "mean_rank": 8.5,
-          "top_k_share": 0.0
-        }
-      ]
+    "caveats": "One world in this report ('demo-tuned-indie', from pipeline.demo) is hand-tuned so the hybrid recovers its held-out discoveries \u2014 see that module's docstring. It is included, and labelled, deliberately: hiding it would be worse than disclosing it. The other worlds (sparse-tags, popularity-skewed, no-collaborative-signal, adversarial-near-misses; see pipeline/fixtures.py) are independent synthetic fixtures NOT tuned to make the hybrid win. Treat the aggregate across all worlds \u2014 not any single world, and especially not 'demo-tuned-indie' alone \u2014 as the evidence. Even the aggregate is still synthetic data; the only fully de-circularized signal is the separate, human-gated real-data leg (eval_real / `make eval-real`), which is intentionally excluded from CI. See docs/ideation/02-large-scale-fixes.md FIX-06."
+  },
+  "fairness": {
+    "k": 5,
+    "lens_strengths": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "segments": [
+      "woman",
+      "nonbinary",
+      "female-fronted",
+      "man",
+      "other",
+      "unknown"
+    ],
+    "exposure_at_k": {
+      "0.00": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.0,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.2
+      },
+      "0.25": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "0.50": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "0.75": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "1.00": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      }
+    },
+    "unknown_retention": {
+      "0.00": 1.0,
+      "0.25": 1.0,
+      "0.50": 1.0,
+      "0.75": 1.0,
+      "1.00": 1.0
+    },
+    "mean_rank_shift": {
+      "0.25": {
+        "woman": -0.4,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.0,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "0.50": {
+        "woman": -0.6,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "0.75": {
+        "woman": -0.6,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "1.00": {
+        "woman": -0.6,
+        "nonbinary": -2.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.5
+      }
+    },
+    "popularity_identity_crosstab": {
+      "niche": {
+        "woman": 0,
+        "nonbinary": 0,
+        "female-fronted": 0,
+        "man": 0,
+        "other": 0,
+        "unknown": 1
+      },
+      "mid": {
+        "woman": 5,
+        "nonbinary": 1,
+        "female-fronted": 1,
+        "man": 1,
+        "other": 0,
+        "unknown": 0
+      },
+      "popular": {
+        "woman": 0,
+        "nonbinary": 0,
+        "female-fronted": 0,
+        "man": 1,
+        "other": 0,
+        "unknown": 1
+      }
+    },
+    "guarantees": {
+      "unknown_retention_all_lenses": true,
+      "min_unknown_retention": 1.0,
+      "unknown_downranked_count": 0
+    }
+  },
+  "regression_vs_baseline": {
+    "regressed": false,
+    "tolerance": 0.1,
+    "metrics": {
+      "precision_at_k": {
+        "baseline": 0.6,
+        "current": 0.6,
+        "floor": 0.54,
+        "regressed": false
+      },
+      "recall_at_k": {
+        "baseline": 0.75,
+        "current": 0.75,
+        "floor": 0.675,
+        "regressed": false
+      },
+      "map_at_k": {
+        "baseline": 0.6875,
+        "current": 0.6875,
+        "floor": 0.6188,
+        "regressed": false
+      }
     }
   }
 }

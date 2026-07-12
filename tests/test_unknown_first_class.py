@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 from pipeline.models import Gender
+from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.rerank import rerank, values_boost_for_artist
 
@@ -72,3 +73,27 @@ def test_man_and_unknown_are_not_penalised_relative_to_each_other() -> None:
 def test_rerank_rejects_out_of_range_lens() -> None:
     with pytest.raises(ValueError):
         rerank([], lens_strength=1.5)
+
+
+def test_feedback_does_not_reintroduce_an_identity_penalty(profile, catalog, source) -> None:
+    """Thumbs feedback must stay artist-scoped end-to-end through ``recommend``.
+
+    A thumbs-down on one sourced woman artist must not lower any other
+    artist — not another sourced woman/nonbinary artist, not an unknown one —
+    and the lens's own boost-only contract must still hold with feedback in
+    the mix.
+    """
+    votes = [Feedback(username="demo", artist_id="snail-mail", vote=-1, ts=1)]
+    base = _by_id(recommend(profile, catalog, source, k=99, lens_strength=0.5))
+    fed = _by_id(recommend(profile, catalog, source, k=99, lens_strength=0.5, feedbacks=votes))
+
+    assert fed["snail-mail"].score < base["snail-mail"].score  # the voted artist moves down
+    for aid, rec in fed.items():
+        if aid != "snail-mail":
+            assert rec.score == base[aid].score  # nothing else is touched
+
+    for rec in fed.values():  # the lens's boost-only contract survives feedback
+        assert rec.rerank_delta >= 0.0
+
+    assert "mystery-act" in fed  # unknown still surfaces
+    assert fed["mystery-act"].rerank_delta == 0.0

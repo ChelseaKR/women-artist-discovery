@@ -1,9 +1,8 @@
-"""R4: the exposure / rank-fairness metric measures where each identity lands.
+"""FIX-05: computed exposure / rank-fairness metrics + the unknown-retention guarantee.
 
-It is descriptive (it never sets a quota) and it must keep both invariants: the
-``unknown`` segment is always reported, and the boost-only lens never drops or
-penalises a segment — it can only *raise* aligned artists, which these tests
-verify by comparing taste vs. values-lens exposure.
+These are the *generated numbers* behind ``docs/audits/fairness-identity.md``: the
+fairness narrative, verified on the recommender's real output rather than only on
+the rerank function.
 """
 
 from __future__ import annotations
@@ -16,112 +15,168 @@ from pipeline.models import (
     Recommendation,
     Signal,
 )
-from recommender.eval import evaluate, exposure_by_lens, to_report
-from recommender.exposure import SEGMENTS, compute_exposure, segment_of
+from recommender.eval import DEFAULT_LENS_SWEEP, fairness_report
+from recommender.exposure import (
+    FEMALE_FRONTED,
+    MAN,
+    NONBINARY,
+    SEGMENTS,
+    UNKNOWN,
+    WOMAN,
+    FairnessAssertionError,
+    assert_unknown_retained,
+    exposure_at_k,
+    exposure_report,
+    identity_segment,
+    popularity_identity_crosstab,
+    popularity_tier,
+    rank_shift_by_segment,
+    unknown_retention,
+)
+from recommender.hybrid import recommend
 
 from .conftest import make_artist
 
+_ALIGNED = frozenset({WOMAN, NONBINARY, FEMALE_FRONTED})
 
-def _ranked(segments_in_order: list[str]) -> list[Recommendation]:
-    """Build a ranked rec list whose segments follow ``segments_in_order``."""
-    gender_for = {
-        "woman": Gender.WOMAN,
-        "nonbinary": Gender.NONBINARY,
-        "man": Gender.MAN,
-        "other": Gender.OTHER,
-        "unknown": Gender.UNKNOWN,
+
+def _recs_by_lens(profile, catalog, source, lenses=DEFAULT_LENS_SWEEP):
+    return {
+        lens: recommend(profile, catalog, source, k=len(catalog), lens_strength=lens)
+        for lens in lenses
     }
-    recs: list[Recommendation] = []
-    for i, seg in enumerate(segments_in_order, start=1):
-        artist = make_artist(f"a{i}", gender=gender_for[seg])
-        basis = IdentityBasis.UNKNOWN if seg == "unknown" else IdentityBasis.SELF_IDENTIFIED
-        expl = Explanation(
-            signals=(Signal("content", "t", 1.0),),
-            identity_basis=basis,
-            identity_sources=artist.identity.sources,
-            summary="why",
-        )
-        recs.append(
-            Recommendation(
-                artist=artist, base_score=1.0 - i * 0.01, rerank_delta=0.0, explanation=expl
-            ).with_rank(i)
-        )
-    return recs
 
 
-def test_segment_of_reads_sourced_labels(catalog) -> None:
-    assert segment_of(make_artist("w", gender=Gender.WOMAN)) == "woman"
-    assert segment_of(make_artist("nb", gender=Gender.NONBINARY)) == "nonbinary"
-    assert segment_of(make_artist("m", gender=Gender.MAN)) == "man"
-    assert segment_of(make_artist("o", gender=Gender.OTHER)) == "other"
-    assert segment_of(make_artist("u")) == "unknown"
-    # A sourced female-fronted band with an unknown individual gender.
-    assert segment_of(catalog["big-thief"]) == "female-fronted"
-    assert segment_of(catalog["mystery-act"]) == "unknown"
+def _rec(artist, score, delta=0.0):
+    expl = Explanation(
+        signals=(Signal("content", "tag", 1.0),),
+        identity_basis=IdentityBasis.UNKNOWN
+        if artist.identity.gender is Gender.UNKNOWN
+        else IdentityBasis.SELF_IDENTIFIED,
+        identity_sources=artist.identity.sources,
+        summary="why",
+    )
+    return Recommendation(artist=artist, base_score=score, rerank_delta=delta, explanation=expl)
 
 
-def test_compute_exposure_math() -> None:
-    recs = _ranked(["woman", "man", "woman", "unknown", "man"])
-    rep = compute_exposure(recs, k=3)
-    assert rep.total == 5
-    assert {s.segment for s in rep.segments} == set(SEGMENTS)  # all segments present
-    woman = rep.by_segment("woman")
-    assert woman.count == 2
-    assert woman.share == pytest.approx(2 / 5)
-    assert woman.first_rank == 1
-    assert woman.mean_rank == pytest.approx((1 + 3) / 2)
-    assert woman.top_k_share == pytest.approx(2 / 3)  # ranks 1 and 3 are in the top-3
-    unknown = rep.by_segment("unknown")
-    assert unknown.count == 1 and unknown.first_rank == 4
+# -- segmentation (sourced, never inferred) ----------------------------------
+def test_identity_segment_reads_sourced_identity_then_composition(catalog) -> None:
+    assert identity_segment(catalog["snail-mail"]) == WOMAN
+    assert identity_segment(catalog["shamir"]) == NONBINARY
+    assert identity_segment(catalog["moses-sumney"]) == MAN
+    assert identity_segment(catalog["boygenius"]) == FEMALE_FRONTED  # sourced composition
+    assert identity_segment(catalog["mystery-act"]) == UNKNOWN
 
 
-def test_absent_segments_are_reported_as_zero() -> None:
-    rep = compute_exposure(_ranked(["woman", "woman"]), k=2)
-    unknown = rep.by_segment("unknown")
-    assert unknown.count == 0 and unknown.first_rank == 0 and unknown.mean_rank == 0.0
-    assert unknown.top_k_share == 0.0
+def test_other_gender_is_its_own_segment_not_unknown() -> None:
+    assert identity_segment(make_artist("x", gender=Gender.OTHER)) == "other"
 
 
-def test_compute_exposure_rejects_nonpositive_k() -> None:
-    with pytest.raises(ValueError):
-        compute_exposure(_ranked(["woman"]), k=0)
+def test_popularity_tier_boundaries() -> None:
+    assert popularity_tier(99_999) == "niche"
+    assert popularity_tier(100_000) == "mid"
+    assert popularity_tier(999_999) == "mid"
+    assert popularity_tier(1_000_000) == "popular"
 
 
-def test_by_segment_rejects_unknown_segment_name() -> None:
-    rep = compute_exposure(_ranked(["woman"]), k=1)
-    with pytest.raises(KeyError):
-        rep.by_segment("not-a-segment")
+# -- exposure ----------------------------------------------------------------
+def test_exposure_shares_sum_to_one(profile, catalog, source) -> None:
+    recs = recommend(profile, catalog, source, k=5, lens_strength=0.0)
+    shares = exposure_at_k(recs, k=5)
+    assert set(shares) == set(SEGMENTS)
+    assert sum(shares.values()) == pytest.approx(1.0)
 
 
-def test_values_lens_lifts_women_and_nonbinary_without_dropping_unknown(
+def test_exposure_at_k_empty_is_all_zero() -> None:
+    shares = exposure_at_k([], k=5)
+    assert set(shares.values()) == {0.0}
+
+
+def test_lens_shifts_exposure_toward_aligned_segments(profile, catalog, source) -> None:
+    at0 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=0.0), k=5)
+    at1 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=1.0), k=5)
+    aligned0 = sum(at0[s] for s in _ALIGNED)
+    aligned1 = sum(at1[s] for s in _ALIGNED)
+    assert aligned1 >= aligned0  # the lens surfaces more aligned artists, never fewer
+
+
+# -- the merge-blocking unknown-retention guarantee --------------------------
+def test_unknown_retention_is_100pct_at_every_lens(profile, catalog, source) -> None:
+    retention = unknown_retention(_recs_by_lens(profile, catalog, source))
+    assert retention  # non-empty sweep
+    assert all(value == 1.0 for value in retention.values())
+
+
+def test_assert_unknown_retained_passes_on_demo_output(profile, catalog, source) -> None:
+    assert_unknown_retained(_recs_by_lens(profile, catalog, source))  # must not raise
+
+
+def test_assert_unknown_retained_detects_a_dropped_unknown() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    woman = make_artist("w", gender=Gender.WOMAN)
+    base = [_rec(unknown, 0.5), _rec(woman, 0.4)]
+    boosted = [_rec(woman, 0.4, delta=0.5)]  # unknown vanished from the output
+    with pytest.raises(FairnessAssertionError):
+        assert_unknown_retained({0.0: base, 1.0: boosted})
+
+
+def test_assert_unknown_retained_detects_a_penalised_unknown() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    base = [_rec(unknown, 0.5)]
+    penalised = [_rec(unknown, 0.3)]  # score lowered by the (mis-implemented) lens
+    with pytest.raises(FairnessAssertionError):
+        assert_unknown_retained({0.0: base, 1.0: penalised})
+
+
+def test_retention_is_one_when_no_unknown_artists_present() -> None:
+    woman = make_artist("w", gender=Gender.WOMAN)
+    retention = unknown_retention({0.0: [_rec(woman, 0.4)], 1.0: [_rec(woman, 0.4, 0.5)]})
+    assert retention == {"0.00": 1.0, "1.00": 1.0}
+
+
+# -- rank shift (honest re-ordering, no score penalty) -----------------------
+def test_rank_shift_moves_aligned_up_without_penalising_unknown(profile, catalog, source) -> None:
+    base = recommend(profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    boosted = recommend(profile, catalog, source, k=len(catalog), lens_strength=1.0)
+    shift = rank_shift_by_segment(base, boosted)
+    assert shift[WOMAN] <= 0.0  # sourced women move up (or stay), never down on average
+    # And the score guarantee still holds even though positions changed:
+    assert_unknown_retained({0.0: base, 1.0: boosted})
+
+
+# -- cross-tab ---------------------------------------------------------------
+def test_crosstab_counts_the_whole_candidate_pool(profile, catalog, source) -> None:
+    recs = recommend(profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    table = popularity_identity_crosstab(recs)
+    total = sum(count for row in table.values() for count in row.values())
+    assert total == len(recs)
+
+
+# -- the full emitted report -------------------------------------------------
+def test_exposure_report_has_expected_shape_and_guarantee(profile, catalog, source) -> None:
+    report = exposure_report(_recs_by_lens(profile, catalog, source), k=5)
+    assert set(report) >= {
+        "k",
+        "lens_strengths",
+        "segments",
+        "exposure_at_k",
+        "unknown_retention",
+        "mean_rank_shift",
+        "popularity_identity_crosstab",
+        "guarantees",
+    }
+    guarantees = report["guarantees"]
+    assert guarantees["unknown_retention_all_lenses"] is True
+    assert guarantees["min_unknown_retention"] == 1.0
+    assert guarantees["unknown_downranked_count"] == 0
+    # exposure emitted at the required lens strengths (0.0 / 0.5 / 1.0 among them):
+    assert {"0.00", "0.50", "1.00"} <= set(report["exposure_at_k"])
+
+
+def test_fairness_report_from_demo_world_satisfies_the_guarantee(
     demo_user, scrobbles, catalog, source
 ) -> None:
-    reports = exposure_by_lens(demo_user, scrobbles, catalog, source, k=5)
-    assert set(reports) == {"taste", "values_lens"}
-    taste, lens = reports["taste"], reports["values_lens"]
-
-    # Boost-only: aligned segments can only move *up* (rank decreases or holds).
-    assert lens.by_segment("woman").mean_rank <= taste.by_segment("woman").mean_rank
-    assert lens.by_segment("nonbinary").first_rank <= taste.by_segment("nonbinary").first_rank
-
-    # Nobody is dropped: every segment keeps its count under the lens.
-    for seg in SEGMENTS:
-        assert lens.by_segment(seg).count == taste.by_segment(seg).count
-
-    # Unknown is present and first-class in both rankings.
-    assert taste.by_segment("unknown").count >= 1
-    assert lens.by_segment("unknown").count == taste.by_segment("unknown").count
-
-
-def test_to_report_embeds_exposure_when_supplied(demo_user, scrobbles, catalog, source) -> None:
-    results = evaluate(demo_user, scrobbles, catalog, source, k=5)
-    plain = to_report(results)
-    assert "exposure" not in plain  # additive: absent by default, test_eval unaffected
-
-    exposure = exposure_by_lens(demo_user, scrobbles, catalog, source, k=5)
-    enriched = to_report(results, exposure)
-    assert set(enriched["exposure"]) == {"taste", "values_lens"}
-    woman_row = next(
-        s for s in enriched["exposure"]["values_lens"]["segments"] if s["segment"] == "woman"
-    )
-    assert woman_row["count"] >= 1
+    report = fairness_report(demo_user, scrobbles, catalog, source, k=5)
+    assert report["guarantees"]["unknown_retention_all_lenses"] is True
+    # Every lens strength in the sweep is reported with 100% unknown retention.
+    assert set(report["unknown_retention"].values()) == {1.0}

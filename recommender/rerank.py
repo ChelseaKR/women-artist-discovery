@@ -12,6 +12,11 @@ subtract. Therefore:
 ``lens_strength`` ∈ [0, 1] is surfaced in the UI and explained. At 0 the ranking
 is identical to the pure hybrid ranking. The maximum boost is bounded so the lens
 re-orders without obliterating the underlying taste signal.
+
+The lens itself is a declared, inspectable :class:`~recommender.lens.LensSpec`
+(:data:`recommender.lens.VALUES_LENS`) — the aligned predicate, boost bound, and
+rationale (including the explicit ``Gender.OTHER`` decision) live there, not as
+loose constants here.
 """
 
 from __future__ import annotations
@@ -20,20 +25,21 @@ from dataclasses import replace
 
 from pipeline.models import Artist, Recommendation
 
-#: The largest boost the lens can add at full strength, as a fraction of the
-#: score scale (base scores are normalised to ~[0, 1]). Bounded so taste still
-#: matters; tunable, but never negative.
-MAX_BOOST = 0.5
+from recommender.lens import VALUES_LENS
+
+#: Backward-compatible alias for :data:`recommender.lens.VALUES_LENS`'s boost
+#: bound. Prefer importing ``VALUES_LENS`` directly for new code — this stays
+#: for existing imports (e.g. ``tests/test_rerank.py``).
+MAX_BOOST = VALUES_LENS.max_boost
 
 
 def values_boost_for_artist(artist: Artist, lens_strength: float) -> float:
-    """The non-negative boost for an artist. Zero unless *sourced*-aligned."""
-    if lens_strength <= 0.0:
-        return 0.0
-    if not artist.values_aligned:  # unknown or sourced-not-aligned → no boost
-        return 0.0
-    strength = min(1.0, max(0.0, lens_strength))
-    return MAX_BOOST * strength
+    """The non-negative boost for an artist. Zero unless *sourced*-aligned.
+
+    Delegates to :meth:`recommender.lens.LensSpec.boost` on the default
+    :data:`~recommender.lens.VALUES_LENS`.
+    """
+    return VALUES_LENS.boost(artist, lens_strength)
 
 
 def values_boost(rec: Recommendation, lens_strength: float) -> float:

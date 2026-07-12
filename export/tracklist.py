@@ -23,7 +23,8 @@ def recommendations_to_tracks(recs: Sequence[Recommendation]) -> list[PlaylistTr
     """Map each recommendation to a :class:`PlaylistTrack`, preserving order.
 
     The ``query`` is what a streaming provider would search; ``why`` is the
-    recommendation's headline reason, kept for transparency in every export.
+    recommendation's headline reason plus its rank-shift statement, kept for
+    transparency in every export.
     """
     tracks: list[PlaylistTrack] = []
     for rec in recs:
@@ -34,7 +35,7 @@ def recommendations_to_tracks(recs: Sequence[Recommendation]) -> list[PlaylistTr
                 artist_id=rec.artist.artist_id,
                 rank=rec.rank,
                 query=f'artist:"{rec.artist.name}"',
-                why=why.headline,
+                why=f"{why.headline} ({why.rank_shift})",
             )
         )
     return tracks

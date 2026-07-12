@@ -2,8 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
 from pipeline.identity import IdentityEvidence, resolve_composition, resolve_identity
-from pipeline.models import FrontPerson, Gender, IdentityBasis, SourceKind
+from pipeline.models import (
+    FrontPerson,
+    Gender,
+    IdentityBasis,
+    IdentityError,
+    IdentityLabel,
+    InferenceForbiddenError,
+    Source,
+    SourceKind,
+    UnsourcedIdentityError,
+)
 from recommender.hybrid import recommend
 
 
@@ -35,6 +48,28 @@ def test_wikidata_qids_map_respectfully() -> None:
             [IdentityEvidence(SourceKind.WIKIDATA_P21, qid, "wd://x", "2026-05-31")]
         )
         assert label.gender is expected, qid
+
+
+@pytest.mark.parametrize(
+    ("qid", "expected", "boosted"),
+    [
+        ("Q1052281", Gender.WOMAN, True),
+        ("Q1097630", Gender.OTHER, False),
+    ],
+)
+def test_trans_and_intersex_labels_survive_end_to_end(
+    profile, catalog, source, qid: str, expected: Gender, boosted: bool
+) -> None:
+    label = resolve_identity(
+        [IdentityEvidence(SourceKind.WIKIDATA_P21, qid, "wd://x", "2026-07-11")]
+    )
+    changed_catalog = dict(catalog)
+    changed_catalog["mystery-act"] = replace(catalog["mystery-act"], identity=label)
+    recs = recommend(profile, changed_catalog, source, k=99, lens_strength=1.0)
+    result = next(rec for rec in recs if rec.artist.artist_id == "mystery-act")
+    assert result.artist.identity.gender is expected
+    assert result.explanation.identity_basis is IdentityBasis.SELF_IDENTIFIED
+    assert (result.rerank_delta > 0) is boosted
 
 
 def test_unrecognised_qid_stays_unknown() -> None:
@@ -70,3 +105,112 @@ def test_conflicting_sources_lower_confidence() -> None:
     # Highest-priority source (artist statement) wins, but confidence is hedged.
     assert label.gender is Gender.WOMAN
     assert label.confidence is not None and label.confidence <= 0.5
+
+
+# --- FIX-10: conflict surfacing + the correction ledger invariants ----------
+
+
+def test_conflicting_sources_surface_as_a_conflict() -> None:
+    """Disagreement is never silently resolved away — both claims are kept."""
+    label = resolve_identity(
+        [
+            IdentityEvidence(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x", "2026-05-31"),
+            IdentityEvidence(SourceKind.MUSICBRAINZ_GENDER, "male", "mb://x", "2026-05-31"),
+        ]
+    )
+    assert label.conflict is True
+    assert len(label.conflicting_claims) == 2
+    kinds = {src.kind for src in label.conflicting_claims}
+    assert kinds == {SourceKind.WIKIDATA_P21, SourceKind.MUSICBRAINZ_GENDER}
+    asserted = {src.detail for src in label.conflicting_claims}
+    assert asserted == {"Q6581072", "male"}
+
+
+def test_agreeing_sources_carry_no_conflict() -> None:
+    label = resolve_identity(
+        [
+            IdentityEvidence(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x", "2026-05-31"),
+            IdentityEvidence(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://x", "2026-05-31"),
+        ]
+    )
+    assert label.conflict is False
+    assert label.conflicting_claims == ()
+
+
+def test_unsourced_gender_is_unconstructible() -> None:
+    """A non-unknown gender with no source raises — identity is never inferred."""
+    with pytest.raises(UnsourcedIdentityError):
+        IdentityLabel(gender=Gender.WOMAN, basis=IdentityBasis.SELF_IDENTIFIED)
+
+
+def test_uncited_correction_is_unconstructible() -> None:
+    """A 'correction' with an empty citation is unconstructible, same invariant."""
+    with pytest.raises(UnsourcedIdentityError):
+        Source(kind=SourceKind.ARTIST_STATEMENT, citation="  ", retrieved_at="2026-05-31")
+
+
+def test_conflict_true_requires_at_least_two_distinct_asserted_genders() -> None:
+    single = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
+    with pytest.raises(IdentityError):
+        IdentityLabel(
+            gender=Gender.WOMAN,
+            basis=IdentityBasis.SELF_IDENTIFIED,
+            sources=(single,),
+            conflict=True,
+            conflicting_claims=(single,),
+        )
+
+
+def test_conflicting_claims_without_conflict_flag_is_unconstructible() -> None:
+    a = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
+    b = Source(SourceKind.MUSICBRAINZ_GENDER, "mb://x", "2026-05-31", "male")
+    with pytest.raises(IdentityError):
+        IdentityLabel(
+            gender=Gender.WOMAN,
+            basis=IdentityBasis.SELF_IDENTIFIED,
+            sources=(a,),
+            conflict=False,
+            conflicting_claims=(a, b),
+        )
+
+
+def test_unknown_gender_cannot_carry_a_conflict() -> None:
+    with pytest.raises(IdentityError):
+        IdentityLabel(conflict=True)
+
+
+def test_conflicting_claims_must_be_individual_identity_sources() -> None:
+    a = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
+    lineup = Source(SourceKind.DISCOGS_LINEUP, "d://x", "2026-05-31", "lineup")
+    with pytest.raises(InferenceForbiddenError):
+        IdentityLabel(
+            gender=Gender.WOMAN,
+            basis=IdentityBasis.SELF_IDENTIFIED,
+            sources=(a,),
+            conflict=True,
+            conflicting_claims=(a, lineup),
+        )
+
+
+def test_conflict_requires_distinct_asserted_values_not_just_two_sources() -> None:
+    """Two sources that happen to agree isn't a conflict, even flagged True."""
+    a = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
+    b = Source(SourceKind.ARTIST_STATEMENT, "as://x", "2026-05-31", "Q6581072")
+    with pytest.raises(IdentityError):
+        IdentityLabel(
+            gender=Gender.WOMAN,
+            basis=IdentityBasis.SELF_IDENTIFIED,
+            sources=(a,),
+            conflict=True,
+            conflicting_claims=(a, b),
+        )
+
+
+def test_local_correction_flag_requires_artist_statement_kind() -> None:
+    with pytest.raises(InferenceForbiddenError):
+        Source(
+            kind=SourceKind.WIKIDATA_P21,
+            citation="https://example.org/x",
+            retrieved_at="2026-07-01",
+            is_local_correction=True,
+        )

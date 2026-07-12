@@ -1,7 +1,7 @@
 # Fairness & Bias — Identity
 
 > Instantiates RESPONSIBLE-TECH-AUDITS §B.
-> **Last verified: 2026-05-31 · Recheck cadence: per recommender change.**
+> **Last verified: 2026-07-11 · Recheck cadence: per recommender change.**
 
 ## Segments
 
@@ -43,13 +43,11 @@ per run (deliberately not target-driven — they measure, they do not set quotas
   first-class* legible in the CLI, the dashboard, and the committed static render,
   framing the (common, expected) unknown case as normal, never a gap.
   `tests/test_coverage_readout.py`.
-- **Exposure / rank metric** (`recommender/exposure.py`) — per identity segment
-  (woman / nonbinary / man / other / female-fronted / unknown): count, share,
-  first rank, mean rank, and top-k share, reported in `eval-report.json` for both
-  the taste-only ranking and the values lens. It quantifies the documented
-  amplification finding (the first woman landing several ranks low) and shows the
-  bounded, boost-only lens lifting under-exposed segments **without** dropping or
-  penalising the unknown segment. `tests/test_exposure.py`.
+- **Exposure / rank metric** (`recommender/exposure.py`) — top-k exposure share,
+  unknown retention, mean rank shift by identity segment, and a popularity-tier
+  cross-tab across a lens sweep, reported in `eval-report.json`. It shows what the
+  bounded lens changes while separately enforcing that unknown artists are never
+  dropped or score-penalised. `tests/test_exposure.py`.
 
 ## Enforcement summary
 
