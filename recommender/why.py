@@ -14,6 +14,12 @@ Two guarantees are made explicit in the output itself, not just in a comment:
 * **Unknown is first-class.** An artist with no sourced identity is described as
   "surfaced on musical similarity alone" — a normal answer, never an apology and
   never a guess.
+
+A third guarantee, added for FIX-10: **disagreement is surfaced, not hidden.**
+When permitted sources disagree about an individual's gender, the resolver
+still reports its highest-priority pick, but ``WhyThisArtist.conflict_note``
+names every disagreeing source and what it asserted — worded neutrally, never
+as an apology or a guess at who's "right".
 """
 
 from __future__ import annotations
@@ -44,6 +50,11 @@ class ProvenanceItem:
     asserted_value: str
     citation: str
     retrieved_at: str
+    #: True when this citation is a locally-entered correction (FIX-10) rather
+    #: than an upstream-fetched claim — surfaced distinctly so a reader can
+    #: tell "we were told this by the artist/operator, with a citation" apart
+    #: from "an external database asserted this".
+    is_local_correction: bool = False
 
     @classmethod
     def from_source(cls, source: Source) -> ProvenanceItem:
@@ -52,6 +63,7 @@ class ProvenanceItem:
             asserted_value=source.detail,
             citation=source.citation,
             retrieved_at=source.retrieved_at,
+            is_local_correction=source.is_local_correction,
         )
 
 
@@ -65,6 +77,8 @@ class WhyThisArtist:
     * ``identity_basis`` — *how* the identity was established (never "inferred").
     * ``provenance`` — the citations behind the identity claim (empty if unknown).
     * ``inferred`` — always ``False``; identity in this system is never guessed.
+    * ``conflict_note`` — non-empty, neutral wording of a source disagreement
+      (FIX-10); empty string when sources agree (or identity is unknown).
     """
 
     artist_name: str
@@ -74,6 +88,7 @@ class WhyThisArtist:
     identity_basis: IdentityBasis
     provenance: tuple[ProvenanceItem, ...]
     inferred: bool = False
+    conflict_note: str = ""
 
     @property
     def identity_is_known(self) -> bool:
@@ -85,6 +100,8 @@ class WhyThisArtist:
             f"Why {self.artist_name}: {self.headline}",
             f"  Identity: {self.identity_statement}",
         ]
+        if self.conflict_note:
+            lines.append(f"  {self.conflict_note}")
         if self.reasons:
             lines.append("  Why recommended:")
             lines.extend(f"    - {reason}" for reason in self.reasons)
@@ -106,6 +123,9 @@ class WhyThisArtist:
             "",
             f"_Identity:_ {self.identity_statement}",
         ]
+        if self.conflict_note:
+            parts.append("")
+            parts.append(f"_{self.conflict_note}_")
         if self.reasons:
             parts.append("")
             parts.append("**Why recommended**")
@@ -157,6 +177,23 @@ def identity_statement(rec: Recommendation) -> str:
     return artist_identity_phrase(rec.artist)
 
 
+def conflict_note(artist: Artist) -> str:
+    """A respectful, neutral note when permitted sources disagreed (FIX-10).
+
+    Empty string when there is no conflict. Phrasing states what each source
+    asserted plus its retrieval date — never an apology, never a guess at
+    which source is "right".
+    """
+    label = artist.identity
+    if not label.conflict:
+        return ""
+    claims = "; ".join(
+        f"{src.kind} asserted {src.detail!r} (retrieved {src.retrieved_at})"
+        for src in label.conflicting_claims
+    )
+    return f"Sources disagree: {claims}"
+
+
 def _reason_line(kind: str, detail: str) -> str:
     return f"{kind}: {detail}"
 
@@ -175,4 +212,5 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         identity_basis=expl.identity_basis,
         provenance=provenance,
         inferred=False,
+        conflict_note=conflict_note(rec.artist),
     )

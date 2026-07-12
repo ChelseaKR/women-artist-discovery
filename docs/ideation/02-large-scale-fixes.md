@@ -227,11 +227,19 @@ layer enforces it".
   app in `docs/audits/`; upstream Streamlit issues filed or worked around;
   the manual SR walkthrough checklist executed against the same surface.
 
-## FIX-10 — Source-conflict surfacing and a local correction ledger
+## FIX-10 — Source-conflict surfacing and a local correction ledger — **Done (2026-07-03)**
 
 **Pitch:** When sources disagree about someone's identity, show the
 disagreement; when a source is wrong, record the correction locally with a
 citation.
+
+> **Status: implemented.** `IdentityLabel` carries neutral conflict metadata;
+> `WhyThisArtist` and the accessible renderer show every disagreeing cited
+> claim. Cache schema v3 adds a cited local corrections ledger without
+> disturbing v2 dedupe/TTL migrations. `wad corrections` records or lists
+> corrections, and `wad refresh` expires stale HTTP rows while preserving the
+> ledger. Local corrections remain visibly labelled in provenance and enter
+> resolution only as cited `ARTIST_STATEMENT` evidence.
 
 - **Why it matters:** `pipeline/identity.py::resolve_identity` silently picks
   the highest-priority source on conflict and caps confidence at 0.5 — the

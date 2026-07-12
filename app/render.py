@@ -26,6 +26,17 @@ def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
 
 
+def _conflict_html(why: WhyThisArtist, aid: str) -> str:
+    """Render source disagreement as text and structure, never colour alone."""
+    if not why.conflict_note:
+        return ""
+    return (
+        f'<div class="conflict" role="note" aria-labelledby="conflict-h-{aid}">'
+        f'<p id="conflict-h-{aid}" class="conflict-heading">Sources disagree</p>'
+        f"<p>{escape(why.conflict_note)}</p></div>"
+    )
+
+
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     """Identity provenance: each citation with the *raw value the source asserted*.
 
@@ -37,7 +48,13 @@ def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     items = "".join(
         f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
         f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
-        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span></li>'
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span>'
+        + (
+            '<span class="local-correction"> — local correction</span>'
+            if p.is_local_correction
+            else ""
+        )
+        + "</li>"
         for p in why.provenance
     )
     return (
@@ -61,6 +78,7 @@ def _card_html(rec: Recommendation) -> str:
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
         f'<p class="identity" data-basis="{basis}" data-inferred="false">'
         f"{_identity_line(why)}</p>"
+        f"{_conflict_html(why, aid)}"
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
         f"{_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
@@ -145,6 +163,11 @@ a {{ color: var(--link); }}
 .identity {{ font-weight: 600; }}
 .identity::before {{ content: "\\25CF  "; }}  /* glyph paired with text, not colour-only;
                                                 inherits --text, never colour-only meaning */
+.conflict {{ border: 2px dashed var(--border); border-radius: 6px;
+             padding: 0.5rem 0.75rem; margin: 0.5rem 0; }}
+.conflict-heading {{ font-weight: 700; margin: 0 0 0.25rem; }}
+.conflict-heading::before {{ content: "\\26A0  "; }}
+.local-correction {{ font-style: italic; }}
 a:focus, .skip:focus {{ outline: 3px solid var(--focus); }}
 .skip {{ position: absolute; left: -999px; }}
 .skip:focus {{ left: 1rem; top: 1rem; background: var(--bg); }}

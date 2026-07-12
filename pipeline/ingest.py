@@ -47,10 +47,21 @@ def enrich_artist(
     *,
     listeners: int = 0,
     playcount: int = 0,
+    cache: Optional[Cache] = None,
 ) -> Artist:
-    """Build a fully enriched :class:`Artist` with sourced identity + composition."""
+    """Build a fully enriched :class:`Artist` with sourced identity + composition.
+
+    When ``cache`` is supplied, any locally-entered corrections (FIX-10) for
+    this artist are fed into the resolver alongside the enricher's evidence.
+    A correction is itself an ``ARTIST_STATEMENT`` — the resolver's existing
+    priority order (``ARTIST_STATEMENT`` highest) is what lets it win, with no
+    special-casing in :func:`~pipeline.identity.resolve_identity`.
+    """
     tags = source.artist_tags(artist_id)
-    identity = resolve_identity(enricher.gender_evidence(artist_id))
+    evidence = list(enricher.gender_evidence(artist_id))
+    if cache is not None:
+        evidence.extend(cache.get_corrections(artist_id))
+    identity = resolve_identity(evidence)
     fronts, comp_evidence = enricher.composition_evidence(artist_id)
     composition = resolve_composition(fronts, comp_evidence)
     return Artist(
@@ -92,6 +103,7 @@ def ingest(
             source,
             enricher,
             playcount=profile.play_counts.get(artist_id, 0),
+            cache=cache,
         )
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags

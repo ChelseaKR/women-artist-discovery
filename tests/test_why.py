@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from pipeline.models import IdentityBasis, SourceKind
+from pipeline.models import Artist, Gender, IdentityBasis, IdentityLabel, Source, SourceKind
 from recommender.hybrid import recommend
 from recommender.why import (
     ProvenanceItem,
     WhyThisArtist,
     artist_identity_phrase,
+    conflict_note,
     why_this_artist,
 )
 
@@ -169,3 +170,44 @@ def test_why_stable_across_lens(profile, catalog, source, lens) -> None:
     rec = _rec_for(profile, catalog, source, "mystery-act", lens=lens)
     why = why_this_artist(rec)
     assert why.identity_basis is IdentityBasis.UNKNOWN
+
+
+def _conflicted_artist() -> Artist:
+    wikidata = Source(SourceKind.WIKIDATA_P21, "wd://x", "2026-05-31", "Q6581072")
+    musicbrainz = Source(SourceKind.MUSICBRAINZ_GENDER, "mb://x", "2026-05-31", "male")
+    label = IdentityLabel(
+        gender=Gender.WOMAN,
+        basis=IdentityBasis.SELF_IDENTIFIED,
+        sources=(wikidata,),
+        confidence=0.5,
+        conflict=True,
+        conflicting_claims=(wikidata, musicbrainz),
+    )
+    return Artist(artist_id="conflicted", name="Conflicted Artist", identity=label)
+
+
+def test_conflict_note_names_every_disagreeing_source() -> None:
+    note = conflict_note(_conflicted_artist())
+    assert note.startswith("Sources disagree:")
+    assert "Q6581072" in note and "male" in note and "2026-05-31" in note
+    assert "wrong" not in note.lower()
+
+
+def test_conflict_note_empty_when_sources_agree(profile, catalog, source) -> None:
+    why = why_this_artist(_rec_for(profile, catalog, source, "snail-mail"))
+    assert why.conflict_note == ""
+
+
+def test_conflict_note_renders_in_text_and_markdown() -> None:
+    artist = _conflicted_artist()
+    why = WhyThisArtist(
+        artist_name=artist.name,
+        headline="in your discovery catalog",
+        reasons=("collaborative: similar listeners",),
+        identity_statement=artist_identity_phrase(artist),
+        identity_basis=IdentityBasis.SELF_IDENTIFIED,
+        provenance=tuple(ProvenanceItem.from_source(s) for s in artist.identity.sources),
+        conflict_note=conflict_note(artist),
+    )
+    assert why.conflict_note in why.to_text()
+    assert why.conflict_note in why.to_markdown()

@@ -30,13 +30,14 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from pipeline.models import Artist, Scrobble
+from pipeline.identity import IdentityEvidence
+from pipeline.models import Artist, Scrobble, SourceKind, UnsourcedIdentityError
 from pipeline.serde import artist_from_dict, artist_to_dict
 
 DEFAULT_DB_PATH = Path("data") / "cache.db"
 
 #: Current on-disk schema version. Bump when a migration is added below.
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 #: Default staleness horizon for cached HTTP responses / identity claims, in days.
 #: Applied by callers that pass ``ttl_days`` (or ``wad refresh``); the default is
@@ -79,6 +80,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_scrobbles_dedupe
     ON scrobbles(username, artist_id, track, ts);
 """
 
+# v3 (FIX-10): cited local corrections persist independently of HTTP cache TTL.
+_MIGRATE_V3 = """
+CREATE TABLE IF NOT EXISTS corrections (
+    artist_id      TEXT NOT NULL,
+    asserted_value TEXT NOT NULL,
+    citation       TEXT NOT NULL,
+    retrieved_at   TEXT NOT NULL,
+    entered_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_corrections_artist ON corrections(artist_id);
+"""
+
 
 class CacheSchemaError(RuntimeError):
     """Raised when a cache file's schema is newer than this code can safely read."""
@@ -92,10 +105,15 @@ def _migrate_to_v2(conn: sqlite3.Connection) -> None:
     conn.executescript(_MIGRATE_V2)
 
 
+def _migrate_to_v3(conn: sqlite3.Connection) -> None:
+    conn.executescript(_MIGRATE_V3)
+
+
 #: Forward-only migrations keyed by the schema version they *produce*.
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migrate_to_v1,
     2: _migrate_to_v2,
+    3: _migrate_to_v3,
 }
 
 
@@ -259,3 +277,58 @@ class Cache:
         self.conn.executemany("DELETE FROM http_cache WHERE url = ?", [(u,) for u in stale])
         self.conn.commit()
         return len(stale)
+
+    # -- local corrections ledger (FIX-10) ---------------------------------
+    def put_correction(self, artist_id: str, evidence: IdentityEvidence, entered_at: str) -> None:
+        """Record a cited artist-statement correction."""
+        source = evidence.as_source()
+        if source.kind is not SourceKind.ARTIST_STATEMENT:
+            raise UnsourcedIdentityError(
+                "a correction must be recorded as an ARTIST_STATEMENT source"
+            )
+        self.conn.execute(
+            "INSERT INTO corrections"
+            "(artist_id, asserted_value, citation, retrieved_at, entered_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (artist_id, evidence.value, evidence.citation, evidence.retrieved_at, entered_at),
+        )
+        self.conn.commit()
+
+    def get_corrections(self, artist_id: str) -> tuple[IdentityEvidence, ...]:
+        """Return corrections for one artist in deterministic order."""
+        rows = self.conn.execute(
+            "SELECT asserted_value, citation, retrieved_at FROM corrections "
+            "WHERE artist_id = ? ORDER BY entered_at, citation",
+            (artist_id,),
+        ).fetchall()
+        return tuple(
+            IdentityEvidence(
+                kind=SourceKind.ARTIST_STATEMENT,
+                value=row["asserted_value"],
+                citation=row["citation"],
+                retrieved_at=row["retrieved_at"],
+                is_local_correction=True,
+            )
+            for row in rows
+        )
+
+    def list_corrections(self) -> tuple[tuple[str, IdentityEvidence, str], ...]:
+        """Return every correction as ``(artist_id, evidence, entered_at)``."""
+        rows = self.conn.execute(
+            "SELECT artist_id, asserted_value, citation, retrieved_at, entered_at "
+            "FROM corrections ORDER BY entered_at, citation"
+        ).fetchall()
+        return tuple(
+            (
+                row["artist_id"],
+                IdentityEvidence(
+                    kind=SourceKind.ARTIST_STATEMENT,
+                    value=row["asserted_value"],
+                    citation=row["citation"],
+                    retrieved_at=row["retrieved_at"],
+                    is_local_correction=True,
+                ),
+                row["entered_at"],
+            )
+            for row in rows
+        )
