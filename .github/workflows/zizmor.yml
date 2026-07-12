@@ -6,6 +6,13 @@ name: zizmor
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
 
 permissions:
   contents: read
