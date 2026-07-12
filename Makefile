@@ -126,6 +126,7 @@ bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble wor
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
+	@$(PYTHON) scripts/writeup-check.py
 	@echo "✓ audit artifacts regenerated under docs/audits/"
 
 clean: ## Remove caches and generated local data
