@@ -1,6 +1,6 @@
 # Project Scope
 
-Last verified: 2026-07-08 · Recheck cadence: per docs change. Base branch: `main`.
+Last verified: 2026-07-11 · Recheck cadence: per docs change. Base branch: `main`.
 
 This file is a plain-language map of the project as it exists on `main`. It does not replace the README, roadmap, audit docs, or source comments. It points to them so a reviewer can see the whole shape without reading every file first.
 
@@ -20,10 +20,10 @@ Package metadata checked in this pass:
 
 ## What It Covers
 
-- Last.fm ingest, metadata enrichment, identity modeling, recommender logic, explanations, reranking, exports, and dashboard rendering.
+- Last.fm ingest, metadata enrichment, identity modeling, recommender logic, explanations, reranking, temporal profiles, per-artist feedback, exports, and dashboard rendering.
 - Docs for roadmap, audits, ADRs, I18N, identity ethics, fairness, privacy, and residual risk.
 - Eval reports, model cards, data cards, accessibility outputs, and AI risk notes.
-- Tests for identity, privacy, adapters, reproducibility, export, eval, and a11y.
+- Tests for identity, privacy, adapters, reproducibility, export, eval, feedback, cache lifecycle, fairness observability, and accessibility.
 - Spotify and portable playlist export paths.
 
 ## How It Is Put Together
@@ -68,7 +68,7 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked 24 hand-authored doc or metadata files, 18 files under `tests/` (16 test modules plus `conftest.py` and `__init__.py`), and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and large generated artifact history.
+This pass checked the 31 authored Markdown files, 36 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
 
 Primary docs checked:
 
@@ -89,6 +89,7 @@ Primary docs checked:
 - `docs/adr/0002-python-floor-3.10-not-3.12.md`
 - `docs/adr/0003-hatchling-build-backend.md`
 - `docs/audits/accessibility-2026-05-31.md`
+- `docs/audits/accessibility-2026-07-09.md`
 - `docs/audits/ai-risk-register.md`
 - `docs/audits/data-card.md`
 - `docs/audits/fairness-identity.md`
@@ -96,8 +97,10 @@ Primary docs checked:
 - `docs/audits/model-card.md`
 - `docs/audits/privacy-notes.md`
 - `docs/audits/residual-risk.md`
+- `docs/ideation/README.md`
+- `docs/writeup/methods.md`
 
-Representative test files checked:
+Representative test files checked (the full suite is authoritative):
 
 - `tests/__init__.py`
 - `tests/conftest.py`
@@ -120,4 +123,4 @@ Representative test files checked:
 
 ## Validation Notes
 
-For this docs PR, validation means the scope file was generated from the clean `origin/main` worktree, reviewed against repo metadata and docs inventory, and checked with `git diff --check`. Project test suites are still the authority for code behavior, because this PR changes documentation only.
+For this docs PR, validation means the scope file was reviewed against the merged `main` metadata and docs inventory, checked with `git diff --check`, and passed through the repository verification suite. Project tests remain the authority for code behavior.

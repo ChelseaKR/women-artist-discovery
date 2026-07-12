@@ -2,7 +2,7 @@
 
 This index is the handoff point for the documentation sweep. It keeps the project map, audit record, and main operating docs in one place.
 
-Last verified: 2026-07-08 · Recheck cadence: per docs change.
+Last verified: 2026-07-11 · Recheck cadence: per docs change.
 
 ## Documentation Audit
 
@@ -19,3 +19,5 @@ Last verified: 2026-07-08 · Recheck cadence: per docs change.
 - [Security](../SECURITY.md)
 - [Contributing](../CONTRIBUTING.md)
 - [I18N](I18N.md)
+- [Ideation and sequencing](ideation/README.md)
+- [Methods writeup](writeup/methods.md)

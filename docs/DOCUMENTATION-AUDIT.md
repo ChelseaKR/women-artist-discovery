@@ -1,6 +1,6 @@
 # Documentation Audit
 
-Last verified: 2026-07-08 · Recheck cadence: per docs change. Base branch: `main`.
+Last verified: 2026-07-11 · Recheck cadence: per docs change. Base branch: `main`.
 
 This audit records the documentation sweep and remediation loop for this repository. It checks the docs as a system: entry points, root-level process and legal files, project scope, setup and validation notes, safety and privacy posture, architecture and planning docs, local links, and the places where code, tests, workflows, and docs meet.
 
@@ -10,10 +10,10 @@ This audit records the documentation sweep and remediation loop for this reposit
 | --- | --- | --- |
 | Entry docs | pass | `README.md` present |
 | Security/process docs | pass | CONTRIBUTING.md, SECURITY.md, CHANGELOG.md |
-| Architecture/planning docs | pass | 4 architecture/interface docs; 1 planning/research docs |
-| Safety/privacy/audit docs | pass | 10 safety/privacy/accessibility/audit docs |
-| Validation surface | pass | 16 test files; 7 workflow files |
-| Local doc links | pass | 27 authored-doc links checked; 0 unresolved |
+| Architecture/planning docs | pass | 4 ADRs; roadmap plus 5 ideation docs |
+| Safety/privacy/audit docs | pass | 11 safety/privacy/accessibility/audit docs |
+| Validation surface | pass | 36 Python test files; 7 workflow files |
+| Local doc links | pass | Authored-doc relative links rechecked; 0 unresolved |
 
 ## Root-Level Documentation Audit
 
@@ -46,7 +46,7 @@ Root-adjacent template files checked:
 
 ## Remediation In This PR
 
-- Added missing root-level remediation docs found by the audit loop, including legal, conduct, contribution, or security files where absent.
+- Added the missing root `NOTICE` identified by the audit loop.
 - Added `docs/PROJECT-SCOPE.md` as the plain-language project and boundary map.
 - Added this audit record so future doc changes have a dated baseline.
 - Added or refreshed the docs index so scope, audit, and primary docs are easy to find.
@@ -61,10 +61,12 @@ Package and workspace metadata:
 Source and operations surfaces seen at the repo root:
 
 - `app/`
+- `export/`
 - `Makefile`
 - `pipeline/`
 - `pyproject.toml`
 - `scripts/`
+- `recommender/`
 - `tests/`
 - `uv.lock`
 
@@ -85,8 +87,9 @@ Workflow files checked:
 | architecture and interfaces | 4 | `docs/adr/0000-record-architecture-decisions.md`, `docs/adr/0001-single-maintainer-review-posture.md`, `docs/adr/0002-python-floor-3.10-not-3.12.md`, `docs/adr/0003-hatchling-build-backend.md` |
 | entry points and repo process | 9 | `.github/PULL_REQUEST_TEMPLATE.md`, `CHANGELOG.md`, `CITATION.cff`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, `README.md`, plus 1 more |
 | other docs | 5 | `CODEOWNERS`, `DEFINITION_OF_DONE.md`, `docs/I18N.md`, `docs/PROJECT-SCOPE.md`, `docs/README.md` |
-| planning and research | 1 | `docs/ROADMAP.md` |
-| safety, privacy, accessibility, and audits | 10 | `docs/DOCUMENTATION-AUDIT.md`, `docs/RESPONSIBLE-TECH-AUDITS.md`, `docs/audits/accessibility-2026-05-31.md`, `docs/audits/ai-risk-register.md`, `docs/audits/data-card.md`, `docs/audits/fairness-identity.md`, `docs/audits/identity-data-ethics.md`, `docs/audits/model-card.md`, plus 2 more |
+| planning and research | 6 | `docs/ROADMAP.md` and `docs/ideation/` |
+| safety, privacy, accessibility, and audits | 11 | `docs/DOCUMENTATION-AUDIT.md`, `docs/RESPONSIBLE-TECH-AUDITS.md`, both accessibility reports, and the audit cards/registers under `docs/audits/` |
+| methods writeup | 1 | `docs/writeup/methods.md` |
 
 Full hand-authored doc inventory checked by this pass:
 
@@ -112,6 +115,7 @@ Full hand-authored doc inventory checked by this pass:
 - `docs/adr/0002-python-floor-3.10-not-3.12.md`
 - `docs/adr/0003-hatchling-build-backend.md`
 - `docs/audits/accessibility-2026-05-31.md`
+- `docs/audits/accessibility-2026-07-09.md`
 - `docs/audits/ai-risk-register.md`
 - `docs/audits/data-card.md`
 - `docs/audits/fairness-identity.md`
@@ -119,10 +123,16 @@ Full hand-authored doc inventory checked by this pass:
 - `docs/audits/model-card.md`
 - `docs/audits/privacy-notes.md`
 - `docs/audits/residual-risk.md`
+- `docs/ideation/01-deep-dive.md`
+- `docs/ideation/02-large-scale-fixes.md`
+- `docs/ideation/03-expansions.md`
+- `docs/ideation/04-impact-and-sequencing.md`
+- `docs/ideation/README.md`
+- `docs/writeup/methods.md`
 
 ## Link Check
 
-- Checked 27 local links in authored Markdown and MDX docs.
+- Checked local links in authored Markdown and MDX docs.
 - Unresolved authored-doc links after remediation: 0.
 - Root-level/template unresolved links after remediation: 0.
 
