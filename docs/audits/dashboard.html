@@ -1,14 +1,20 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Women-Artist Discovery — recommendations</title><style>
-:root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem; }
-.card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+:root { color-scheme: light dark; --bg: #ffffff; --text: #1b1b1b; --link: #0b57d0; --border: #595959; --focus: #0b57d0; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121212; --text: #e8e8e8; --link: #8ab4f8; --border: #9e9e9e; --focus: #8ab4f8; }
+}
+body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem;
+       background: var(--bg); color: var(--text); }
+a { color: var(--link); }
+.card { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0; }
 .identity { font-weight: 600; }
-.identity::before { content: "\25CF  "; }  /* glyph paired with text, not colour-only */
-a:focus, .skip:focus { outline: 3px solid; }
+.identity::before { content: "\25CF  "; }  /* glyph paired with text, not colour-only;
+                                                inherits --text, never colour-only meaning */
+a:focus, .skip:focus { outline: 3px solid var(--focus); }
 .skip { position: absolute; left: -999px; }
-.skip:focus { left: 1rem; top: 1rem; }
+.skip:focus { left: 1rem; top: 1rem; background: var(--bg); }
 table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
+th, td { border: 1px solid var(--border); padding: 0.4rem; text-align: left; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }

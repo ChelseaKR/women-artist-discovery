@@ -90,27 +90,83 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
-_STYLE = """
-:root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem; }
-.card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-.identity { font-weight: 600; }
-.identity::before { content: "\\25CF  "; }  /* glyph paired with text, not colour-only */
-a:focus, .skip:focus { outline: 3px solid; }
-.skip { position: absolute; left: -999px; }
-.skip:focus { left: 1rem; top: 1rem; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
-@media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+#: Explicit per-scheme design tokens (BUG-1 fix). The old stylesheet declared
+#: ``color-scheme: light dark`` with **no** explicit colours, so under an OS dark
+#: theme every pair fell back to UA defaults and produced real axe contrast
+#: failures. Both palettes below are unit-tested against WCAG 2.2 relative
+#: luminance in ``tests/test_contrast.py`` (merge-blocking); the ratios in the
+#: comments are computed, not aspirational.
+LIGHT_TOKENS: dict[str, str] = {
+    "bg": "#ffffff",
+    "text": "#1b1b1b",  # 17.22:1 vs bg (AAA body text; target >= 7:1)
+    "link": "#0b57d0",  # 6.39:1 vs bg (AA text; >= 4.5:1)
+    "border": "#595959",  # 7.00:1 vs bg (non-text; >= 3:1)
+    "focus": "#0b57d0",  # 6.39:1 vs bg (focus indicator; >= 3:1)
 }
+
+DARK_TOKENS: dict[str, str] = {
+    "bg": "#121212",
+    "text": "#e8e8e8",  # 15.29:1 vs bg (AAA body text; target >= 7:1)
+    "link": "#8ab4f8",  # 8.89:1 vs bg (AA text; >= 4.5:1)
+    "border": "#9e9e9e",  # 6.99:1 vs bg (non-text; >= 3:1)
+    "focus": "#8ab4f8",  # 8.89:1 vs bg (focus indicator; >= 3:1)
+}
+
+#: Schemes accepted by :func:`render_cards_html` / ``python -m app.build_static``.
+#: ``auto`` ships both palettes behind ``prefers-color-scheme``; ``light``/``dark``
+#: pin one palette unconditionally so the a11y gate can audit **both** renderings
+#: deterministically on any machine (local Dark-Mode Mac and light-mode CI alike).
+SCHEMES: tuple[str, ...] = ("auto", "light", "dark")
+
+
+def _css_vars(tokens: dict[str, str]) -> str:
+    return " ".join(f"--{name}: {value};" for name, value in tokens.items())
+
+
+def _style(scheme: str = "auto") -> str:
+    if scheme not in SCHEMES:
+        raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}")
+    if scheme == "auto":
+        root = (
+            f":root {{ color-scheme: light dark; {_css_vars(LIGHT_TOKENS)} }}\n"
+            f"@media (prefers-color-scheme: dark) {{\n"
+            f"  :root {{ {_css_vars(DARK_TOKENS)} }}\n"
+            f"}}"
+        )
+    else:
+        tokens = LIGHT_TOKENS if scheme == "light" else DARK_TOKENS
+        root = f":root {{ color-scheme: {scheme}; {_css_vars(tokens)} }}"
+    return f"""
+{root}
+body {{ font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem;
+       background: var(--bg); color: var(--text); }}
+a {{ color: var(--link); }}
+.card {{ border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0; }}
+.identity {{ font-weight: 600; }}
+.identity::before {{ content: "\\25CF  "; }}  /* glyph paired with text, not colour-only;
+                                                inherits --text, never colour-only meaning */
+a:focus, .skip:focus {{ outline: 3px solid var(--focus); }}
+.skip {{ position: absolute; left: -999px; }}
+.skip:focus {{ left: 1rem; top: 1rem; background: var(--bg); }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid var(--border); padding: 0.4rem; text-align: left; }}
+@media (prefers-reduced-motion: reduce) {{
+  * {{ animation: none !important; transition: none !important; }}
+}}
 """
 
 
 def render_cards_html(
-    recs: Sequence[Recommendation], lens_strength: float, username: str = "demo"
+    recs: Sequence[Recommendation],
+    lens_strength: float,
+    username: str = "demo",
+    scheme: str = "auto",
 ) -> str:
-    """Render a complete, accessible HTML document for the given recommendations."""
+    """Render a complete, accessible HTML document for the given recommendations.
+
+    ``scheme="auto"`` (the shipped default) responds to ``prefers-color-scheme``;
+    ``"light"``/``"dark"`` pin that palette so the a11y gate audits both schemes.
+    """
     cards = "".join(_card_html(r) for r in recs)
     lens_pct = f"{lens_strength:.0%}"
     return (
@@ -118,7 +174,7 @@ def render_cards_html(
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>Women-Artist Discovery — recommendations</title>"
-        f"<style>{_STYLE}</style></head><body>"
+        f"<style>{_style(scheme)}</style></head><body>"
         '<a class="skip" href="#main">Skip to recommendations</a>'
         "<header><h1>Women-Artist Discovery</h1>"
         f"<p>Recommendations for <strong>{escape(username)}</strong>. "

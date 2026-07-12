@@ -5,6 +5,11 @@
 PYTHON ?= .venv/bin/python
 UV     ?= uv
 A11Y_HTML := docs/audits/dashboard.html
+# Scheme-pinned renders (gate inputs only, not committed artifacts): auditing a
+# light-pinned AND a dark-pinned render makes the a11y gate scheme-complete on
+# any machine — a Dark-Mode Mac and light-mode CI check the same two palettes.
+A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
+A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev verify format lint typecheck test security a11y eval i18n audit clean
@@ -75,15 +80,22 @@ security: ## Stage 4 — dependency vulnerability + secret scan
 	$(PYTHON) -m pip_audit --skip-editable $(AUDIT_IGNORES)
 	@./scripts/secret-scan.sh
 
-a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
+a11y: ## Stage 5 — render the dashboard (auto + pinned light/dark) and run the a11y gate (0 violations in BOTH schemes)
 	$(PYTHON) -m app.build_static
+	$(PYTHON) -m app.build_static --scheme light --out $(A11Y_HTML_LIGHT)
+	$(PYTHON) -m app.build_static --scheme dark --out $(A11Y_HTML_DARK)
 	@if command -v pa11y >/dev/null 2>&1; then \
-		echo "running pa11y (axe runtime)"; \
+		echo "running pa11y (axe runtime) over auto + light-pinned + dark-pinned renders"; \
 		printf '%s\n' '{"chromeLaunchConfig":{"args":["--no-sandbox"]}}' > /tmp/pa11y-ci.json; \
-		pa11y --runner axe --config /tmp/pa11y-ci.json $(A11Y_HTML); \
+		for f in $(A11Y_HTML) $(A11Y_HTML_LIGHT) $(A11Y_HTML_DARK); do \
+			echo "pa11y: $$f"; \
+			pa11y --runner axe --config /tmp/pa11y-ci.json $$f || exit 1; \
+		done; \
 	else \
 		echo "pa11y not installed — using built-in static a11y checker"; \
-		$(PYTHON) -m app.a11y_check $(A11Y_HTML); \
+		for f in $(A11Y_HTML) $(A11Y_HTML_LIGHT) $(A11Y_HTML_DARK); do \
+			$(PYTHON) -m app.a11y_check $$f || exit 1; \
+		done; \
 	fi
 
 eval: ## Stage 7 — offline eval; fails unless the hybrid beats the baseline
