@@ -1,0 +1,46 @@
+name: zizmor
+
+# CICD-19 / RTF-06 (zizmor half): static analysis of the workflow files
+# themselves (excessive permissions, script injection, unpinned actions, …).
+# Scoped to changes under .github/workflows/ so it doesn't run on every PR.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa  # v0.5.7
+        with:
+          version: "1.26.1"
+          # One accepted low finding today: `npm install -g pa11y` in ci.yml/
+          # release.yml (adhoc-packages) — a single pinned dev-tool install, not
+          # worth a whole package-lock.json for. Blocks on medium+ so a *new*
+          # issue still fails the check.
+          min-severity: medium
+          # This private repo has no GHAS code-scanning upload. Preserve the
+          # real exit-code gate and surface findings as workflow annotations.
+          advanced-security: false
+          annotations: true

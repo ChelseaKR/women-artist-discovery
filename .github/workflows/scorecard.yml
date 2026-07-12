@@ -1,0 +1,53 @@
+name: scorecard
+
+# SEC-36/37/38, CICD-03/21: OpenSSF Scorecard — retains a private artifact for
+# review. Public-result publishing and private-repo code-scanning upload are
+# deliberately disabled.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '23 5 15 * *' # monthly — re-armed 2026-07-11 (metrics plan Phase 0.2)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      # Scorecard's private-repo GraphQL checks require these read scopes.
+      issues: read
+      pull-requests: read
+      checks: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false  # private repo — do not publish to the public dataset
+
+      - name: Upload SARIF results
+        # No GHAS code scanning on a private repo — no-op unless the repo goes public.
+        if: ${{ !github.event.repository.private }}
+        uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a  # v4.36.3
+        with:
+          sarif_file: results.sarif
+
+      - name: Upload Scorecard results artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5

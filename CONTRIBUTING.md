@@ -10,6 +10,10 @@ If you have not yet, read [`README.md`](README.md) for what the project is and w
 [`SECURITY.md`](SECURITY.md) for how to report a vulnerability. The
 [Code of Conduct](CODE_OF_CONDUCT.md) applies to every interaction.
 
+This repo's gate set is derived from [`/STANDARDS`](../STANDARDS/) (see README's "Standards
+Conformance" table for the per-standard declaration); `make verify` below is this repo's concrete
+instantiation of those gates.
+
 ## The identity invariant (read this first)
 
 The recommender attaches identity claims to real artists. Every contribution must respect three

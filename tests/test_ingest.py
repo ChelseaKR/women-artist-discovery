@@ -29,7 +29,9 @@ def test_enrich_artist_defaults_to_unknown(source, enricher) -> None:
 def test_ingest_persists_to_cache(demo_user, source, enricher) -> None:
     cache = Cache(":memory:")
     try:
-        profile, catalog = ingest(demo_user, source, enricher, cache=cache, fetched_at="2026-05-31")
+        profile, _catalog = ingest(
+            demo_user, source, enricher, cache=cache, fetched_at="2026-05-31"
+        )
         assert profile.play_counts
         # listened artists are enriched + cached with a lineage timestamp
         assert cache.get_artist("mitski") is not None
