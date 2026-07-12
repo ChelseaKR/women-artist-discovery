@@ -40,16 +40,16 @@ source kind for a name, voice, image, or genre. Code: `pipeline/identity.py`.
   (`pipeline/identity.py::_SOURCE_BASE_CONFIDENCE`: 0.95 artist statement, 0.80
   Wikidata P21, 0.70 MusicBrainz gender); it is never rendered as a number. Any
   surface that shows identity confidence uses the qualitative tier vocabulary
-  from `recommender/why.py::_confidence_tier`, which the number maps to:
+  from `recommender/why.py::_confidence_tier`, derived from the actual citation:
 
-  | Internal confidence | Rendered tier |
+  | Cited source | Rendered tier |
   |---|---|
-  | ≥ 0.90 (artist statement) | "directly stated by the artist" |
-  | ≥ 0.78 (Wikidata P21) | "recorded in Wikidata" |
-  | > 0 (any other sourced value, e.g. MusicBrainz) | "editorial database entry" |
-  | falsy / `None` | *(no suffix shown)* |
+  | Artist statement | "directly stated by the artist" |
+  | Wikidata P21 | "recorded in Wikidata" |
+  | MusicBrainz gender | "editorial database entry" |
 
-  No identity statement ever shows an unexplained number. → FIX-14.
+  The numeric value cannot change the wording; no identity statement ever
+  shows an unexplained number. → FIX-14.
 
 ## Non-redistribution
 

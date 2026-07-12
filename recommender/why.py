@@ -20,7 +20,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline.models import Artist, Gender, IdentityBasis, Recommendation, Source
+from pipeline.models import (
+    Artist,
+    Gender,
+    IdentityBasis,
+    IdentityLabel,
+    Recommendation,
+    Source,
+    SourceKind,
+)
 
 
 @dataclass(frozen=True)
@@ -116,23 +124,16 @@ class WhyThisArtist:
         return "\n".join(parts)
 
 
-def _confidence_tier(conf: float | None) -> str:
-    """Map an internal confidence float to a qualitative, honest tier.
-
-    The float itself is never shown to a reader — percentages read as false
-    precision for what is really "which kind of source said so." The
-    thresholds mirror the source priority in
-    :data:`pipeline.identity._SOURCE_BASE_CONFIDENCE` (0.95 artist statement,
-    0.80 Wikidata, 0.70 MusicBrainz), so the tier a user sees always traces
-    back to *which source* asserted the claim, not an arbitrary score.
-    """
-    if not conf:
-        return ""
-    if conf >= 0.90:
+def _confidence_tier(label: IdentityLabel) -> str:
+    """Describe the strongest cited source without interpreting its score."""
+    source_kinds = {source.kind for source in label.sources}
+    if SourceKind.ARTIST_STATEMENT in source_kinds:
         return "directly stated by the artist"
-    if conf >= 0.78:
+    if SourceKind.WIKIDATA_P21 in source_kinds:
         return "recorded in Wikidata"
-    return "editorial database entry"
+    if SourceKind.MUSICBRAINZ_GENDER in source_kinds:
+        return "editorial database entry"
+    return "cited source"
 
 
 def artist_identity_phrase(artist: Artist) -> str:
@@ -143,7 +144,7 @@ def artist_identity_phrase(artist: Artist) -> str:
     """
     label = artist.identity
     if label.gender is not Gender.UNKNOWN:
-        tier = _confidence_tier(label.confidence)
+        tier = _confidence_tier(label)
         suffix = f" ({tier})" if tier else ""
         return f"{label.gender}, self-identified{suffix}"
     if artist.female_fronted is True:

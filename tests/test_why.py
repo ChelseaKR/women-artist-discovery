@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pipeline.models import IdentityBasis
+from pipeline.models import IdentityBasis, SourceKind
 from recommender.hybrid import recommend
 from recommender.why import (
     ProvenanceItem,
@@ -105,6 +105,29 @@ def test_artist_identity_phrase_uses_qualitative_tier_not_percentage() -> None:
     phrase = artist_identity_phrase(artist)
     assert "directly stated by the artist" in phrase
     assert "%" not in phrase
+
+
+@pytest.mark.parametrize(
+    ("source_kind", "misleading_confidence", "expected"),
+    [
+        (SourceKind.ARTIST_STATEMENT, 0.01, "directly stated by the artist"),
+        (SourceKind.WIKIDATA_P21, 0.99, "recorded in Wikidata"),
+        (SourceKind.MUSICBRAINZ_GENDER, 0.99, "editorial database entry"),
+    ],
+)
+def test_identity_tier_comes_from_citation_not_numeric_confidence(
+    source_kind: SourceKind, misleading_confidence: float, expected: str
+) -> None:
+    from pipeline.models import Artist, Gender, IdentityBasis, IdentityLabel, Source
+
+    label = IdentityLabel(
+        gender=Gender.WOMAN,
+        basis=IdentityBasis.SELF_IDENTIFIED,
+        sources=(Source(source_kind, "https://example.org/source", "2026-05-31", "woman"),),
+        confidence=misleading_confidence,
+    )
+    phrase = artist_identity_phrase(Artist("known", "Known", identity=label))
+    assert expected in phrase
 
 
 def test_provenance_item_from_source_preserves_raw_value() -> None:

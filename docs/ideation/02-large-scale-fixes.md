@@ -340,13 +340,11 @@ either use or drop the declared numpy dependency.
 - **Excellent looks like:** No unexplained numbers in any identity statement;
   the tier vocabulary documented in `docs/audits/identity-data-ethics.md`.
 - **Landed:** `recommender/why.py::artist_identity_phrase` no longer renders
-  `label.confidence` as a `:.0%` percentage. A new `_confidence_tier(conf)`
-  helper maps the internal float to one of three provenance-tied phrases —
-  `"directly stated by the artist"` (≥0.90, artist statement), `"recorded in
-  Wikidata"` (≥0.78, Wikidata P21), `"editorial database entry"` (any other
-  positive value, MusicBrainz) — or `""` (no suffix) for falsy/`None`
-  confidence, mirroring `pipeline/identity.py::_SOURCE_BASE_CONFIDENCE`'s
-  0.95/0.80/0.70 source priority. `IdentityLabel.confidence` itself is kept
+  `label.confidence` as a `:.0%` percentage. `_confidence_tier(label)` maps the
+  actual cited `SourceKind` to one of three provenance-tied phrases —
+  `"directly stated by the artist"` (artist statement), `"recorded in
+  Wikidata"` (Wikidata P21), or `"editorial database entry"` (MusicBrainz).
+  The numeric value cannot alter that wording. `IdentityLabel.confidence` is kept
   as an internal-only field for ordering, per the doc's second option — not
   removed. `app/render.py` and `recommender/explain.py` needed no change
   (the latter only calls `artist_identity_phrase`; the former never rendered
