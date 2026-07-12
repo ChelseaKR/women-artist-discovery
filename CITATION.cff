@@ -1,10 +1,13 @@
 cff-version: 1.2.0
 title: Women-Artist Discovery
-message: "If you use this work, please cite it."
+message: >-
+  If you use this work, please cite it. This is unreleased pre-1.0 development
+  software: no git tag or GitHub release exists yet, so cite by commit hash
+  rather than a version number until a v0.1.0 tag is cut (see CHANGELOG.md and
+  SECURITY.md for the current release stance).
 authors:
   - family-names: Kelly-Reif
     given-names: Chelsea
 version: 0.1.0
-date-released: 2026-06-30
 license: MIT
 repository-code: "https://github.com/ChelseaKR/women-artist-discovery"

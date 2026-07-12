@@ -41,7 +41,7 @@ from recommender.hybrid import recommend
 
 _ENV = {
     "WAD_SPOTIFY_CLIENT_ID": "cid",
-    "WAD_SPOTIFY_CLIENT_SECRET": "secret",  # noqa: S106 - dummy fixture secret
+    "WAD_SPOTIFY_CLIENT_SECRET": "secret",  # dummy fixture secret
     "WAD_SPOTIFY_REDIRECT_URI": "http://127.0.0.1:8080/callback",
 }
 

@@ -187,6 +187,7 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
                 f"+ values lens {rec.rerank_delta:.3f}"
             )
             st.write(f"● Identity: {why.identity_statement}")
+            st.caption(f"Rank shift: {why.rank_shift}")
             st.markdown("**Why this artist**")
             for reason in why.reasons:
                 st.markdown(f"- {reason}")

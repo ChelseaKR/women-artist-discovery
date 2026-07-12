@@ -38,10 +38,15 @@ produces real recommendations.
   zero network calls (cache hit rate reported); privacy tests updated in the
   same commit; no coverage drop on core logic.
 
-## FIX-02 — Paginated, incremental scrobble ingest
+## FIX-02 — Paginated, incremental scrobble ingest — **Done**
 
 **Pitch:** Ingest full listening histories, resumably, instead of one page of
 200 recent tracks.
+
+> `ScrobbleSource.scrobbles_since` now drains paginated history from a stored
+> timestamp watermark. Cached ingest requests only new plays, deduplicates
+> them, and rebuilds the profile from full stored history; repeated syncs are
+> idempotent and test-covered.
 
 - **Why it matters:** Real scrobble histories run 10⁴–10⁵ plays.
   `LastfmClient.recent_scrobbles` makes one call; the recommender's ground
@@ -182,9 +187,14 @@ layer enforces it".
 - **Excellent looks like:** A deliberately-added `requests.get` anywhere in
   `app/` fails two independent gates (scan + socket guard) before review.
 
-## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification — **DONE (2026-07-03)**
+## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification — **Done**
 
 **Pitch:** Make the Spotify flow follow current native-app OAuth best practice.
+
+> Spotify authorization now uses an in-memory S256 PKCE pair, verifies the
+> returned state for both loopback and pasted-URL flows, and rejects OAuth
+> error redirects. The loopback listener binds only to `127.0.0.1`; the
+> fallback requires the full redirect URL so state is never decorative.
 
 - **Why it matters:** `app/dashboard.py` generates a CSRF `state` (line 86)
   but the paste-the-code flow never verifies the state Spotify returns — the
@@ -202,21 +212,6 @@ layer enforces it".
 - **Excellent looks like:** State mismatch is a tested failure path; PKCE
   verifier never leaves memory; threat-model table row updated; the flow works
   without the user copy-pasting URL fragments by hand.
-- **Landed:** `export/spotify.py` gained `PkcePair` (S256 verifier/challenge
-  generation), `authorize_url(code_challenge=...)`,
-  `exchange_code(code_verifier=...)`, `parse_redirect(url, expected_state)`
-  (raises `ExportError` on Spotify `error` params and on state mismatch — a
-  tested failure path), and `capture_redirect(redirect_uri, timeout)` (a
-  stdlib `http.server` loopback listener bound to `127.0.0.1`, kept out of
-  unit coverage via `# pragma: no cover` on the socket-bound handler).
-  `app/dashboard.py` now generates a `PkcePair` alongside `spotify_state`,
-  offers the loopback capture as the primary path with paste-the-redirected-
-  URL as fallback, and verifies `state` via `parse_redirect` before exchanging
-  the code. Tests added in `tests/test_export.py` cover the PKCE challenge
-  math, `code_challenge_method=S256` on the authorize URL, `code_verifier` in
-  the token-exchange form body, and `parse_redirect`'s success/state-mismatch/
-  Spotify-error paths. `docs/audits/residual-risk.md`'s threat-model table
-  gained a Spoofing/CSRF row for this flow.
 
 ## FIX-09 — A11y parity for the interactive surface
 
@@ -242,11 +237,19 @@ layer enforces it".
   app in `docs/audits/`; upstream Streamlit issues filed or worked around;
   the manual SR walkthrough checklist executed against the same surface.
 
-## FIX-10 — Source-conflict surfacing and a local correction ledger
+## FIX-10 — Source-conflict surfacing and a local correction ledger — **Done (2026-07-03)**
 
 **Pitch:** When sources disagree about someone's identity, show the
 disagreement; when a source is wrong, record the correction locally with a
 citation.
+
+> **Status: implemented.** `IdentityLabel` carries neutral conflict metadata;
+> `WhyThisArtist` and the accessible renderer show every disagreeing cited
+> claim. Cache schema v3 adds a cited local corrections ledger without
+> disturbing v2 dedupe/TTL migrations. `wad corrections` records or lists
+> corrections, and `wad refresh` expires stale HTTP rows while preserving the
+> ledger. Local corrections remain visibly labelled in provenance and enter
+> resolution only as cited `ARTIST_STATEMENT` evidence.
 
 - **Why it matters:** `pipeline/identity.py::resolve_identity` silently picks
   the highest-priority source on conflict and caps confidence at 0.5 — the
@@ -335,7 +338,7 @@ either use or drop the declared numpy dependency.
 - **Excellent looks like:** p95 end-to-end recommend < 2 s on a 50k-scrobble /
   5k-candidate profile, measured and committed; zero unused runtime deps.
 
-## FIX-14 — Honest confidence semantics
+## FIX-14 — Honest confidence semantics — **DONE (2026-07-03)**
 
 **Pitch:** Stop presenting hand-set constants as percentages.
 
@@ -354,3 +357,19 @@ either use or drop the declared numpy dependency.
 - **Risks/deps:** Pairs naturally with FIX-10; wording is review-gated.
 - **Excellent looks like:** No unexplained numbers in any identity statement;
   the tier vocabulary documented in `docs/audits/identity-data-ethics.md`.
+- **Landed:** `recommender/why.py::artist_identity_phrase` no longer renders
+  `label.confidence` as a `:.0%` percentage. `_confidence_tier(label)` maps the
+  actual cited `SourceKind` to one of three provenance-tied phrases —
+  `"directly stated by the artist"` (artist statement), `"recorded in
+  Wikidata"` (Wikidata P21), or `"editorial database entry"` (MusicBrainz).
+  The numeric value cannot alter that wording. `IdentityLabel.confidence` is kept
+  as an internal-only field for ordering, per the doc's second option — not
+  removed. `app/render.py` and `recommender/explain.py` needed no change
+  (the latter only calls `artist_identity_phrase`; the former never rendered
+  confidence). `tests/test_why.py` gained
+  `test_artist_identity_phrase_uses_qualitative_tier_not_percentage`,
+  asserting the rendered phrase contains `"directly stated by the artist"`
+  and no `%` character; `tests/test_explanation.py` and
+  `tests/test_unknown_first_class.py` had no hard-coded confidence-percentage
+  expectations to update. `docs/audits/identity-data-ethics.md` gained the
+  tier vocabulary under a new "Confidence tiers" policy bullet.
