@@ -22,6 +22,7 @@ from app.render import SCHEMES, render_cards_html
 
 DEFAULT_OUT = Path("docs/audits/dashboard.html")
 LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+OBSERVABILITY_K = 3
 
 
 def build(out: Path = DEFAULT_OUT, lens_strength: float = 0.5, scheme: str = "auto") -> Path:
@@ -30,7 +31,7 @@ def build(out: Path = DEFAULT_OUT, lens_strength: float = 0.5, scheme: str = "au
         lens: recommend(profile, catalog, source, k=10, lens_strength=lens)
         for lens in sorted({*LENS_GRID, lens_strength})
     }
-    panel = observability_panel(recs_by_lens, current_lens=lens_strength, k=10)
+    panel = observability_panel(recs_by_lens, current_lens=lens_strength, k=OBSERVABILITY_K)
     html = render_cards_html(
         recs_by_lens[lens_strength],
         lens_strength=lens_strength,

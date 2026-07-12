@@ -250,7 +250,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
         lens: recommend(profile, catalog, source, k=args.k, lens_strength=lens)
         for lens in sorted({0.0, 0.25, 0.5, 0.75, 1.0, args.lens})
     }
-    panel = observability_panel(recs_by_lens, current_lens=args.lens, k=args.k)
+    panel = observability_panel(recs_by_lens, current_lens=args.lens, k=min(3, args.k))
     html = render_cards_html(
         recs_by_lens[args.lens],
         lens_strength=args.lens,

@@ -64,7 +64,7 @@ def test_observability_panel_is_table_first_and_accessible(profile, catalog, sou
     html = _html_with_observability(profile, catalog, source)
     assert check_html(html) == []
     assert "Fairness observability" in html
-    assert "Exposure share by identity segment" in html
+    assert "exposure share by identity segment" in html
     assert "Unknown-identity retention" in html
     assert html.count("<table>") >= 3
 

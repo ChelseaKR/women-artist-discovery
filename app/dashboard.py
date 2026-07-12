@@ -55,6 +55,7 @@ _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
     ("JSPF (JSON)", ExportFormat.JSPF, "application/json"),
 )
 LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+OBSERVABILITY_K = 3
 
 
 def _finish_spotify_export(
@@ -203,11 +204,11 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         value: recommend(profile, catalog, source, k=10, lens_strength=value)
         for value in sorted({*LENS_GRID, lens})
     }
-    panel = observability_panel(recs_by_lens, current_lens=lens, k=10)
+    panel = observability_panel(recs_by_lens, current_lens=lens, k=OBSERVABILITY_K)
     exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
     retention_row = cast("dict[str, object]", panel["retention_row"])
     by_lens = cast("dict[str, float]", retention_row["by_lens"])
-    st.subheader("Fairness observability")
+    st.subheader(f"Fairness observability (top {OBSERVABILITY_K})")
     st.table(
         {
             "Identity segment": [row["segment"] for row in exposure_rows],

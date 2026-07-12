@@ -131,6 +131,7 @@ def _exposure_panel_html(panel: dict[str, object] | None) -> str:
     if panel is None:
         return ""
     rows = cast("list[dict[str, object]]", panel["exposure_rows"])
+    k = cast(int, panel["k"])
     base_pct = f"{cast(float, panel['base_lens']):.0%}"
     current_pct = f"{cast(float, panel['current_lens']):.0%}"
     body = "".join(
@@ -145,8 +146,9 @@ def _exposure_panel_html(panel: dict[str, object] | None) -> str:
     retention_cells = "".join(f"<td>{value:.0%}</td>" for value in by_lens.values())
     return (
         "<h2>Fairness observability</h2>"
-        "<p>Exposure changes are shown alongside the merge-blocking unknown-retention guarantee.</p>"
-        "<table><caption>Exposure share by identity segment — base lens "
+        "<p>Exposure changes are shown alongside the merge-blocking "
+        "unknown-retention guarantee.</p>"
+        f"<table><caption>Top-{k} exposure share by identity segment — base lens "
         f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
         '<th scope="col">Identity segment</th><th scope="col">Base share</th>'
         f'<th scope="col">Current share</th></tr></thead><tbody>{body}</tbody></table>'
