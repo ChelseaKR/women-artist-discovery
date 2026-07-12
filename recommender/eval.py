@@ -33,6 +33,7 @@ from recommender.hybrid import recommend
 
 DEFAULT_LENS_SWEEP: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
 DEFAULT_REGRESSION_TOLERANCE = 0.10
+DEFAULT_DECAY_HALF_LIFE_DAYS = 180.0
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -112,6 +113,23 @@ def popularity_ranking(catalog: dict[str, Artist], exclude: set[str]) -> list[st
     return [a.artist_id for a in candidates]
 
 
+def _training_profile(
+    username: str,
+    train: list[Scrobble],
+    catalog: dict[str, Artist],
+    *,
+    half_life_days: Optional[float] = None,
+) -> ListeningProfile:
+    """Build a deterministic train-window profile and reattach catalog tags."""
+    base = build_profile(username, train, half_life_days=half_life_days)
+    return ListeningProfile(
+        username=base.username,
+        play_counts=base.play_counts,
+        artist_names=base.artist_names,
+        tags={aid: catalog[aid].tags for aid in base.play_counts if aid in catalog},
+    )
+
+
 def evaluate(
     username: str,
     scrobbles: list[Scrobble],
@@ -120,27 +138,34 @@ def evaluate(
     *,
     k: int = 10,
     train_frac: float = 0.7,
+    half_life_days: Optional[float] = None,
 ) -> dict[str, EvalResult]:
-    """Run both models on a temporal hold-out. Returns results keyed by model."""
+    """Run flat and recency-decayed hybrids plus popularity on a hold-out."""
     train, test = temporal_split(scrobbles, train_frac)
     positives = ground_truth(train, test)
-    base_profile = build_profile(username, train)
-    # Re-attach tags from the catalog so the content signal works on train data.
-    train_profile = ListeningProfile(
-        username=base_profile.username,
-        play_counts=base_profile.play_counts,
-        artist_names=base_profile.artist_names,
-        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
-    )
+    train_profile = _training_profile(username, train, catalog)
     known = train_profile.known_artist_ids
 
     hybrid_recs = recommend(train_profile, catalog, source, k=len(catalog), lens_strength=0.0)
     hybrid_ranked = [r.artist.artist_id for r in hybrid_recs]
     pop_ranked = popularity_ranking(catalog, exclude=set(known))
+    decay_profile = _training_profile(
+        username,
+        train,
+        catalog,
+        half_life_days=(
+            half_life_days if half_life_days is not None else DEFAULT_DECAY_HALF_LIFE_DAYS
+        ),
+    )
+    decay_ranked = [
+        rec.artist.artist_id
+        for rec in recommend(decay_profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    ]
 
     return {
         "hybrid": _score("hybrid", hybrid_ranked, positives, k),
         "popularity": _score("popularity", pop_ranked, positives, k),
+        "hybrid_decay": _score("hybrid_decay", decay_ranked, positives, k),
     }
 
 
@@ -253,7 +278,7 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
     ``verdict`` alongside the original boolean, which is kept for back-compat.
     """
     comparison = compare(results)
-    return {
+    report: dict[str, object] = {
         "k": comparison.k,
         "n_positives": comparison.n_positives,
         "models": {name: asdict(res) for name, res in results.items()},
@@ -263,6 +288,11 @@ def to_report(results: dict[str, EvalResult]) -> dict[str, object]:
         "hybrid_beats_popularity": comparison.hybrid_beats_popularity,  # back-compat
         "verdict": comparison.verdict,
     }
+    decay = results.get("hybrid_decay")
+    if decay is not None:
+        report["decay_map_at_k_delta"] = round(decay.map_at_k - comparison.hybrid.map_at_k, 4)
+        report["decay_improves_map_at_k"] = decay.map_at_k > comparison.hybrid.map_at_k
+    return report
 
 
 #: The circularity caveat, embedded directly in every aggregated report so the

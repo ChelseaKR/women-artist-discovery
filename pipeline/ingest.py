@@ -25,15 +25,43 @@ from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, S
 log = logging.getLogger("wad.ingest")
 
 
-def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
-    """Reduce raw scrobbles into per-artist play counts and names."""
-    play_counts: dict[str, int] = {}
+def build_profile(
+    username: str,
+    scrobbles: list[Scrobble],
+    *,
+    now_ts: Optional[int] = None,
+    half_life_days: Optional[float] = None,
+    era_start: Optional[int] = None,
+    era_end: Optional[int] = None,
+) -> ListeningProfile:
+    """Reduce scrobbles into reproducible, optionally time-shaped play weights.
+
+    The inclusive era window is applied first. Recency weighting then uses the
+    newest retained scrobble as its reference unless ``now_ts`` is supplied,
+    avoiding wall-clock-dependent recommendations.
+    """
+    if half_life_days is not None and half_life_days <= 0:
+        raise ValueError("half_life_days must be positive")
+    if era_start is not None and era_end is not None and era_start > era_end:
+        raise ValueError("era_start must be less than or equal to era_end")
+
+    windowed = [
+        s
+        for s in scrobbles
+        if (era_start is None or s.ts >= era_start) and (era_end is None or s.ts <= era_end)
+    ]
+    effective_now = now_ts if now_ts is not None else max((s.ts for s in windowed), default=0)
+    play_counts: dict[str, float] = {}
     artist_names: dict[str, str] = {}
-    for s in scrobbles:
+    for s in windowed:
         key = s.artist_id or s.artist_name
         if not key:
             continue
-        play_counts[key] = play_counts.get(key, 0) + 1
+        weight = 1.0
+        if half_life_days is not None:
+            age_seconds = max(0, effective_now - s.ts)
+            weight = 0.5 ** (age_seconds / (half_life_days * 86400))
+        play_counts[key] = play_counts.get(key, 0.0) + weight
         artist_names.setdefault(key, s.artist_name)
     return ListeningProfile(
         username=username,
@@ -134,7 +162,7 @@ def ingest(
                 name,
                 source,
                 enricher,
-                playcount=profile.play_counts.get(artist_id, 0),
+                playcount=int(profile.play_counts.get(artist_id, 0)),
                 cache=cache,
             )
         except Exception:

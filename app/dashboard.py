@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from export.models import ExportError, ExportFormat
@@ -36,17 +37,48 @@ from export.spotify import (
     parse_redirect,
 )
 from export.tracklist import recommendations_to_tracks, render
-from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_source
+from pipeline.demo import DEMO_USER, demo_catalog, demo_scrobbles, demo_source
+from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
-from pipeline.models import Artist, ListeningProfile, Recommendation
+from pipeline.models import Artist, ListeningProfile, Recommendation, Scrobble
 from recommender.exposure import observability_panel
 from recommender.hybrid import recommend
 from recommender.lens import VALUES_LENS
 from recommender.why import why_this_artist
 
 
-def _load_demo() -> tuple[ListeningProfile, dict[str, Artist], ScrobbleSource]:
-    return demo_profile(), demo_catalog(), demo_source()
+def _load_demo() -> tuple[list[Scrobble], dict[str, Artist], ScrobbleSource]:
+    return demo_scrobbles(), demo_catalog(), demo_source()
+
+
+def _year_range(scrobbles: list[Scrobble]) -> tuple[int, int]:
+    years = [datetime.fromtimestamp(item.ts, tz=timezone.utc).year for item in scrobbles]
+    lo, hi = min(years), max(years)
+    return (lo - 1, hi + 1) if lo == hi else (lo, hi)
+
+
+def _build_temporal_profile(
+    username: str,
+    scrobbles: list[Scrobble],
+    catalog: dict[str, Artist],
+    *,
+    half_life_days: float | None = None,
+    era_start: int | None = None,
+    era_end: int | None = None,
+) -> ListeningProfile:
+    base = build_profile(
+        username,
+        scrobbles,
+        half_life_days=half_life_days,
+        era_start=era_start,
+        era_end=era_end,
+    )
+    return ListeningProfile(
+        username=base.username,
+        play_counts=base.play_counts,
+        artist_names=base.artist_names,
+        tags={aid: catalog[aid].tags for aid in base.play_counts if aid in catalog},
+    )
 
 
 _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
@@ -198,10 +230,40 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             "only; it never reads identity or composition."
         ),
     )
+    st.subheader("Temporal taste profile")
+    half_life = st.slider(
+        "Recency half-life (days; 0 is off)",
+        min_value=0,
+        max_value=730,
+        value=0,
+        step=30,
+        help="At N days, a play from N days ago counts half as much as a recent play.",
+    )
+    scrobbles, catalog, source = _load_demo()
+    lo_year, hi_year = _year_range(scrobbles)
+    use_era = st.checkbox("Limit to an era", value=False)
+    era_start: int | None = None
+    era_end: int | None = None
+    if use_era:
+        year_from, year_to = st.slider(
+            "Era window (years)",
+            min_value=lo_year,
+            max_value=hi_year,
+            value=(lo_year, hi_year),
+        )
+        era_start = int(datetime(year_from, 1, 1, tzinfo=timezone.utc).timestamp())
+        era_end = int(datetime(year_to, 12, 31, 23, 59, 59, tzinfo=timezone.utc).timestamp())
 
     if os.environ.get("WAD_LASTFM_API_KEY") and username != DEMO_USER:
         st.info("Live mode would fetch this user; this demo build uses cached data.")
-    profile, catalog, source = _load_demo()
+    profile = _build_temporal_profile(
+        username,
+        scrobbles,
+        catalog,
+        half_life_days=float(half_life) if half_life else None,
+        era_start=era_start,
+        era_end=era_end,
+    )
     recs = recommend(profile, catalog, source, k=10, lens_strength=lens, explore=explore)
 
     st.subheader("Score summary")

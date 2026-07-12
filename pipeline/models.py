@@ -316,10 +316,16 @@ class Scrobble:
 
 @dataclass(frozen=True)
 class ListeningProfile:
-    """A user's listening history, reduced to per-artist play weights + tags."""
+    """A user's listening history, reduced to per-artist play weights + tags.
+
+    ``play_counts`` holds *weights*, not necessarily integer counts: a plain
+    build is exact play counts (float-valued for type uniformity), but a
+    recency-decayed or era-windowed profile (:func:`pipeline.ingest.build_profile`)
+    accumulates fractional weights into the same field.
+    """
 
     username: str
-    play_counts: dict[str, int]  # artist_id -> total plays
+    play_counts: dict[str, float]  # artist_id -> total play weight
     artist_names: dict[str, str]  # artist_id -> display name
     tags: dict[str, tuple[str, ...]]  # artist_id -> tags
 

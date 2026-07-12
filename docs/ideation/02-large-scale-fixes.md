@@ -138,6 +138,19 @@ eval artifact.
 
 ## FIX-06 — De-circularize the eval
 
+**Status: Done (2026-07-03)** — implemented on
+`roadmap/fix-06-de-circularize-the-eval`. `pipeline/fixtures.py` adds four
+independent synthetic worlds (sparse-tags, popularity-skewed,
+no-collaborative-signal, adversarial-near-misses) alongside the disclosed,
+labelled `demo-tuned-indie` world; `recommender/eval.py::evaluate_worlds`
+aggregates across all of them with the tuning caveat embedded in the report
+(`caveats` key) and per-world effect sizes (`map_delta`/`recall_delta`/`lift`/
+`verdict`), not just a boolean. `make eval` now runs the multi-world
+aggregate; `recommender/eval.py::eval_real` + `wad eval-real` +
+`make eval-real` are the separate, human-gated, local-only real-data leg
+(deliberately excluded from `verify`/`audit`/CI) — not yet exercised against
+real data (still gated on FIX-01's live catalog/enrichment landing first).
+
 **Pitch:** Stop grading the recommender on the fixture that was tuned to make
 it pass.
 

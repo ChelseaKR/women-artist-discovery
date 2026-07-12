@@ -62,9 +62,6 @@ way.
 can answer "what exactly does this lens boost, and why?" without reading code.
 
 ### EXP-04 — Serendipity control with provably identity-blind diversification
-**Status:** ✅ Implemented — `recommender/diversify.py` provides a deterministic,
-tag-only MMR pass; the CLI and dashboard expose the control, and AST plus
-behavioural tests enforce its identity blindness and score preservation.
 **Pitch:** An "explore ↔ exploit" control that diversifies results (MMR-style
 over tag space) while a test proves diversification never reads identity.
 **Impact:** Single-user discovery tools die of staleness; the collaborative
@@ -79,16 +76,6 @@ similarity — with an AST/behavioural guard in the spirit of
 **Excellence bar:** Diversity metric (intra-list tag distance) demonstrably
 rises with the slider; identity-segment exposure (FIX-05) statistically
 unchanged by the diversifier at any setting.
-**Status:** ✅ Implemented (`roadmap/exp-04-serendipity-control-with-identity`
-branch) — `recommender/diversify.py` adds a greedy MMR pass over `Artist.tags`
-only, gated by an `explore ∈ [0, 1]` slider wired through
-`recommender.hybrid.recommend(..., explore=0.0)` (default unchanged, so the
-offline eval baseline is untouched) and surfaced as a second `--explore` flag
-in `pipeline/cli.py` alongside `--lens`. `tests/test_diversify.py` proves the
-identity-blindness with an AST guard (mirroring
-`tests/test_no_inference.py`), a behavioural diversity-rises-with-explore
-check, and a permutation invariant showing scores are never altered — only
-re-ordered.
 
 ### EXP-05 — "Fix it at the source" contribution flow
 **Pitch:** When a label is missing, stale, or wrong, the UI offers a
@@ -106,6 +93,35 @@ user's browser does the editing.
 (local note → Wikidata edit → refresh picks it up with new `retrieved_at`).
 
 ### EXP-06 — Temporal taste profiles
+
+**Status: Done (2026-07-03)** — implemented on
+`roadmap/exp-06-temporal-taste-profiles`. `pipeline/ingest.py::build_profile`
+gained `now_ts`/`half_life_days`/`era_start`/`era_end` keyword params: an era
+window filters scrobbles to an inclusive `[era_start, era_end]` timestamp
+range before counting, and `half_life_days` weights each surviving play by
+`0.5 ** ((now_ts - ts) / (half_life_days * 86400))`, accumulating into
+`ListeningProfile.play_counts` (now typed `dict[str, float]` — a plain build
+still reproduces the exact old integer counts, as floats). `now_ts` defaults
+to the max timestamp in the (era-filtered) scrobbles, never the wall clock,
+so every profile stays reproducible from its inputs alone. `recommender/eval.py`
+threads an optional `half_life_days` through a new `_training_profile` helper
+and `evaluate()` now always returns a third `"hybrid_decay"` variant alongside
+`"hybrid"`/`"popularity"`; `to_report()` adds `decay_map_at_k_delta` and
+`decay_improves_map_at_k` so `eval-report.json` states numerically whether
+decay helped on the held-out window (on the demo world's ~1.6-day scrobble
+span it currently doesn't move map@k — expected, and itself an honest,
+reproducible number). The dashboard (`app/dashboard.py`) adds a "Temporal
+taste profile" section below the lens slider: a 0–730 day recency half-life
+slider (0 = off, today's behavior) and an off-by-default era-window (year
+range) checkbox + slider, both with plain-language help text; the chosen
+params rebuild the profile from cached demo scrobbles
+(`_build_temporal_profile`) before `recommend()` runs. New
+`tests/test_temporal_profile.py` covers the default-equals-old-counts
+snapshot, inclusive era-window filtering, the ~2x-per-half-life ratio and
+recent-outranks-older-at-equal-counts cases, `now_ts`-default determinism,
+era+decay composition, and that the eval's decay variant is present and
+deterministic.
+
 **Pitch:** Recommend against a chosen era of your listening ("my 2019 self"),
 with optional recency-decay weighting for the default profile.
 **Impact:** Full-history ingest (FIX-02) makes decade-scale scrobble data
