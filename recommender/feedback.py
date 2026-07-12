@@ -54,10 +54,16 @@ class Feedback:
     def __post_init__(self) -> None:
         if self.vote not in (1, -1):
             raise ValueError("vote must be +1 or -1")
+        if not self.username.strip() or not self.artist_id.strip():
+            raise ValueError("username and artist_id must be non-empty")
 
 
 def feedback_adjustment(
-    artist: Artist, feedbacks: Iterable[Feedback], strength: float = 1.0
+    artist: Artist,
+    feedbacks: Iterable[Feedback],
+    strength: float = 1.0,
+    *,
+    username: str | None = None,
 ) -> float:
     """A bounded, artist-scoped score delta from accumulated thumbs feedback.
 
@@ -72,7 +78,11 @@ def feedback_adjustment(
     No matching feedback (or a net-zero vote count) returns exactly ``0.0`` —
     feedback is opt-in and never changes an unvoted artist's score.
     """
-    net_votes = sum(f.vote for f in feedbacks if f.artist_id == artist.artist_id)
+    net_votes = sum(
+        item.vote
+        for item in feedbacks
+        if item.artist_id == artist.artist_id and (username is None or item.username == username)
+    )
     if net_votes == 0:
         return 0.0
     clamped_strength = min(1.0, max(0.0, strength))

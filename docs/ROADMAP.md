@@ -1,7 +1,7 @@
 # Women-Artist Discovery — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
-> **Last verified: 2026-05-31 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change.**
+> **Last verified: 2026-07-05 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change, or per standards-conformance remediation pass.**
 
 ## 1. Snapshot
 A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking layer and a sourced-not-inferred identity model. Python pipeline + Streamlit dashboard; local-first. The technical novelty is doing identity-aware recommendation responsibly — never guessing, always citing, treating unknown as normal.
@@ -16,8 +16,8 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Vision.** Discovery that respects both taste and identity, without essentialism.
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
-  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune the lens~~ (shipped — see M6 build log addendum below).
-  - *Could:* acoustic/content features; a "discovery report"; additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune future rankings~~ (implemented 2026-07-11).
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -46,7 +46,7 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **A11y gate** = static render (`app/render.py` → `docs/audits/dashboard.html`) checked by `pa11y --runner axe`, with a dependency-free `app/a11y_check.py` fallback for offline/CI-without-Chromium.
 - **Performance/Lighthouse budgets N/A** for this local-first, single-user data app (no hosted LLM/API route) — recorded as residual risk RR-3.
 - **Security:** `pip-audit` + ruff-bandit (`S`) + secret scan are merge-blocking. Accepted, tracked residual risks: RR-1 (CVE-2025-8869, pip tar extraction — build-tooling only) and RR-4 (a 19-advisory cluster whose fixes all require Python ≥3.10, so none is installable on the 3.9 floor — justified per-ID in `docs/audits/vex.json`, waived byte-identically in `Makefile`/`ci.yml`). See `docs/audits/residual-risk.md`.
-- **Runtime:** Python 3.9 (`mypy --strict`); deps: `requests`, `numpy` (runtime), `streamlit`/`pandas` (app extra). **Flagged next step (RR-4 remediation):** migrate the floor to **Python 3.10+** (3.9 went EOL 2025-10-31) — unblocks the published security fixes for `requests`/`urllib3`/`streamlit`/`pillow`/`pyarrow`/`msgpack`/`filelock`/`pytest`/`pip`, but is a standalone change (re-resolves numpy/pandas/streamlit + moves the ruff/mypy target) to validate on its own, so it is intentionally **out of scope for the dependency-refresh PR**.
+- **Runtime:** supported Python versions are tested in the verification matrix; direct runtime dependency is `requests`, with `streamlit`/`pandas` in the app extra. The unused direct `numpy` dependency was removed under FIX-13.
 
 ### Build log addendum (2026-06-29) — playlist export + "Why this artist"
 - **"Why this artist" centralised** in `recommender/why.py` (`WhyThisArtist`): one render-agnostic explanation — sourced identity statement, hybrid + values-lens reasons, and provenance that shows *the raw value each source asserted* (not just a label), plus an explicit `inferred = False`. The dashboard, the a11y static renderer (`app/render.py`), the CLI, and the export now share this single source of truth, removing the previously-duplicated identity wording (also reused by `recommender/explain.py`).
@@ -54,13 +54,59 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
-### Build log addendum (2026-07-02) — M6 feedback loop (thumbs feedback to tune the lens)
-- **Shipped** the roadmap "Should: thumbs feedback to tune the lens" item. `recommender/feedback.py` adds a `Feedback` dataclass (`username`, `artist_id`, `vote ∈ {+1,-1}`, `ts`) and a pure `feedback_adjustment(artist, feedbacks, strength) -> float`: votes for one artist are summed and squashed through `tanh`, then scaled by `MAX_FEEDBACK` (0.3) — bounded within `[-MAX_FEEDBACK, MAX_FEEDBACK]`, mirroring `rerank.MAX_BOOST`'s bound but signed, since feedback (unlike the values lens) is allowed to lower an artist.
-- **Kept artist-scoped, by construction, to preserve the fairness guarantee.** `feedback_adjustment` only folds in votes whose `artist_id` matches the artist being scored — a thumbs-down on one artist can never lower any other artist, let alone a whole identity class. Identity never appears in `recommender/feedback.py` at all. `tests/test_unknown_first_class.py::test_feedback_does_not_reintroduce_an_identity_penalty` asserts this end-to-end through `recommend()`, alongside the lens's own boost-only contract and the unknown-first-class guarantee, all three holding simultaneously with feedback in the mix.
-- **Composed into `base_score`, not `rerank_delta`.** `recommender/hybrid.recommend()` gained optional `feedbacks`/`feedback_strength` params; the adjustment is added to each candidate's base (taste) score *before* the values lens is applied and the list is re-sorted, so `rerank_delta` stays boost-only and non-negative (its own tested invariant) while feedback can move a score either direction.
-- **Persisted locally**, matching the cache's existing local-first, sourced-lineage posture: `pipeline/cache.py` adds a `feedback` table (`UNIQUE(username, artist_id)`, `ts` + `fetched_at` lineage), a `record_feedback()`/`load_feedback()` pair, and a schema-versioning migration runner (`CACHE_SCHEMA_VERSION` 1 → 2, `PRAGMA user_version`-backed, forward-only) so an older cache file migrates in place and a newer one fails loudly rather than being misread.
-- **CLI:** `wad feedback --artist <id> --up/--down [--user <username>]` records a vote; `wad recommend` / `wad export` now load the demo user's stored feedback and pass it into `recommend()`. Verified live: a thumbs-down on `snail-mail` demoted it from rank 1 to rank 2 behind `boygenius` in the `--lens 0.5` demo ranking, with every other artist's score unchanged.
-- **No new dependencies** (stdlib `math.tanh`, `sqlite3` already present).
+### Build log addendum (2026-07-03) — scale the scoring path (FIX-13)
+- **numpy dropped, not adopted.** It was declared but never imported; the tag scorer uses sparse dictionary operations, so a dense-array dependency increased the runtime and audit surface without helping this workload. The app extra may still bring it transitively through pandas.
+- **`make bench` / `scripts/bench.py`** adds a seeded synthetic benchmark with 200 known artists, 5,000 candidates, and 50,000 scrobbles. It reports p50/p95 for collaborative, content, and end-to-end scoring without changing production randomness or ranking behavior.
+- **Measured p95 was approximately 140 ms** end-to-end on the implementation machine, below the two-second target. Content scoring was the largest component, but the evidence did not justify candidate pruning or a more complex representation.
+
+### Build log addendum (2026-07-11) — per-artist thumbs feedback
+- Added local, per-listener thumbs votes in cache schema v4, exposed in the dashboard and `wad feedback`. A re-vote replaces the current opinion for that listener/artist pair.
+- Feedback is a bounded adjustment to the taste-side base score. It is keyed only by listener and artist ID, never identity, so the values lens remains independently boost-only and its rank-shift counterfactual remains inspectable.
+
+### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
+- **Done.** The "core network confined to `lastfm.py`" privacy guarantee was
+  only ever a source scan over `pipeline`/`recommender`, so it missed the
+  `app/` and `export/` packages added by the playlist-export work above, and
+  it couldn't catch indirect/transitive network calls at all. Closed with two
+  enforcement gates, documented as the single source of truth in
+  `docs/audits/privacy-notes.md` ("Egress registry / allowlist"):
+  1. **Source scan (gate 1)** — `tests/test_privacy.py::_core_files` now also
+     walks `app/` and `export/`; `NETWORK_TOKENS` grew to cover indirect
+     egress (`httpx`, `urllib3`, `aiohttp`, `webbrowser`); `NETWORK_ALLOWED`
+     now names the exact `pipeline/lastfm.py` and `export/spotify.py` paths,
+     matching `RequestsTransport`'s documented allowlist.
+  2. **Runtime socket guard (gate 2)** — an autouse `_no_network` fixture in
+     `tests/conftest.py` patches connection and datagram socket paths to raise
+     for every test, proving the suite is
+     offline by construction rather than by convention.
+- **Verified:** `make test` is green (149 passed, 96% coverage on the gated
+  `pipeline`+`recommender` scope, well above the 85% floor); a deliberately
+  added `import requests` in `app/dashboard.py` was confirmed to fail the
+  source-scan gate, then reverted.
+
+### Build log addendum (2026-07-03) — EXP-02: rank-shift transparency — done
+- Every recommendation records its pure-taste `base_rank` before the values
+  lens is applied. Every shared why-card surface states whether the lens moved
+  the pick and, if so, from which rank to which rank. Unknown-identity picks
+  are test-asserted never to improve from a boost they did not receive.
+
+### Build log addendum (2026-07-03) — EXP-11: shareable static discovery report
+- `wad report` writes a self-contained HTML file with the same renderer and
+  accessibility gate as the committed dashboard artifact. `--k`, `--lens`,
+  and `--out` make it a user feature without adding a second rendering path.
+
+### Build log addendum (2026-07-05) — standards-conformance remediation
+Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
+control-by-control status). Highlights: README now carries a real Standards Conformance table
+(replacing silent "Inherits /STANDARDS"); the phantom "0.1.x release" claim in SECURITY.md/
+CITATION.cff corrected to an honest "unreleased pre-1.0" stance (`CHANGELOG.md` added); CI now
+installs via `uv sync --frozen` against `uv.lock` instead of pip-from-floors (the lockfile is
+finally what CI actually runs on); build backend moved setuptools → hatchling (closes CQ-10) with
+a prepared (not-yet-triggered) tag-release workflow; CODEOWNERS + a target branch-ruleset artifact
+committed (live application is a manual, human-authorized step — see the remediation log);
+CodeQL/zizmor/osv-scanner/Scorecard workflows added. Nothing in the identity/fairness safety core
+(`pipeline/identity.py`, `recommender/rerank.py`, `tests/test_no_inference.py`,
+`tests/test_unknown_first_class.py`) was touched.
 
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
@@ -73,6 +119,11 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 | axe violations (dashboard) | 0 | pa11y-ci | merge-blocking |
 | External API rate-limit compliance | within limits, cached | integration test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
+| Release stage | unreleased pre-1.0 (declared, not silent) | `SECURITY.md`, `CHANGELOG.md` | review-gated |
+| Observability tier | Tier C (declared) | README `## Observability` | review-gated |
+| AI-evaluation status | narrow-applies (declared); eval-beats-baseline active | `docs/RESPONSIBLE-TECH-AUDITS.md`, `make eval` | merge-blocking (eval half) |
+
+**DORA note.** The git history was reset 2026-06-29 (see `audit-2026-07-05/women-artist-discovery-AUDIT.md` §3), so deployment-frequency/lead-time/change-failure-rate/MTTR cannot be measured before that date — pre-reset delivery evidence no longer exists in this clone. Measurement restarts from 2026-06-29: 8 commits landed 2026-06-29→2026-07-02 (dependency/security/docs remediation), then this standards-conformance pass on 2026-07-05. No production deploys or incidents exist yet (pre-release, personal project), so change-failure-rate/MTTR are not yet meaningful; commit cadence is the only DORA-adjacent signal available today. Revisit once releases exist.
 
 **Testing.** Unit (identity resolver refuses inference; re-rank math; unknown handling), integration (Last.fm/MusicBrainz/Discogs/Wikidata adapters with cached fixtures), eval (offline recommender quality vs popularity baseline), a11y.
 
@@ -90,7 +141,7 @@ docs/
 - **M3 — Recommender.** Collaborative + content hybrid. *Done when held-out eval beats a popularity baseline.*
 - **M4 — Values-aware re-rank.** Sourced identity weighting; unknown never penalized. *Done when re-rank tests pass and unknown artists still surface.*
 - **M5 — Dashboard + explanations.** Streamlit UI with why-cards + sources; a11y. *Done when every rec shows why + basis + source and axe = 0.*
-- **M6 — Polish.** Feedback loop (shipped — thumbs feedback to tune the lens, see build log addendum 2026-07-02), export (shipped), discovery report. *Done when all §7 gates pass.*
+- **M6 — Polish.** Feedback loop, export, discovery report. *Done when all §7 gates pass.*
 - **Claude Code approach.** Write the no-inference guardrail test *first*; identity defaults to unknown everywhere; never let a missing label change a score.
 
 ## 9. Go-to-market & community

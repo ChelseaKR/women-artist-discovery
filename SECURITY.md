@@ -8,15 +8,20 @@ both a conventional software vulnerability *and* an identity-handling defect are
 
 ## Supported versions
 
-This is a pre-1.0 project, so only the latest minor on the latest major receives security fixes;
-fixes ship forward in a new patch release (no re-publish of a version).
+**Release stance (2026-07-05): unreleased pre-1.0 development line.** `pyproject.toml` carries
+version `0.1.0` as the in-development source version, but **no git tag and no GitHub release exist
+yet** — there is no "0.1.x release line" to support. Until the first tag is cut, only `main` is
+supported and security fixes land as new commits.
 
-| Version | Supported | Notes                                                      |
-|---------|-----------|------------------------------------------------------------|
-| 0.1.x   | ✅ Yes    | Current release line; receives security patches.           |
-| < 0.1.0 | ❌ No     | Pre-release / unreleased; upgrade to 0.1.x.                |
+| Version         | Supported | Notes                                                                 |
+|------------------|-----------|------------------------------------------------------------------------|
+| `main` (unreleased) | ✅ Yes | Only supported line today; no tagged release exists.                    |
+| any `0.1.x` tag  | N/A       | Not applicable yet — will apply once `v0.1.0` is tagged (see CHANGELOG.md). |
 
-When a `0.2.0` ships, `0.1.x` security support ends and this table is updated in the same release.
+Once a `v0.1.0` tag is cut, this repo intends the usual pre-1.0 policy: only the latest minor on
+the latest major receives security fixes, shipped forward in a new patch (no re-publish of a
+version); this table will be updated in the same release. See `CHANGELOG.md` for what would go
+into that first release and `CITATION.cff` for the citation stance in the meantime.
 
 ## Reporting a vulnerability
 

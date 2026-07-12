@@ -48,6 +48,25 @@ def test_scrobbles_round_trip_ordered(mem_cache) -> None:
     assert [s.ts for s in loaded] == [100, 200]  # ordered by ts
 
 
+def test_last_synced_ts_is_zero_for_unknown_user(mem_cache) -> None:
+    """No history yet -> the since-cursor for a full first sync (FIX-02)."""
+    assert mem_cache.last_synced_ts("nobody") == 0
+
+
+def test_last_synced_ts_tracks_the_newest_scrobble(mem_cache) -> None:
+    mem_cache.put_scrobbles(
+        "user",
+        [
+            Scrobble("a", "A", "t1", 100),
+            Scrobble("a", "A", "t2", 300),
+            Scrobble("a", "A", "t3", 200),
+        ],
+    )
+    assert mem_cache.last_synced_ts("user") == 300
+    # unrelated users don't share a watermark
+    assert mem_cache.last_synced_ts("someone-else") == 0
+
+
 def test_http_cache_roundtrip(mem_cache) -> None:
     assert mem_cache.get_cached_response("u://1") is None
     mem_cache.put_cached_response("u://1", "body", "2026-05-31")

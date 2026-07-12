@@ -1,0 +1,28 @@
+name: trufflehog
+
+# SEC-19: a scheduled, full-history verified-credentials scan. Complements the
+# per-push gitleaks-action layer in ci.yml/release.yml, which only ever sees the
+# current diff — this walks the entire repo history on a cadence, independent
+# of any single push.
+
+on:
+  schedule:
+    - cron: "47 6 * * 1" # weekly, Monday
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # full history — this is the point of a scheduled scan
+
+      - name: TruffleHog full-history scan (verified secrets only)
+        uses: trufflesecurity/trufflehog@00155c9dc586f34d189adc83d3ac2698c2ec551f # v3.95.8
+        with:
+          extra_args: --results=verified --fail

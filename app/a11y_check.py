@@ -33,36 +33,63 @@ class _A11yParser(HTMLParser):
         self._a_text = ""
 
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
+        # Split per-tag to keep cyclomatic complexity low (ruff C90); each helper
+        # owns exactly one tag's bookkeeping.
         attrs = dict(attrs_list)
-        if tag == "html" and attrs.get("lang"):
-            self.html_lang = True
-        if tag == "meta" and attrs.get("name") == "viewport":
-            self.has_viewport = True
-        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            level = int(tag[1])
-            self.heading_levels.append(level)
-            if level == 1:
-                self.h1_count += 1
         if tag == "main" or attrs.get("role") == "main":
             self.has_main = True
-        if tag == "a":
-            href = attrs.get("href") or ""
-            if href.startswith("#") and ("skip" in (attrs.get("class") or "")):
-                self.has_skip = True
-            self._open_a = True
-            self._a_text = ""
-            if not href.strip():
-                self.violations.append("anchor with empty href")
-        if tag == "img" and not attrs.get("alt") and attrs.get("alt") != "":
+        handler = {
+            "html": self._start_html,
+            "meta": self._start_meta,
+            "a": self._start_a,
+            "img": self._start_img,
+            "table": self._start_table,
+            "caption": self._start_caption,
+            "th": self._start_th,
+        }.get(tag)
+        if handler is not None:
+            handler(attrs)
+        elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            self._start_heading(tag)
+
+    def _start_html(self, attrs: dict[str, str | None]) -> None:
+        if attrs.get("lang"):
+            self.html_lang = True
+
+    def _start_meta(self, attrs: dict[str, str | None]) -> None:
+        if attrs.get("name") == "viewport":
+            self.has_viewport = True
+
+    def _start_heading(self, tag: str) -> None:
+        level = int(tag[1])
+        self.heading_levels.append(level)
+        if level == 1:
+            self.h1_count += 1
+
+    def _start_a(self, attrs: dict[str, str | None]) -> None:
+        href = attrs.get("href") or ""
+        if href.startswith("#") and ("skip" in (attrs.get("class") or "")):
+            self.has_skip = True
+        self._open_a = True
+        self._a_text = ""
+        if not href.strip():
+            self.violations.append("anchor with empty href")
+
+    def _start_img(self, attrs: dict[str, str | None]) -> None:
+        if not attrs.get("alt") and attrs.get("alt") != "":
             self.violations.append("img without alt attribute")
-        if tag == "table":
-            self._in_table = True
-            self._tables += 1
-            self._table_has_caption = False
-        if tag == "caption":
-            self._captions += 1
-            self._table_has_caption = True
-        if tag == "th" and not attrs.get("scope"):
+
+    def _start_table(self, _attrs: dict[str, str | None]) -> None:
+        self._in_table = True
+        self._tables += 1
+        self._table_has_caption = False
+
+    def _start_caption(self, _attrs: dict[str, str | None]) -> None:
+        self._captions += 1
+        self._table_has_caption = True
+
+    def _start_th(self, attrs: dict[str, str | None]) -> None:
+        if not attrs.get("scope"):
             self.violations.append("th without scope attribute")
 
     def handle_endtag(self, tag: str) -> None:

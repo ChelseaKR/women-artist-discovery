@@ -94,6 +94,13 @@ def test_vote_must_be_plus_or_minus_one() -> None:
         Feedback(username="u", artist_id="a", vote=0, ts=1)
 
 
+def test_feedback_can_be_scoped_to_one_listener() -> None:
+    artist = make_artist("a")
+    votes = [_vote("a", 1, username="alice"), _vote("a", -1, username="bob")]
+    assert feedback_adjustment(artist, votes, username="alice") > 0
+    assert feedback_adjustment(artist, votes, username="bob") < 0
+
+
 def test_feedback_is_artist_scoped_not_identity_scoped() -> None:
     """Thumbs-down on one woman artist must not touch another woman artist.
 
