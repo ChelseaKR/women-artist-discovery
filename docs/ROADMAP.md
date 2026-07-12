@@ -17,7 +17,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
   - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
-  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done — `wad report`, see build log); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -54,8 +54,37 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
 
-### Build log addendum (2026-07-03) — shareable static discovery report (EXP-11)
-- **`wad report`** (`pipeline/cli.py`) realises the roadmap "Could: discovery report" item: it runs the same demo `recommend()` call as `wad recommend`/`wad export` and writes the result with `app.render.render_cards_html` — the identical renderer `app/build_static.py` uses to produce the a11y-gate artifact — to a self-contained HTML file (`--out`, default `my-discoveries.html`). No new rendering path, so the report inherits the same axe/`app.a11y_check` guarantees (semantic landmarks, data-table score equivalent, identity conveyed as text) with zero extra audit surface. `--k` and `--lens` mirror `wad export`'s flags.
+### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
+- **Done.** The "core network confined to `lastfm.py`" privacy guarantee was
+  only ever a source scan over `pipeline`/`recommender`, so it missed the
+  `app/` and `export/` packages added by the playlist-export work above, and
+  it couldn't catch indirect/transitive network calls at all. Closed with two
+  enforcement gates, documented as the single source of truth in
+  `docs/audits/privacy-notes.md` ("Egress registry / allowlist"):
+  1. **Source scan (gate 1)** — `tests/test_privacy.py::_core_files` now also
+     walks `app/` and `export/`; `NETWORK_TOKENS` grew to cover indirect
+     egress (`httpx`, `urllib3`, `aiohttp`, `webbrowser`); `NETWORK_ALLOWED`
+     now names the exact `pipeline/lastfm.py` and `export/spotify.py` paths,
+     matching `RequestsTransport`'s documented allowlist.
+  2. **Runtime socket guard (gate 2)** — an autouse `_no_network` fixture in
+     `tests/conftest.py` patches connection and datagram socket paths to raise
+     for every test, proving the suite is
+     offline by construction rather than by convention.
+- **Verified:** `make test` is green (149 passed, 96% coverage on the gated
+  `pipeline`+`recommender` scope, well above the 85% floor); a deliberately
+  added `import requests` in `app/dashboard.py` was confirmed to fail the
+  source-scan gate, then reverted.
+
+### Build log addendum (2026-07-03) — EXP-02: rank-shift transparency — done
+- Every recommendation records its pure-taste `base_rank` before the values
+  lens is applied. Every shared why-card surface states whether the lens moved
+  the pick and, if so, from which rank to which rank. Unknown-identity picks
+  are test-asserted never to improve from a boost they did not receive.
+
+### Build log addendum (2026-07-03) — EXP-11: shareable static discovery report
+- `wad report` writes a self-contained HTML file with the same renderer and
+  accessibility gate as the committed dashboard artifact. `--k`, `--lens`,
+  and `--out` make it a user feature without adding a second rendering path.
 
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the
