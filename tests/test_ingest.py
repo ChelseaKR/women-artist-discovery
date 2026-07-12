@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from pipeline.cache import Cache
 from pipeline.enrich import FixtureEnricher
 from pipeline.identity import IdentityEvidence
@@ -13,8 +15,8 @@ from pipeline.ingest import (
     ingest,
     refresh_catalog,
 )
-from pipeline.lastfm import FixtureLastfm
-from pipeline.models import Gender, SourceKind
+from pipeline.lastfm import FixtureLastfm, LastfmClient
+from pipeline.models import Gender, Scrobble, SourceKind
 
 
 def test_build_profile_counts_plays(scrobbles, demo_user) -> None:
@@ -157,3 +159,75 @@ def test_cache_list_artist_ids_reflects_puts() -> None:
         assert cache.list_artist_ids() == ["mitski"]
     finally:
         cache.close()
+
+
+class _RecordingFixtureLastfm(FixtureLastfm):
+    def __init__(self, history: list[Scrobble], username: str) -> None:
+        super().__init__(scrobbles={username: history}, tags={}, similar={})
+        self.since_calls: list[int] = []
+
+    def scrobbles_since(
+        self, username: str, since_ts: int = 0, page_size: int = 200
+    ) -> list[Scrobble]:
+        self.since_calls.append(since_ts)
+        return super().scrobbles_since(username, since_ts=since_ts, page_size=page_size)
+
+
+def _history(count: int, start: int = 1_000_000) -> list[Scrobble]:
+    return [Scrobble("mitski", "Mitski", f"track-{i}", start + i) for i in range(count)]
+
+
+def test_incremental_first_sync_loads_full_history(demo_user, enricher) -> None:
+    history = _history(450)
+    source = FixtureLastfm(scrobbles={demo_user: history}, tags={}, similar={})
+    with Cache(":memory:") as cache:
+        profile, _ = ingest(demo_user, source, enricher, cache=cache, limit=50)
+        assert profile.play_counts["mitski"] == 450
+        assert cache.last_synced_ts(demo_user) == history[-1].ts
+
+
+def test_incremental_second_sync_uses_watermark(demo_user, enricher) -> None:
+    first = _history(300)
+    source = _RecordingFixtureLastfm(first, demo_user)
+    with Cache(":memory:") as cache:
+        ingest(demo_user, source, enricher, cache=cache, limit=100)
+        watermark = cache.last_synced_ts(demo_user)
+        source._scrobbles[demo_user] = first + _history(20, watermark + 1000)
+        profile, _ = ingest(demo_user, source, enricher, cache=cache, limit=100)
+        assert source.since_calls == [0, watermark]
+        assert profile.play_counts["mitski"] == 320
+
+
+def test_incremental_repeated_sync_is_idempotent(demo_user, enricher) -> None:
+    source = FixtureLastfm(scrobbles={demo_user: _history(120)}, tags={}, similar={})
+    with Cache(":memory:") as cache:
+        first, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
+        second, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
+        assert second.play_counts == first.play_counts
+        assert len(cache.get_scrobbles(demo_user)) == 120
+
+
+class _PagedLastfmClient(LastfmClient):
+    def __init__(self) -> None:
+        self.pages: list[int] = []
+
+    def _get(self, params: dict[str, str]) -> str:
+        page = int(params["page"])
+        self.pages.append(page)
+        timestamps = [101, 100] if page == 1 else [103, 102]
+        tracks = [
+            {
+                "artist": {"#text": "Mitski", "mbid": "mitski"},
+                "name": f"track-{ts}",
+                "date": {"uts": str(ts)},
+            }
+            for ts in timestamps
+        ]
+        return json.dumps({"recenttracks": {"track": tracks, "@attr": {"totalPages": "2"}}})
+
+
+def test_live_client_drains_pages_and_filters_watermark() -> None:
+    client = _PagedLastfmClient()
+    result = client.scrobbles_since("listener", since_ts=100, page_size=2)
+    assert client.pages == [1, 2]
+    assert [scrobble.ts for scrobble in result] == [101, 102, 103]

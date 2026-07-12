@@ -38,10 +38,15 @@ produces real recommendations.
   zero network calls (cache hit rate reported); privacy tests updated in the
   same commit; no coverage drop on core logic.
 
-## FIX-02 — Paginated, incremental scrobble ingest
+## FIX-02 — Paginated, incremental scrobble ingest — **Done**
 
 **Pitch:** Ingest full listening histories, resumably, instead of one page of
 200 recent tracks.
+
+> `ScrobbleSource.scrobbles_since` now drains paginated history from a stored
+> timestamp watermark. Cached ingest requests only new plays, deduplicates
+> them, and rebuilds the profile from full stored history; repeated syncs are
+> idempotent and test-covered.
 
 - **Why it matters:** Real scrobble histories run 10⁴–10⁵ plays.
   `LastfmClient.recent_scrobbles` makes one call; the recommender's ground
