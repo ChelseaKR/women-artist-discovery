@@ -16,8 +16,8 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 - **Vision.** Discovery that respects both taste and identity, without essentialism.
 - **Scope (MoSCoW).**
   - *Must:* Last.fm ingest; enrichment (MusicBrainz/Wikidata/Discogs); hybrid recommender; values-aware re-rank; sourced identity model with unknown-first-class; per-recommendation explanation; dashboard.
-  - *Should:* ListenBrainz collaborative signal; playlist/export; thumbs feedback to tune the lens.
-  - *Could:* acoustic/content features; a "discovery report"; additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
+  - *Should:* ListenBrainz collaborative signal; playlist/export; ~~thumbs feedback to tune future rankings~~ (implemented 2026-07-11).
+  - *Could:* acoustic/content features; ~~a "discovery report"~~ (done: `wad report`); additional sourced value lenses (e.g., local/indie, BIPOC artists — same sourced approach).
   - *Won't (v1):* inferring identity from any signal; redistributing an identity dataset; cross-user/social features.
 - **Non-goals.** Not a gender database product; not identity-blind; not a guessing engine.
 
@@ -46,13 +46,54 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **A11y gate** = static render (`app/render.py` → `docs/audits/dashboard.html`) checked by `pa11y --runner axe`, with a dependency-free `app/a11y_check.py` fallback for offline/CI-without-Chromium.
 - **Performance/Lighthouse budgets N/A** for this local-first, single-user data app (no hosted LLM/API route) — recorded as residual risk RR-3.
 - **Security:** `pip-audit` + ruff-bandit (`S`) + secret scan are merge-blocking. Accepted, tracked residual risks: RR-1 (CVE-2025-8869, pip tar extraction — build-tooling only) and RR-4 (a 19-advisory cluster whose fixes all require Python ≥3.10, so none is installable on the 3.9 floor — justified per-ID in `docs/audits/vex.json`, waived byte-identically in `Makefile`/`ci.yml`). See `docs/audits/residual-risk.md`.
-- **Runtime:** Python 3.9 (`mypy --strict`); deps: `requests`, `numpy` (runtime), `streamlit`/`pandas` (app extra). **Flagged next step (RR-4 remediation):** migrate the floor to **Python 3.10+** (3.9 went EOL 2025-10-31) — unblocks the published security fixes for `requests`/`urllib3`/`streamlit`/`pillow`/`pyarrow`/`msgpack`/`filelock`/`pytest`/`pip`, but is a standalone change (re-resolves numpy/pandas/streamlit + moves the ruff/mypy target) to validate on its own, so it is intentionally **out of scope for the dependency-refresh PR**.
+- **Runtime:** supported Python versions are tested in the verification matrix; direct runtime dependency is `requests`, with `streamlit`/`pandas` in the app extra. The unused direct `numpy` dependency was removed under FIX-13.
 
 ### Build log addendum (2026-06-29) — playlist export + "Why this artist"
 - **"Why this artist" centralised** in `recommender/why.py` (`WhyThisArtist`): one render-agnostic explanation — sourced identity statement, hybrid + values-lens reasons, and provenance that shows *the raw value each source asserted* (not just a label), plus an explicit `inferred = False`. The dashboard, the a11y static renderer (`app/render.py`), the CLI, and the export now share this single source of truth, removing the previously-duplicated identity wording (also reused by `recommender/explain.py`).
 - **Playlist export** as a new top-level `export/` package — deliberately *outside* `pipeline`/`recommender` so the privacy test's "core network confined to `lastfm.py`" guarantee still holds and the export egress is a separate, opt-in boundary. Credential-free fallbacks (plain text / CSV / M3U / JSPF, `export/tracklist.py`) need no account; live Spotify (`export/spotify.py`) uses the Authorization Code OAuth flow with an injectable `HttpTransport` (fake in tests, `requests` only in `RequestsTransport`), credentials from env only. `wad export` CLI + dashboard download buttons + a Spotify connect panel. New egress documented in `docs/audits/privacy-notes.md`.
 - **No new dependencies** (stdlib `base64`/`csv`/`json`/`secrets`/`urllib`; `requests` already present). Realised the roadmap "Should: playlist/export" item.
 - **Needs real creds to run live:** a Spotify app + a browser OAuth consent; only `RequestsTransport` is uncovered (live network), exactly like `LastfmClient`.
+
+### Build log addendum (2026-07-03) — scale the scoring path (FIX-13)
+- **numpy dropped, not adopted.** It was declared but never imported; the tag scorer uses sparse dictionary operations, so a dense-array dependency increased the runtime and audit surface without helping this workload. The app extra may still bring it transitively through pandas.
+- **`make bench` / `scripts/bench.py`** adds a seeded synthetic benchmark with 200 known artists, 5,000 candidates, and 50,000 scrobbles. It reports p50/p95 for collaborative, content, and end-to-end scoring without changing production randomness or ranking behavior.
+- **Measured p95 was approximately 140 ms** end-to-end on the implementation machine, below the two-second target. Content scoring was the largest component, but the evidence did not justify candidate pruning or a more complex representation.
+
+### Build log addendum (2026-07-11) — per-artist thumbs feedback
+- Added local, per-listener thumbs votes in cache schema v4, exposed in the dashboard and `wad feedback`. A re-vote replaces the current opinion for that listener/artist pair.
+- Feedback is a bounded adjustment to the taste-side base score. It is keyed only by listener and artist ID, never identity, so the values lens remains independently boost-only and its rank-shift counterfactual remains inspectable.
+
+### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
+- **Done.** The "core network confined to `lastfm.py`" privacy guarantee was
+  only ever a source scan over `pipeline`/`recommender`, so it missed the
+  `app/` and `export/` packages added by the playlist-export work above, and
+  it couldn't catch indirect/transitive network calls at all. Closed with two
+  enforcement gates, documented as the single source of truth in
+  `docs/audits/privacy-notes.md` ("Egress registry / allowlist"):
+  1. **Source scan (gate 1)** — `tests/test_privacy.py::_core_files` now also
+     walks `app/` and `export/`; `NETWORK_TOKENS` grew to cover indirect
+     egress (`httpx`, `urllib3`, `aiohttp`, `webbrowser`); `NETWORK_ALLOWED`
+     now names the exact `pipeline/lastfm.py` and `export/spotify.py` paths,
+     matching `RequestsTransport`'s documented allowlist.
+  2. **Runtime socket guard (gate 2)** — an autouse `_no_network` fixture in
+     `tests/conftest.py` patches connection and datagram socket paths to raise
+     for every test, proving the suite is
+     offline by construction rather than by convention.
+- **Verified:** `make test` is green (149 passed, 96% coverage on the gated
+  `pipeline`+`recommender` scope, well above the 85% floor); a deliberately
+  added `import requests` in `app/dashboard.py` was confirmed to fail the
+  source-scan gate, then reverted.
+
+### Build log addendum (2026-07-03) — EXP-02: rank-shift transparency — done
+- Every recommendation records its pure-taste `base_rank` before the values
+  lens is applied. Every shared why-card surface states whether the lens moved
+  the pick and, if so, from which rank to which rank. Unknown-identity picks
+  are test-asserted never to improve from a boost they did not receive.
+
+### Build log addendum (2026-07-03) — EXP-11: shareable static discovery report
+- `wad report` writes a self-contained HTML file with the same renderer and
+  accessibility gate as the committed dashboard artifact. `--k`, `--lens`,
+  and `--out` make it a user feature without adding a second rendering path.
 
 ### Build log addendum (2026-07-05) — standards-conformance remediation
 Executed `audit-2026-07-05/women-artist-discovery-REMEDIATION.md` (see that file for the

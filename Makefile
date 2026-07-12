@@ -5,9 +5,18 @@
 PYTHON ?= .venv/bin/python
 UV     ?= uv
 A11Y_HTML := docs/audits/dashboard.html
+# Scheme-pinned renders (gate inputs only, not committed artifacts): auditing a
+# light-pinned AND a dark-pinned render makes the a11y gate scheme-complete on
+# any machine — a Dark-Mode Mac and light-mode CI check the same two palettes.
+A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
+A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval i18n audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n bench audit clean
+
+# eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
+EVAL_REAL_USER ?=
+EVAL_REAL_DB ?=
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -53,8 +62,12 @@ lint: ## Stage 1 — format check + lint (ruff, incl. bandit SAST subset)
 typecheck: ## Stage 2 — strict static typing (mypy --strict)
 	$(PYTHON) -m mypy
 
-test: ## Stage 3 — unit + integration tests with coverage gate (>=85%)
+test: ## Stage 3 — unit + integration tests with coverage gates (>=85%; identity resolver >=95%)
 	$(PYTHON) -m pytest
+	# Per-module floor (CODE-QUALITY-STANDARD, safety-critical paths): the identity
+	# resolver must hold >=95% branch coverage, above the 85% baseline. Scoped
+	# re-report over the .coverage data the pytest run just wrote.
+	$(PYTHON) -m coverage report --include="pipeline/identity.py" --fail-under=95
 
 # Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
 # HIGH/CRITICAL waiver — committed, justified waiver JSON").
@@ -72,28 +85,51 @@ AUDIT_IGNORES :=
 
 security: ## Stage 4 — dependency vulnerability + secret scan
 	# Audit installed deps; the waiver list is empty (see docs/audits/residual-risk.md).
+	# --skip-editable: pip-audit errors on the editable-installed project itself
+	# (no PyPI dist to resolve for a local `pip install -e .`); we only care about
+	# third-party deps here, so skip auditing the local editable install.
 	$(PYTHON) -m pip_audit --skip-editable $(AUDIT_IGNORES)
 	@./scripts/secret-scan.sh
 
-a11y: ## Stage 5 — render the dashboard and run the a11y gate (0 violations)
+a11y: ## Stage 5 — render the dashboard (auto + pinned light/dark) and run the a11y gate (0 violations in BOTH schemes)
 	$(PYTHON) -m app.build_static
+	$(PYTHON) -m app.build_static --scheme light --out $(A11Y_HTML_LIGHT)
+	$(PYTHON) -m app.build_static --scheme dark --out $(A11Y_HTML_DARK)
 	@if command -v pa11y >/dev/null 2>&1; then \
-		echo "running pa11y (axe runtime)"; \
+		echo "running pa11y (axe runtime) over auto + light-pinned + dark-pinned renders"; \
 		printf '%s\n' '{"chromeLaunchConfig":{"args":["--no-sandbox"]}}' > /tmp/pa11y-ci.json; \
-		pa11y --runner axe --config /tmp/pa11y-ci.json $(A11Y_HTML); \
+		for f in $(A11Y_HTML) $(A11Y_HTML_LIGHT) $(A11Y_HTML_DARK); do \
+			echo "pa11y: $$f"; \
+			pa11y --runner axe --config /tmp/pa11y-ci.json $$f || exit 1; \
+		done; \
 	else \
 		echo "pa11y not installed — using built-in static a11y checker"; \
-		$(PYTHON) -m app.a11y_check $(A11Y_HTML); \
+		for f in $(A11Y_HTML) $(A11Y_HTML_LIGHT) $(A11Y_HTML_DARK); do \
+			$(PYTHON) -m app.a11y_check $$f || exit 1; \
+		done; \
 	fi
 
-eval: ## Stage 7 — offline eval; fails unless the hybrid beats the baseline
+eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baseline on aggregate (FIX-06)
 	$(PYTHON) -m pipeline.cli eval --k 5 --out docs/audits/eval-report.json
+
+# NOT part of verify/audit, and must NEVER run in CI (FIX-06's human-gated
+# real-data leg — see recommender/eval.py::eval_real). Run locally only, on
+# your own cache DB, e.g.:
+#   make eval-real EVAL_REAL_USER=yourname EVAL_REAL_DB=data/cache.db
+eval-real: ## LOCAL-ONLY — real-data eval leg against your own cached scrobbles; never CI
+	@test -n "$(EVAL_REAL_USER)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
+	@test -n "$(EVAL_REAL_DB)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
+	$(PYTHON) -m pipeline.cli eval-real --user "$(EVAL_REAL_USER)" --scrobbles "$(EVAL_REAL_DB)"
 
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh
 
+bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble world
+	$(PYTHON) scripts/bench.py
+
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
+	@$(PYTHON) scripts/writeup-check.py
 	@echo "✓ audit artifacts regenerated under docs/audits/"
 
 clean: ## Remove caches and generated local data
