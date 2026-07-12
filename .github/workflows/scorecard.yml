@@ -1,11 +1,13 @@
 name: scorecard
 
-# SEC-36/37/38, CICD-03/21: OpenSSF Scorecard — publishes results to the
-# repository's code-scanning tab and (once branch-protection is applied live,
-# see docs/audits/branch-ruleset.json) can be made a required check.
+# SEC-36/37/38, CICD-03/21: OpenSSF Scorecard — retains a private artifact for
+# review. Public-result publishing and private-repo code-scanning upload are
+# deliberately disabled.
 
 on:
   workflow_dispatch: {}
+  schedule:
+    - cron: '23 5 15 * *' # monthly — re-armed 2026-07-11 (metrics plan Phase 0.2)
 
 permissions:
   contents: read
@@ -20,7 +22,10 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      id-token: write  # publish results to the OpenSSF Scorecard public dataset
+      # Scorecard's private-repo GraphQL checks require these read scopes.
+      issues: read
+      pull-requests: read
+      checks: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -31,9 +36,11 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false  # private repo — do not publish to the public dataset
 
       - name: Upload SARIF results
+        # No GHAS code scanning on a private repo — no-op unless the repo goes public.
+        if: ${{ !github.event.repository.private }}
         uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a  # v4.36.3
         with:
           sarif_file: results.sarif
