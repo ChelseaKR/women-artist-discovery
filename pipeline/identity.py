@@ -96,6 +96,10 @@ class IdentityEvidence:
     value: str
     citation: str
     retrieved_at: str
+    #: True for a locally-entered correction (FIX-10 corrections ledger),
+    #: threaded through to :class:`~pipeline.models.Source` so it can be
+    #: surfaced distinctly ("local correction") in provenance displays.
+    is_local_correction: bool = False
 
     def as_source(self) -> Source:
         return Source(
@@ -103,6 +107,7 @@ class IdentityEvidence:
             citation=self.citation,
             retrieved_at=self.retrieved_at,
             detail=self.value,
+            is_local_correction=self.is_local_correction,
         )
 
 
@@ -155,6 +160,11 @@ def resolve_identity(evidence: Sequence[IdentityEvidence]) -> IdentityLabel:
         basis=IdentityBasis.SELF_IDENTIFIED,
         sources=sources,
         confidence=confidence,
+        # Disagreement is surfaced, never hidden (FIX-10): when permitted
+        # sources don't agree, the full set of disagreeing claims travels with
+        # the label alongside the highest-priority `chosen_gender` above.
+        conflict=not agreement,
+        conflicting_claims=sources if not agreement else (),
     )
 
 
