@@ -6,6 +6,13 @@ name: zizmor
 
 on:
   workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
 
 permissions:
   contents: read
@@ -19,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -34,3 +40,7 @@ jobs:
           # worth a whole package-lock.json for. Blocks on medium+ so a *new*
           # issue still fails the check.
           min-severity: medium
+          # This private repo has no GHAS code-scanning upload. Preserve the
+          # real exit-code gate and surface findings as workflow annotations.
+          advanced-security: false
+          annotations: true

@@ -15,18 +15,26 @@ Two guarantees are made explicit in the output itself, not just in a comment:
   "surfaced on musical similarity alone" — a normal answer, never an apology and
   never a guess.
 
-A third guarantee lives here too: **rank-shift transparency.** Every card states
-plainly how the values lens moved that pick, comparing its lens-applied
-:attr:`~pipeline.models.Recommendation.rank` against its counterfactual
-pure-taste :attr:`~pipeline.models.Recommendation.base_rank` — see
-:func:`rank_shift_statement`.
+A third guarantee, added for FIX-10: **disagreement is surfaced, not hidden.**
+When permitted sources disagree about an individual's gender, the resolver
+still reports its highest-priority pick, but ``WhyThisArtist.conflict_note``
+names every disagreeing source and what it asserted — worded neutrally, never
+as an apology or a guess at who's "right".
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline.models import Artist, Gender, IdentityBasis, Recommendation, Source
+from pipeline.models import (
+    Artist,
+    Gender,
+    IdentityBasis,
+    IdentityLabel,
+    Recommendation,
+    Source,
+    SourceKind,
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +50,11 @@ class ProvenanceItem:
     asserted_value: str
     citation: str
     retrieved_at: str
+    #: True when this citation is a locally-entered correction (FIX-10) rather
+    #: than an upstream-fetched claim — surfaced distinctly so a reader can
+    #: tell "we were told this by the artist/operator, with a citation" apart
+    #: from "an external database asserted this".
+    is_local_correction: bool = False
 
     @classmethod
     def from_source(cls, source: Source) -> ProvenanceItem:
@@ -50,6 +63,7 @@ class ProvenanceItem:
             asserted_value=source.detail,
             citation=source.citation,
             retrieved_at=source.retrieved_at,
+            is_local_correction=source.is_local_correction,
         )
 
 
@@ -62,9 +76,9 @@ class WhyThisArtist:
     * ``identity_statement`` — the sourced identity (or the first-class unknown).
     * ``identity_basis`` — *how* the identity was established (never "inferred").
     * ``provenance`` — the citations behind the identity claim (empty if unknown).
-    * ``rank_shift`` — plain-language statement of how the values lens moved this
-      pick's position versus the counterfactual pure-taste ranking.
     * ``inferred`` — always ``False``; identity in this system is never guessed.
+    * ``conflict_note`` — non-empty, neutral wording of a source disagreement
+      (FIX-10); empty string when sources agree (or identity is unknown).
     """
 
     artist_name: str
@@ -74,6 +88,7 @@ class WhyThisArtist:
     identity_basis: IdentityBasis
     provenance: tuple[ProvenanceItem, ...]
     inferred: bool = False
+    conflict_note: str = ""
     rank_shift: str = "the values lens did not change this pick's position"
 
     @property
@@ -87,6 +102,8 @@ class WhyThisArtist:
             f"  Identity: {self.identity_statement}",
             f"  Rank shift: {self.rank_shift}",
         ]
+        if self.conflict_note:
+            lines.append(f"  {self.conflict_note}")
         if self.reasons:
             lines.append("  Why recommended:")
             lines.extend(f"    - {reason}" for reason in self.reasons)
@@ -109,6 +126,9 @@ class WhyThisArtist:
             f"_Identity:_ {self.identity_statement}",
             f"_Rank shift:_ {self.rank_shift}",
         ]
+        if self.conflict_note:
+            parts.append("")
+            parts.append(f"_{self.conflict_note}_")
         if self.reasons:
             parts.append("")
             parts.append("**Why recommended**")
@@ -127,6 +147,18 @@ class WhyThisArtist:
         return "\n".join(parts)
 
 
+def _confidence_tier(label: IdentityLabel) -> str:
+    """Describe the strongest cited source without interpreting its score."""
+    source_kinds = {source.kind for source in label.sources}
+    if SourceKind.ARTIST_STATEMENT in source_kinds:
+        return "directly stated by the artist"
+    if SourceKind.WIKIDATA_P21 in source_kinds:
+        return "recorded in Wikidata"
+    if SourceKind.MUSICBRAINZ_GENDER in source_kinds:
+        return "editorial database entry"
+    return "cited source"
+
+
 def artist_identity_phrase(artist: Artist) -> str:
     """The single sourced-or-unknown identity sentence, written in one place.
 
@@ -135,8 +167,9 @@ def artist_identity_phrase(artist: Artist) -> str:
     """
     label = artist.identity
     if label.gender is not Gender.UNKNOWN:
-        conf = f" (confidence {label.confidence:.0%})" if label.confidence else ""
-        return f"{label.gender}, self-identified{conf}"
+        tier = _confidence_tier(label)
+        suffix = f" ({tier})" if tier else ""
+        return f"{label.gender}, self-identified{suffix}"
     if artist.female_fronted is True:
         return "female-fronted band (sourced lineup), distinct from any member's gender"
     return "unknown — surfaced on musical similarity alone"
@@ -147,18 +180,29 @@ def identity_statement(rec: Recommendation) -> str:
     return artist_identity_phrase(rec.artist)
 
 
+def conflict_note(artist: Artist) -> str:
+    """A respectful, neutral note when permitted sources disagreed (FIX-10).
+
+    Empty string when there is no conflict. Phrasing states what each source
+    asserted plus its retrieval date — never an apology, never a guess at
+    which source is "right".
+    """
+    label = artist.identity
+    if not label.conflict:
+        return ""
+    claims = "; ".join(
+        f"{src.kind} asserted {src.detail!r} (retrieved {src.retrieved_at})"
+        for src in label.conflicting_claims
+    )
+    return f"Sources disagree: {claims}"
+
+
 def _reason_line(kind: str, detail: str) -> str:
     return f"{kind}: {detail}"
 
 
 def rank_shift_statement(rank: int, base_rank: int) -> str:
-    """Plain-language statement of how the values lens moved a pick's position.
-
-    ``rank`` is the lens-applied position; ``base_rank`` is the counterfactual
-    pure-taste position (``lens_strength = 0``). ``base_rank == 0`` means the
-    counterfactual was never computed (e.g. a hand-built recommendation) —
-    treated the same as "unchanged" rather than guessing at a shift.
-    """
+    """Explain lens movement against the pure-taste counterfactual."""
     if base_rank == 0 or rank == base_rank:
         return "the values lens did not change this pick's position"
     return f"the values lens moved this pick from #{base_rank} to #{rank}"
@@ -178,5 +222,6 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         identity_basis=expl.identity_basis,
         provenance=provenance,
         inferred=False,
+        conflict_note=conflict_note(rec.artist),
         rank_shift=rank_shift_statement(rec.rank, rec.base_rank),
     )

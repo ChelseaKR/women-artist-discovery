@@ -81,9 +81,17 @@ def test_resolver_signature_takes_nothing_forbidden() -> None:
     """resolve_identity exposes no name/image/audio/genre parameter."""
     params = set(inspect.signature(resolve_identity).parameters)
     assert params == {"evidence"}, params
-    # And the evidence record itself exposes no forbidden field.
+    # And the evidence record itself exposes no forbidden field. `is_local_correction`
+    # (FIX-10) is a provenance flag, not a discriminator — it never participates in
+    # gender mapping, only in how a citation is *labelled* once resolved.
     ev_fields = set(IdentityEvidence.__dataclass_fields__)
-    assert ev_fields == {"kind", "value", "citation", "retrieved_at"}, ev_fields
+    assert ev_fields == {
+        "kind",
+        "value",
+        "citation",
+        "retrieved_at",
+        "is_local_correction",
+    }, ev_fields
     assert not (ev_fields & FORBIDDEN_TOKENS)
 
 
