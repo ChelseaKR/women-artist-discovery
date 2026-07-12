@@ -11,6 +11,8 @@ Ties together the :class:`~pipeline.lastfm.ScrobbleSource`, the
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Optional, overload
 
@@ -19,6 +21,8 @@ from pipeline.enrich import EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, Source
+
+log = logging.getLogger("wad.ingest")
 
 
 def build_profile(username: str, scrobbles: list[Scrobble]) -> ListeningProfile:
@@ -96,26 +100,50 @@ def ingest(
 
     Without a ``cache``, ingest is a single-page snapshot, as before.
     """
-    if cache is not None:
-        since = cache.last_synced_ts(username)
-        fetched = source.scrobbles_since(username, since_ts=since, page_size=limit)
-        cache.put_scrobbles(username, fetched)
-        scrobbles = cache.get_scrobbles(username)
-    else:
-        scrobbles = source.recent_scrobbles(username, limit=limit)
+    ingest_start = time.monotonic()
+    log.info("stage=ingest event=start username=%s limit=%d", username, limit)
+    fetch_start = time.monotonic()
+    try:
+        if cache is not None:
+            since = cache.last_synced_ts(username)
+            fetched = source.scrobbles_since(username, since_ts=since, page_size=limit)
+            cache.put_scrobbles(username, fetched)
+            scrobbles = cache.get_scrobbles(username)
+        else:
+            scrobbles = source.recent_scrobbles(username, limit=limit)
+    except Exception:
+        log.exception(
+            "stage=fetch_scrobbles event=failed username=%s source=%s",
+            username,
+            type(source).__name__,
+        )
+        raise
+    log.info(
+        "stage=fetch_scrobbles event=end elapsed=%.3fs count=%d",
+        time.monotonic() - fetch_start,
+        len(scrobbles),
+    )
     profile = build_profile(username, scrobbles)
 
     catalog: dict[str, Artist] = {}
     tags_by_artist: dict[str, tuple[str, ...]] = {}
     for artist_id, name in profile.artist_names.items():
-        artist = enrich_artist(
-            artist_id,
-            name,
-            source,
-            enricher,
-            playcount=profile.play_counts.get(artist_id, 0),
-            cache=cache,
-        )
+        try:
+            artist = enrich_artist(
+                artist_id,
+                name,
+                source,
+                enricher,
+                playcount=profile.play_counts.get(artist_id, 0),
+                cache=cache,
+            )
+        except Exception:
+            log.exception(
+                "stage=enrich event=failed artist_id=%s enricher=%s",
+                artist_id,
+                type(enricher).__name__,
+            )
+            raise
         catalog[artist_id] = artist
         tags_by_artist[artist_id] = artist.tags
         if cache is not None:
@@ -127,6 +155,12 @@ def ingest(
         play_counts=profile.play_counts,
         artist_names=profile.artist_names,
         tags=tags_by_artist,
+    )
+    log.info(
+        "stage=ingest event=end elapsed=%.3fs username=%s artists=%d",
+        time.monotonic() - ingest_start,
+        username,
+        len(catalog),
     )
     return profile, catalog
 

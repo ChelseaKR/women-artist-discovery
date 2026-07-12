@@ -37,7 +37,7 @@ TELEMETRY_TOKENS = (
 # Network may only be reached from these modules — the live API clients. This
 # is the single source of truth for sanctioned egress; keep it in sync with
 # "Egress registry / allowlist" in docs/audits/privacy-notes.md.
-NETWORK_ALLOWED = {"pipeline/lastfm.py", "export/spotify.py"}
+NETWORK_ALLOWED = {"pipeline/lastfm.py", "pipeline/doctor.py", "export/spotify.py"}
 NETWORK_TOKENS = (
     "import requests",
     "import httpx",

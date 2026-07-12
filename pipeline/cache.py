@@ -32,9 +32,10 @@ from typing import Optional
 
 from pipeline.identity import IdentityEvidence
 from pipeline.models import Artist, Scrobble, SourceKind, UnsourcedIdentityError
+from pipeline.paths import default_db_path
 from pipeline.serde import artist_from_dict, artist_to_dict
 
-DEFAULT_DB_PATH = Path("data") / "cache.db"
+DEFAULT_DB_PATH = default_db_path()
 
 #: Current on-disk schema version. Bump when a migration is added below.
 CACHE_SCHEMA_VERSION = 3

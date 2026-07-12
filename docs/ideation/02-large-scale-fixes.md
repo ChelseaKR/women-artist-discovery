@@ -296,10 +296,15 @@ examples.
   at least one previously-unknown edge documented (or an explicit note that
   none was found).
 
-## FIX-12 — Operability pass: logging, doctor, data location
+## FIX-12 — Operability pass: logging, doctor, data location — **Done**
 
 **Pitch:** Make failure states legible for a tool that talks to four external
 APIs.
+
+> The cache now resolves from `WAD_DATA_DIR` or a stable per-OS user-data
+> directory. `wad doctor` reports environment and cache/schema health, with
+> upstream probes strictly opt-in. Ingest emits local-only structured stage
+> timing and failure logs; no logging transport leaves the machine.
 
 - **Why it matters:** There is no logging anywhere in `pipeline/` or
   `export/`; a live-mode failure (rate limit, expired token, malformed

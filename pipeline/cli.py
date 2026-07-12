@@ -27,8 +27,10 @@ from recommender.why import why_this_artist
 from pipeline import corrections as pending_corrections
 from pipeline.cache import DEFAULT_DB_PATH, DEFAULT_HTTP_TTL_DAYS, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
+from pipeline.doctor import run_diagnostics
 from pipeline.identity import IdentityEvidence
 from pipeline.ingest import diff_identity_labels, refresh_catalog
+from pipeline.logconfig import configure_logging
 from pipeline.models import SourceKind, UnsourcedIdentityError
 
 
@@ -234,7 +236,17 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    report = run_diagnostics(check_upstream=args.check_upstream)
+    for check in report.checks:
+        status = "PASS" if check.passed else "FAIL"
+        print(f"[{status}] {check.name}: {check.detail}")  # noqa: T201
+    print(f"doctor: {'OK' if report.ok else 'FAIL'}")  # noqa: T201
+    return 0 if report.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    configure_logging()
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -269,6 +281,14 @@ def main(argv: list[str] | None = None) -> int:
     p_report.add_argument("--lens", type=float, default=0.5)
     p_report.add_argument("--out", default="my-discoveries.html")
     p_report.set_defaults(func=_cmd_report)
+
+    p_doctor = sub.add_parser("doctor", help="diagnose env, data location, and cache health")
+    p_doctor.add_argument(
+        "--check-upstream",
+        action="store_true",
+        help="also probe upstream APIs (opt-in; makes network calls)",
+    )
+    p_doctor.set_defaults(func=_cmd_doctor)
 
     p_ref = sub.add_parser(
         "refresh", help="re-enrich the local cache, reporting identity-label changes"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from pipeline.cache import Cache
 from pipeline.enrich import FixtureEnricher
@@ -231,3 +232,16 @@ def test_live_client_drains_pages_and_filters_watermark() -> None:
     result = client.scrobbles_since("listener", since_ts=100, page_size=2)
     assert client.pages == [1, 2]
     assert [scrobble.ts for scrobble in result] == [101, 102, 103]
+
+
+def test_ingest_emits_local_stage_summary(caplog, demo_user, source, enricher) -> None:
+    logger = logging.getLogger("wad.ingest")
+    logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger="wad.ingest"):
+            ingest(demo_user, source, enricher)
+    finally:
+        logger.removeHandler(caplog.handler)
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("stage=ingest event=start" in message for message in messages)
+    assert any("stage=ingest event=end" in message for message in messages)
