@@ -37,8 +37,8 @@ from export.spotify import (
     parse_redirect,
 )
 from export.tracklist import recommendations_to_tracks, render
-from pipeline.demo import DEMO_USER, demo_catalog, demo_scrobbles, demo_source
 from pipeline.cache import DEFAULT_DB_PATH, Cache
+from pipeline.demo import DEMO_USER, demo_catalog, demo_scrobbles, demo_source
 from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation, Scrobble
