@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 from recommender.eval import (
+    EvalResult,
     average_precision_at_k,
+    check_regression,
     evaluate,
     ground_truth,
     precision_recall_at_k,
@@ -59,3 +61,88 @@ def test_empty_positives_score_zero() -> None:
 def test_split_rejects_bad_fraction(scrobbles) -> None:
     with pytest.raises(ValueError):
         temporal_split(scrobbles, 1.0)
+
+
+def _result(**overrides: float) -> EvalResult:
+    base = {
+        "model": "hybrid",
+        "k": 5,
+        "precision_at_k": 0.6,
+        "recall_at_k": 0.75,
+        "map_at_k": 0.6875,
+        "n_positives": 4,
+    }
+    base.update(overrides)
+    return EvalResult(**base)  # type: ignore[arg-type]
+
+
+def test_check_regression_passes_at_baseline() -> None:
+    baseline = {"precision_at_k": 0.6, "recall_at_k": 0.75, "map_at_k": 0.6875}
+    result = check_regression(_result(), baseline)
+    assert result["regressed"] is False
+
+
+def test_check_regression_flags_a_real_drop() -> None:
+    baseline = {"precision_at_k": 0.6, "recall_at_k": 0.75, "map_at_k": 0.6875}
+    # map_at_k drops well past the default 10% tolerance floor (0.6188).
+    result = check_regression(_result(map_at_k=0.4), baseline)
+    assert result["regressed"] is True
+    assert result["metrics"]["map_at_k"]["regressed"] is True
+    assert result["metrics"]["precision_at_k"]["regressed"] is False
+
+
+def test_check_regression_tolerates_small_drops() -> None:
+    baseline = {"map_at_k": 0.6875}
+    # a 5% drop is within the default 10% tolerance.
+    result = check_regression(_result(map_at_k=0.6875 * 0.95), baseline)
+    assert result["regressed"] is False
+
+
+def test_check_regression_skips_metrics_absent_from_baseline() -> None:
+    result = check_regression(_result(precision_at_k=0.0), {"map_at_k": 0.6875})
+    assert result["regressed"] is False
+    assert "precision_at_k" not in result["metrics"]
+
+
+# -- the `wad eval` gate end-to-end (exit codes are the merge-blocking contract) --
+
+
+def _run_eval(tmp_path, baseline: str | None) -> tuple[int, dict]:
+    import json
+
+    from pipeline.cli import main as cli_main
+
+    out = tmp_path / "eval-report.json"
+    argv = ["eval", "--k", "5", "--out", str(out)]
+    if baseline is not None:
+        argv += ["--baseline", baseline]
+    code = cli_main(argv)
+    return code, json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_cli_eval_passes_against_the_committed_baseline(tmp_path, capsys) -> None:
+    code, report = _run_eval(tmp_path, "docs/audits/eval-baseline.json")
+    assert code == 0
+    assert report["hybrid_beats_popularity"] is True
+    assert report["regression_vs_baseline"]["regressed"] is False
+    assert report["fairness"]["guarantees"]["unknown_retention_all_lenses"] is True
+
+
+def test_cli_eval_missing_baseline_warns_but_passes(tmp_path, capsys) -> None:
+    code, report = _run_eval(tmp_path, str(tmp_path / "no-such-baseline.json"))
+    assert code == 0  # a fresh clone without a baseline must still pass
+    assert "skipping regression check" in capsys.readouterr().err
+    assert "regression_vs_baseline" not in report
+    assert "fairness" in report  # fairness block is emitted regardless
+
+
+def test_cli_eval_fails_on_regression_vs_baseline(tmp_path, capsys) -> None:
+    import json
+
+    impossible = {"metrics": {"map_at_k": 100.0}, "tolerance": 0.10}
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text(json.dumps(impossible), encoding="utf-8")
+    code, report = _run_eval(tmp_path, str(baseline))
+    assert code == 1
+    assert report["regression_vs_baseline"]["regressed"] is True
+    assert "regressed vs docs/audits/eval-baseline.json" in capsys.readouterr().err

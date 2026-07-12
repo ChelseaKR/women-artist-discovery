@@ -10,7 +10,8 @@ Accessibility decisions baked in here:
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
 * a skip link to ``<main>`` and proper landmarks/heading order,
 * identity is conveyed as **text**, never colour alone,
-* the score "chart" ships with a real ``<table>`` data equivalent.
+* the score "chart" ships with a real ``<table>`` data equivalent,
+* upstream correction links are labelled text links, never icon/colour cues.
 """
 
 from __future__ import annotations
@@ -20,11 +21,37 @@ from html import escape
 from typing import cast
 
 from pipeline.models import Recommendation
-from recommender.why import WhyThisArtist, why_this_artist
+from recommender.upstream import upstream_edit_url
+from recommender.why import ProvenanceItem, WhyThisArtist, why_this_artist
 
 
 def _identity_line(why: WhyThisArtist) -> str:
     return f"Identity: {escape(why.identity_statement)}"
+
+
+def _rank_shift_line(why: WhyThisArtist) -> str:
+    return f"Rank shift: {escape(why.rank_shift)}"
+
+
+def _fix_at_source_link(item: ProvenanceItem) -> str:
+    edit_url = upstream_edit_url(item.source_kind, item.citation)
+    if edit_url is None:
+        return ""
+    return (
+        f' <a class="fix-at-source" href="{escape(edit_url)}">'
+        f"Fix at source: correct this {escape(item.source_kind)} claim upstream</a>"
+    )
+
+
+def _conflict_html(why: WhyThisArtist, aid: str) -> str:
+    """Render source disagreement as text and structure, never colour alone."""
+    if not why.conflict_note:
+        return ""
+    return (
+        f'<div class="conflict" role="note" aria-labelledby="conflict-h-{aid}">'
+        f'<p id="conflict-h-{aid}" class="conflict-heading">Sources disagree</p>'
+        f"<p>{escape(why.conflict_note)}</p></div>"
+    )
 
 
 def _provenance_html(why: WhyThisArtist, aid: str) -> str:
@@ -38,7 +65,14 @@ def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     items = "".join(
         f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
         f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
-        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span></li>'
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span>'
+        + (
+            '<span class="local-correction"> — local correction</span>'
+            if p.is_local_correction
+            else ""
+        )
+        + _fix_at_source_link(p)
+        + "</li>"
         for p in why.provenance
     )
     return (
@@ -62,6 +96,8 @@ def _card_html(rec: Recommendation) -> str:
         f"(taste {rec.base_score:.3f} + values lens {rec.rerank_delta:.3f})</p>"
         f'<p class="identity" data-basis="{basis}" data-inferred="false">'
         f"{_identity_line(why)}</p>"
+        f'<p class="rank-shift">{_rank_shift_line(why)}</p>'
+        f"{_conflict_html(why, aid)}"
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
         f"{_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
@@ -91,8 +127,9 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
-def _exposure_share_table_html(panel: dict[str, object]) -> str:
-    """The primary, table-first equivalent of the exposure-share chart."""
+def _exposure_panel_html(panel: dict[str, object] | None) -> str:
+    if panel is None:
+        return ""
     rows = cast("list[dict[str, object]]", panel["exposure_rows"])
     base_pct = f"{cast(float, panel['base_lens']):.0%}"
     current_pct = f"{cast(float, panel['current_lens']):.0%}"
@@ -102,64 +139,92 @@ def _exposure_share_table_html(panel: dict[str, object]) -> str:
         f"<td>{cast(float, row['current_share']):.0%}</td></tr>"
         for row in rows
     )
-    return (
-        "<table><caption>Exposure share by identity segment — base lens "
-        f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
-        '<th scope="col">Identity segment</th>'
-        f'<th scope="col">Base lens ({base_pct})</th>'
-        f'<th scope="col">Current lens ({current_pct})</th>'
-        f"</tr></thead><tbody>{body}</tbody></table>"
-    )
-
-
-def _retention_table_html(panel: dict[str, object]) -> str:
-    """The unknown-retention curve, table-first (should read 100% throughout)."""
-    retention_row = cast("dict[str, object]", panel["retention_row"])
-    by_lens = cast("dict[str, float]", retention_row["by_lens"])
-    lens_keys = list(by_lens)
-    header = "".join(f'<th scope="col">Lens {escape(key)}</th>' for key in lens_keys)
-    cells = "".join(f"<td>{by_lens[key]:.0%}</td>" for key in lens_keys)
-    segment = escape(str(retention_row["segment"]))
-    return (
-        "<table><caption>Unknown-identity retention across the lens (pinned "
-        "at 100% — the merge-blocking fairness guarantee)</caption><thead><tr>"
-        f'<th scope="col">Identity segment</th>{header}'
-        f'</tr></thead><tbody><tr><th scope="row">{segment}</th>{cells}</tr>'
-        "</tbody></table>"
-    )
-
-
-def _exposure_panel_html(panel: dict[str, object] | None) -> str:
-    """The fairness-observability section: table-first, chart optional (omitted).
-
-    ``panel`` is the output of :func:`recommender.exposure.observability_panel`.
-    Defaults to nothing rendered so existing callers/tests are unaffected.
-    """
-    if panel is None:
-        return ""
+    retention = cast("dict[str, object]", panel["retention_row"])
+    by_lens = cast("dict[str, float]", retention["by_lens"])
+    retention_headers = "".join(f'<th scope="col">Lens {escape(key)}</th>' for key in by_lens)
+    retention_cells = "".join(f"<td>{value:.0%}</td>" for value in by_lens.values())
     return (
         "<h2>Fairness observability</h2>"
-        "<p>Moving the lens changes exposure shares across identity segments; "
-        "unknown-retention stays pinned at 100% — the boost-only lens never "
-        "displaces artists with unknown identity from the results.</p>"
-        f"{_exposure_share_table_html(panel)}{_retention_table_html(panel)}"
+        "<p>Exposure changes are shown alongside the merge-blocking unknown-retention guarantee.</p>"
+        "<table><caption>Exposure share by identity segment — base lens "
+        f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
+        '<th scope="col">Identity segment</th><th scope="col">Base share</th>'
+        f'<th scope="col">Current share</th></tr></thead><tbody>{body}</tbody></table>'
+        "<table><caption>Unknown-identity retention across the lens</caption><thead><tr>"
+        f'<th scope="col">Identity segment</th>{retention_headers}</tr></thead><tbody><tr>'
+        f'<th scope="row">{escape(str(retention["segment"]))}</th>{retention_cells}'
+        "</tr></tbody></table>"
     )
 
 
-_STYLE = """
-:root { color-scheme: light dark; }
-body { font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem; }
-.card { border: 1px solid; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
-.identity { font-weight: 600; }
-.identity::before { content: "\\25CF  "; }  /* glyph paired with text, not colour-only */
-a:focus, .skip:focus { outline: 3px solid; }
-.skip { position: absolute; left: -999px; }
-.skip:focus { left: 1rem; top: 1rem; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid; padding: 0.4rem; text-align: left; }
-@media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+#: Explicit per-scheme design tokens (BUG-1 fix). The old stylesheet declared
+#: ``color-scheme: light dark`` with **no** explicit colours, so under an OS dark
+#: theme every pair fell back to UA defaults and produced real axe contrast
+#: failures. Both palettes below are unit-tested against WCAG 2.2 relative
+#: luminance in ``tests/test_contrast.py`` (merge-blocking); the ratios in the
+#: comments are computed, not aspirational.
+LIGHT_TOKENS: dict[str, str] = {
+    "bg": "#ffffff",
+    "text": "#1b1b1b",  # 17.22:1 vs bg (AAA body text; target >= 7:1)
+    "link": "#0b57d0",  # 6.39:1 vs bg (AA text; >= 4.5:1)
+    "border": "#595959",  # 7.00:1 vs bg (non-text; >= 3:1)
+    "focus": "#0b57d0",  # 6.39:1 vs bg (focus indicator; >= 3:1)
 }
+
+DARK_TOKENS: dict[str, str] = {
+    "bg": "#121212",
+    "text": "#e8e8e8",  # 15.29:1 vs bg (AAA body text; target >= 7:1)
+    "link": "#8ab4f8",  # 8.89:1 vs bg (AA text; >= 4.5:1)
+    "border": "#9e9e9e",  # 6.99:1 vs bg (non-text; >= 3:1)
+    "focus": "#8ab4f8",  # 8.89:1 vs bg (focus indicator; >= 3:1)
+}
+
+#: Schemes accepted by :func:`render_cards_html` / ``python -m app.build_static``.
+#: ``auto`` ships both palettes behind ``prefers-color-scheme``; ``light``/``dark``
+#: pin one palette unconditionally so the a11y gate can audit **both** renderings
+#: deterministically on any machine (local Dark-Mode Mac and light-mode CI alike).
+SCHEMES: tuple[str, ...] = ("auto", "light", "dark")
+
+
+def _css_vars(tokens: dict[str, str]) -> str:
+    return " ".join(f"--{name}: {value};" for name, value in tokens.items())
+
+
+def _style(scheme: str = "auto") -> str:
+    if scheme not in SCHEMES:
+        raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}")
+    if scheme == "auto":
+        root = (
+            f":root {{ color-scheme: light dark; {_css_vars(LIGHT_TOKENS)} }}\n"
+            f"@media (prefers-color-scheme: dark) {{\n"
+            f"  :root {{ {_css_vars(DARK_TOKENS)} }}\n"
+            f"}}"
+        )
+    else:
+        tokens = LIGHT_TOKENS if scheme == "light" else DARK_TOKENS
+        root = f":root {{ color-scheme: {scheme}; {_css_vars(tokens)} }}"
+    return f"""
+{root}
+body {{ font-family: system-ui, sans-serif; max-width: 70ch; margin: 0 auto; padding: 1rem;
+       background: var(--bg); color: var(--text); }}
+a {{ color: var(--link); }}
+.card {{ border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0; }}
+.identity {{ font-weight: 600; }}
+.identity::before {{ content: "\\25CF  "; }}  /* glyph paired with text, not colour-only;
+                                                inherits --text, never colour-only meaning */
+.conflict {{ border: 2px dashed var(--border); border-radius: 6px;
+             padding: 0.5rem 0.75rem; margin: 0.5rem 0; }}
+.conflict-heading {{ font-weight: 700; margin: 0 0 0.25rem; }}
+.conflict-heading::before {{ content: "\\26A0  "; }}
+.local-correction {{ font-style: italic; }}
+a:focus, .skip:focus {{ outline: 3px solid var(--focus); }}
+.skip {{ position: absolute; left: -999px; }}
+.skip:focus {{ left: 1rem; top: 1rem; background: var(--bg); }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid var(--border); padding: 0.4rem; text-align: left; }}
+@media (prefers-reduced-motion: reduce) {{
+  * {{ animation: none !important; transition: none !important; }}
+}}
 """
 
 
@@ -167,14 +232,13 @@ def render_cards_html(
     recs: Sequence[Recommendation],
     lens_strength: float,
     username: str = "demo",
+    scheme: str = "auto",
     exposure_panel: dict[str, object] | None = None,
 ) -> str:
     """Render a complete, accessible HTML document for the given recommendations.
 
-    ``exposure_panel`` is the optional output of
-    :func:`recommender.exposure.observability_panel` — the fairness
-    observability section (table-first). It defaults to ``None`` so existing
-    callers render exactly as before.
+    ``scheme="auto"`` (the shipped default) responds to ``prefers-color-scheme``;
+    ``"light"``/``"dark"`` pin that palette so the a11y gate audits both schemes.
     """
     cards = "".join(_card_html(r) for r in recs)
     lens_pct = f"{lens_strength:.0%}"
@@ -183,7 +247,7 @@ def render_cards_html(
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         "<title>Women-Artist Discovery — recommendations</title>"
-        f"<style>{_STYLE}</style></head><body>"
+        f"<style>{_style(scheme)}</style></head><body>"
         '<a class="skip" href="#main">Skip to recommendations</a>'
         "<header><h1>Women-Artist Discovery</h1>"
         f"<p>Recommendations for <strong>{escape(username)}</strong>. "
