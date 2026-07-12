@@ -186,14 +186,14 @@ def diff_identity_labels(
 
 @overload
 def refresh_catalog(
-    cache: Cache, catalog: dict[str, Artist], *, fetched_at: str
+    cache: Cache, catalog_or_source: dict[str, Artist], *, fetched_at: str
 ) -> list[LabelChange]: ...
 
 
 @overload
 def refresh_catalog(
     cache: Cache,
-    source: ScrobbleSource,
+    catalog_or_source: ScrobbleSource,
     enricher: EnrichmentSource,
     *,
     fetched_at: str,
