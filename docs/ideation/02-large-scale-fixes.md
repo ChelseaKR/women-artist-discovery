@@ -187,9 +187,14 @@ layer enforces it".
 - **Excellent looks like:** A deliberately-added `requests.get` anywhere in
   `app/` fails two independent gates (scan + socket guard) before review.
 
-## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification
+## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification — **Done**
 
 **Pitch:** Make the Spotify flow follow current native-app OAuth best practice.
+
+> Spotify authorization now uses an in-memory S256 PKCE pair, verifies the
+> returned state for both loopback and pasted-URL flows, and rejects OAuth
+> error redirects. The loopback listener binds only to `127.0.0.1`; the
+> fallback requires the full redirect URL so state is never decorative.
 
 - **Why it matters:** `app/dashboard.py` generates a CSRF `state` (line 86)
   but the paste-the-code flow never verifies the state Spotify returns — the

@@ -8,6 +8,8 @@ out in the module docstring and cannot run here.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import urllib.parse
 from collections.abc import Mapping
@@ -19,11 +21,13 @@ from export.models import ExportError, ExportFormat, PlaylistExport, PlaylistTra
 from export.spotify import (
     HttpResponse,
     HttpTransport,
+    PkcePair,
     SpotifyClient,
     SpotifyCredentials,
     SpotifyOAuth,
     SpotifyToken,
     export_recommendations,
+    parse_redirect,
 )
 from export.tracklist import (
     recommendations_to_tracks,
@@ -201,6 +205,103 @@ def test_exchange_code_sends_basic_auth_and_returns_token() -> None:
     assert sent["headers"]["Authorization"].startswith("Basic ")
     assert sent["data"]["grant_type"] == "authorization_code"
     assert sent["data"]["code"] == "auth-code"
+
+
+# --- PKCE + loopback OAuth hardening (FIX-08) ---------------------------------
+
+
+def test_pkce_challenge_is_a_valid_s256_of_the_verifier() -> None:
+    pair = PkcePair.generate()
+    expected = base64.urlsafe_b64encode(hashlib.sha256(pair.verifier.encode()).digest())
+    expected = expected.rstrip(b"=").decode("ascii")
+    assert pair.challenge == expected
+    assert len(pair.verifier) >= 43  # RFC 7636 minimum verifier entropy
+    assert "=" not in pair.challenge  # unpadded, URL-safe
+
+
+def test_pkce_generate_produces_fresh_pairs_each_call() -> None:
+    a, b = PkcePair.generate(), PkcePair.generate()
+    assert a.verifier != b.verifier
+    assert a.challenge != b.challenge
+
+
+def test_authorize_url_includes_code_challenge_method_s256() -> None:
+    oauth = SpotifyOAuth(SpotifyCredentials.from_env(_ENV), FakeTransport())
+    pair = PkcePair.generate()
+    url = oauth.authorize_url(state="xyz", code_challenge=pair.challenge)
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert qs["code_challenge"] == [pair.challenge]
+    assert qs["code_challenge_method"] == ["S256"]
+
+
+def test_authorize_url_omits_pkce_params_when_no_challenge_given() -> None:
+    oauth = SpotifyOAuth(SpotifyCredentials.from_env(_ENV), FakeTransport())
+    url = oauth.authorize_url(state="xyz")
+    qs = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    assert "code_challenge" not in qs
+    assert "code_challenge_method" not in qs
+
+
+def test_exchange_code_sends_code_verifier_in_the_form_body() -> None:
+    transport = FakeTransport()
+    oauth = SpotifyOAuth(SpotifyCredentials.from_env(_ENV), transport)
+    oauth.exchange_code("auth-code", code_verifier="verifier-abc")
+    sent = transport.calls[0]
+    assert sent["data"]["code_verifier"] == "verifier-abc"
+
+
+def test_exchange_code_omits_verifier_when_not_given() -> None:
+    transport = FakeTransport()
+    oauth = SpotifyOAuth(SpotifyCredentials.from_env(_ENV), transport)
+    oauth.exchange_code("auth-code")
+    sent = transport.calls[0]
+    assert "code_verifier" not in sent["data"]
+
+
+def test_parse_redirect_returns_code_on_matching_state() -> None:
+    url = "http://127.0.0.1:8080/callback?code=abc123&state=xyz"
+    assert parse_redirect(url, expected_state="xyz") == "abc123"
+
+
+def test_parse_redirect_works_on_path_and_query_only() -> None:
+    # capture_redirect returns just the path+query (no scheme/host); parse_redirect
+    # must handle that the same as a full URL.
+    assert parse_redirect("/callback?code=abc&state=s", expected_state="s") == "abc"
+
+
+def test_parse_redirect_raises_on_state_mismatch() -> None:
+    url = "http://127.0.0.1:8080/callback?code=abc123&state=wrong"
+    with pytest.raises(ExportError, match="state mismatch"):
+        parse_redirect(url, expected_state="xyz")
+
+
+def test_parse_redirect_raises_on_spotify_error_param() -> None:
+    url = "http://127.0.0.1:8080/callback?error=access_denied&state=xyz"
+    with pytest.raises(ExportError, match="access_denied"):
+        parse_redirect(url, expected_state="xyz")
+
+
+def test_parse_redirect_raises_when_code_missing() -> None:
+    url = "http://127.0.0.1:8080/callback?state=xyz"
+    with pytest.raises(ExportError, match="authorization code"):
+        parse_redirect(url, expected_state="xyz")
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "https://127.0.0.1:8080/callback",
+        "http://0.0.0.0:8080/callback",
+        "http://192.168.1.10:8080/callback",
+    ],
+)
+def test_loopback_listener_rejects_non_loopback_or_https_uris(uri: str) -> None:
+    with pytest.raises(ExportError, match="HTTP loopback"):
+        sp._loopback_port(uri)
+
+
+def test_loopback_listener_accepts_localhost_and_returns_port() -> None:
+    assert sp._loopback_port("http://localhost:8765/callback") == 8765
 
 
 def test_refresh_reuses_old_refresh_token_when_absent() -> None:
