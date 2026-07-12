@@ -137,6 +137,14 @@ hybrid_beats_popularity]` — the merge-blocking condition `make eval` enforces
 (`n_positives = 4` `[docs/audits/eval-report.json → n_positives]` held-out
 discoveries in this fixture).
 
+That primary table is the deliberately hand-tuned demo world, so the audit also
+runs four independent synthetic fixture families. Across all five worlds, the
+hybrid wins 5 `[docs/audits/eval-report.json → multiworld.worlds_hybrid_wins]`
+of 5 `[docs/audits/eval-report.json → multiworld.n_worlds]`, with mean
+MAP@5 delta 0.5375 `[docs/audits/eval-report.json →
+multiworld.mean_map_delta]`. These remain synthetic tests, but they keep the
+claim from resting on the one fixture designed alongside the recommender.
+
 Read narrowly: this shows the *hybrid engine* recovers genuine future discoveries
 better than "just recommend what's already popular" — it is not, on its own, a
 fairness metric. The fairness claim is §3's unknown-retention number and
@@ -171,11 +179,12 @@ than a values lens papering over a recommender nobody would use.
   overriding taste, and the popularity-tier × identity cross-tab that the
   fairness audit tracks — this piece does not claim that risk is resolved, only
   bounded and watched.
-- **One user's eval fixture.** §4's numbers come from one temporal split of one
-  listening history (`n_positives = 4`); they demonstrate the hybrid beats the
-  popularity baseline on this fixture, not a claim about aggregate performance
-  across users. `make eval` is deterministic and reproducible, not a benchmark
-  across a population.
+- **Synthetic evaluation is not population evidence.** §4 reports the demo
+  temporal split and four independent synthetic fixture families. That is
+  stronger regression evidence than the original single tuned world, but it is
+  still not a benchmark across real listeners. The separate `make eval-real`
+  leg is intentionally local and human-gated because listening histories are
+  sensitive; no real user data is committed or run in CI.
 
 ---
 

@@ -17,7 +17,6 @@ dependencies = [
     # advisories (GHSA-gc5v-m9x4-r6x2, PYSEC-2026-141/142) — installable now that the
     # floor is >=3.10. urllib3 is pinned reproducibly via uv.lock.
     "requests>=2.33",
-    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +43,8 @@ dev = [
     "mypy>=1.18",
     "types-requests",
     "pip-audit>=2.7",
+    # Property-based guardrail tests (FIX-11) exercise generated inputs.
+    "hypothesis>=6",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -133,6 +134,9 @@ omit = [
 [tool.coverage.report]
 # Branch target is enforced via the line gate plus these exclusions for the
 # genuinely untestable live-network glue (parsers are tested via fixtures).
+# pipeline/identity.py (the identity resolver) additionally carries a per-module
+# >=95% floor via the scoped `coverage report --include=... --fail-under=95` step
+# in `make test` and CI (CODE-QUALITY-STANDARD, per-module floors).
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

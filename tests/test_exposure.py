@@ -1,20 +1,21 @@
-"""Unknown-retention checked on emitted output, not just on rerank's math (EXP-10)."""
+"""FIX-05: computed exposure / rank-fairness metrics + the unknown-retention guarantee.
+
+These are the *generated numbers* behind ``docs/audits/fairness-identity.md``: the
+fairness narrative, verified on the recommender's real output rather than only on
+the rerank function.
+"""
 
 from __future__ import annotations
 
 import pytest
 from pipeline.models import (
-    BandComposition,
     Explanation,
-    FrontPerson,
     Gender,
     IdentityBasis,
-    IdentityLabel,
     Recommendation,
     Signal,
-    Source,
-    SourceKind,
 )
+from recommender.eval import DEFAULT_LENS_SWEEP, fairness_report
 from recommender.exposure import (
     FEMALE_FRONTED,
     MAN,
@@ -24,97 +25,158 @@ from recommender.exposure import (
     WOMAN,
     FairnessAssertionError,
     assert_unknown_retained,
+    exposure_at_k,
+    exposure_report,
     identity_segment,
+    popularity_identity_crosstab,
+    popularity_tier,
+    rank_shift_by_segment,
     unknown_retention,
 )
-from recommender.rerank import rerank
+from recommender.hybrid import recommend
 
 from .conftest import make_artist
 
+_ALIGNED = frozenset({WOMAN, NONBINARY, FEMALE_FRONTED})
 
-def _rec(artist, base):
-    return Recommendation(
-        artist=artist,
-        base_score=base,
-        rerank_delta=0.0,
-        explanation=Explanation(
-            signals=(Signal("content", "d", 1.0),),
-            identity_basis=IdentityBasis.SELF_IDENTIFIED
-            if artist.identity.is_known
-            else IdentityBasis.UNKNOWN,
-            identity_sources=artist.identity.sources,
-            summary="why",
-        ),
+
+def _recs_by_lens(profile, catalog, source, lenses=DEFAULT_LENS_SWEEP):
+    return {
+        lens: recommend(profile, catalog, source, k=len(catalog), lens_strength=lens)
+        for lens in lenses
+    }
+
+
+def _rec(artist, score, delta=0.0):
+    expl = Explanation(
+        signals=(Signal("content", "tag", 1.0),),
+        identity_basis=IdentityBasis.UNKNOWN
+        if artist.identity.gender is Gender.UNKNOWN
+        else IdentityBasis.SELF_IDENTIFIED,
+        identity_sources=artist.identity.sources,
+        summary="why",
     )
+    return Recommendation(artist=artist, base_score=score, rerank_delta=delta, explanation=expl)
 
 
-def test_segments_are_the_canonical_six_and_unknown_is_present() -> None:
-    assert SEGMENTS == (WOMAN, NONBINARY, FEMALE_FRONTED, MAN, "other", UNKNOWN)
-    assert UNKNOWN in SEGMENTS
+# -- segmentation (sourced, never inferred) ----------------------------------
+def test_identity_segment_reads_sourced_identity_then_composition(catalog) -> None:
+    assert identity_segment(catalog["snail-mail"]) == WOMAN
+    assert identity_segment(catalog["shamir"]) == NONBINARY
+    assert identity_segment(catalog["moses-sumney"]) == MAN
+    assert identity_segment(catalog["boygenius"]) == FEMALE_FRONTED  # sourced composition
+    assert identity_segment(catalog["mystery-act"]) == UNKNOWN
 
 
-def test_identity_segment_prefers_sourced_gender_over_composition() -> None:
-    assert identity_segment(make_artist("w", gender=Gender.WOMAN)) == WOMAN
-    assert identity_segment(make_artist("nb", gender=Gender.NONBINARY)) == NONBINARY
-    assert identity_segment(make_artist("m", gender=Gender.MAN)) == MAN
-    assert identity_segment(make_artist("u")) == UNKNOWN
+def test_other_gender_is_its_own_segment_not_unknown() -> None:
+    assert identity_segment(make_artist("x", gender=Gender.OTHER)) == "other"
 
 
-def test_identity_segment_female_fronted_is_composition_not_a_personal_claim() -> None:
-    woman = IdentityLabel(
-        gender=Gender.WOMAN,
-        basis=IdentityBasis.SELF_IDENTIFIED,
-        sources=(Source(SourceKind.ARTIST_STATEMENT, "c", "2026-05-31"),),
-    )
-    base = make_artist("band")
-    band = type(base)(
-        artist_id="band",
-        name="Band",
-        composition=BandComposition(
-            members_fronting=(FrontPerson("Lead", "vocals", woman),),
-            sources=(Source(SourceKind.DISCOGS_LINEUP, "c", "2026-05-31"),),
-        ),
-    )
-    assert band.identity.gender is Gender.UNKNOWN  # the band itself has no gender
-    assert identity_segment(band) == FEMALE_FRONTED
+def test_popularity_tier_boundaries() -> None:
+    assert popularity_tier(99_999) == "niche"
+    assert popularity_tier(100_000) == "mid"
+    assert popularity_tier(999_999) == "mid"
+    assert popularity_tier(1_000_000) == "popular"
 
 
-def test_unknown_retention_is_1_across_lens_strengths_on_real_reranked_output() -> None:
-    """The boost-only proof, exercised on rerank's actual emitted output."""
-    base_recs = [
-        _rec(make_artist("man", gender=Gender.MAN), 0.9),
-        _rec(make_artist("woman", gender=Gender.WOMAN), 0.4),
-        _rec(make_artist("unknown-1"), 0.6),
-        _rec(make_artist("unknown-2"), 0.3),
-    ]
-    recs_by_lens = {lens: rerank(base_recs, lens_strength=lens) for lens in (0.0, 0.25, 0.5, 1.0)}
-
-    retention = unknown_retention(recs_by_lens, base_lens=0.0)
-    assert retention == {0.0: 1.0, 0.25: 1.0, 0.5: 1.0, 1.0: 1.0}
-
-    # The proof methods.md cites: this must not raise for real emitted output.
-    assert_unknown_retained(recs_by_lens, base_lens=0.0)
+# -- exposure ----------------------------------------------------------------
+def test_exposure_shares_sum_to_one(profile, catalog, source) -> None:
+    recs = recommend(profile, catalog, source, k=5, lens_strength=0.0)
+    shares = exposure_at_k(recs, k=5)
+    assert set(shares) == set(SEGMENTS)
+    assert sum(shares.values()) == pytest.approx(1.0)
 
 
-def test_assert_unknown_retained_raises_on_a_downranked_unknown() -> None:
-    """The guard actually guards: a synthetic violation is caught, not rubber-stamped."""
-    unknown = make_artist("unknown-1")
-    base = {0.0: [_rec(unknown, 0.6)]}
-    violated = {0.0: [_rec(unknown, 0.6)], 0.5: [_rec(unknown, 0.4)]}  # score dropped
-
-    assert_unknown_retained(base, base_lens=0.0)  # sanity: no violation here
-    with pytest.raises(FairnessAssertionError, match="down-ranked"):
-        assert_unknown_retained(violated, base_lens=0.0)
+def test_exposure_at_k_empty_is_all_zero() -> None:
+    shares = exposure_at_k([], k=5)
+    assert set(shares.values()) == {0.0}
 
 
-def test_assert_unknown_retained_raises_on_a_dropped_unknown() -> None:
-    unknown = make_artist("unknown-1")
-    violated = {0.0: [_rec(unknown, 0.6)], 0.5: []}  # dropped entirely
+def test_lens_shifts_exposure_toward_aligned_segments(profile, catalog, source) -> None:
+    at0 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=0.0), k=5)
+    at1 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=1.0), k=5)
+    aligned0 = sum(at0[s] for s in _ALIGNED)
+    aligned1 = sum(at1[s] for s in _ALIGNED)
+    assert aligned1 >= aligned0  # the lens surfaces more aligned artists, never fewer
 
-    with pytest.raises(FairnessAssertionError, match="dropped"):
-        assert_unknown_retained(violated, base_lens=0.0)
+
+# -- the merge-blocking unknown-retention guarantee --------------------------
+def test_unknown_retention_is_100pct_at_every_lens(profile, catalog, source) -> None:
+    retention = unknown_retention(_recs_by_lens(profile, catalog, source))
+    assert retention  # non-empty sweep
+    assert all(value == 1.0 for value in retention.values())
 
 
-def test_unknown_retention_is_vacuously_1_when_there_are_no_unknowns() -> None:
-    recs_by_lens = {0.0: [_rec(make_artist("w", gender=Gender.WOMAN), 0.5)]}
-    assert unknown_retention(recs_by_lens, base_lens=0.0) == {0.0: 1.0}
+def test_assert_unknown_retained_passes_on_demo_output(profile, catalog, source) -> None:
+    assert_unknown_retained(_recs_by_lens(profile, catalog, source))  # must not raise
+
+
+def test_assert_unknown_retained_detects_a_dropped_unknown() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    woman = make_artist("w", gender=Gender.WOMAN)
+    base = [_rec(unknown, 0.5), _rec(woman, 0.4)]
+    boosted = [_rec(woman, 0.4, delta=0.5)]  # unknown vanished from the output
+    with pytest.raises(FairnessAssertionError):
+        assert_unknown_retained({0.0: base, 1.0: boosted})
+
+
+def test_assert_unknown_retained_detects_a_penalised_unknown() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    base = [_rec(unknown, 0.5)]
+    penalised = [_rec(unknown, 0.3)]  # score lowered by the (mis-implemented) lens
+    with pytest.raises(FairnessAssertionError):
+        assert_unknown_retained({0.0: base, 1.0: penalised})
+
+
+def test_retention_is_one_when_no_unknown_artists_present() -> None:
+    woman = make_artist("w", gender=Gender.WOMAN)
+    retention = unknown_retention({0.0: [_rec(woman, 0.4)], 1.0: [_rec(woman, 0.4, 0.5)]})
+    assert retention == {"0.00": 1.0, "1.00": 1.0}
+
+
+# -- rank shift (honest re-ordering, no score penalty) -----------------------
+def test_rank_shift_moves_aligned_up_without_penalising_unknown(profile, catalog, source) -> None:
+    base = recommend(profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    boosted = recommend(profile, catalog, source, k=len(catalog), lens_strength=1.0)
+    shift = rank_shift_by_segment(base, boosted)
+    assert shift[WOMAN] <= 0.0  # sourced women move up (or stay), never down on average
+    # And the score guarantee still holds even though positions changed:
+    assert_unknown_retained({0.0: base, 1.0: boosted})
+
+
+# -- cross-tab ---------------------------------------------------------------
+def test_crosstab_counts_the_whole_candidate_pool(profile, catalog, source) -> None:
+    recs = recommend(profile, catalog, source, k=len(catalog), lens_strength=0.0)
+    table = popularity_identity_crosstab(recs)
+    total = sum(count for row in table.values() for count in row.values())
+    assert total == len(recs)
+
+
+# -- the full emitted report -------------------------------------------------
+def test_exposure_report_has_expected_shape_and_guarantee(profile, catalog, source) -> None:
+    report = exposure_report(_recs_by_lens(profile, catalog, source), k=5)
+    assert set(report) >= {
+        "k",
+        "lens_strengths",
+        "segments",
+        "exposure_at_k",
+        "unknown_retention",
+        "mean_rank_shift",
+        "popularity_identity_crosstab",
+        "guarantees",
+    }
+    guarantees = report["guarantees"]
+    assert guarantees["unknown_retention_all_lenses"] is True
+    assert guarantees["min_unknown_retention"] == 1.0
+    assert guarantees["unknown_downranked_count"] == 0
+    # exposure emitted at the required lens strengths (0.0 / 0.5 / 1.0 among them):
+    assert {"0.00", "0.50", "1.00"} <= set(report["exposure_at_k"])
+
+
+def test_fairness_report_from_demo_world_satisfies_the_guarantee(
+    demo_user, scrobbles, catalog, source
+) -> None:
+    report = fairness_report(demo_user, scrobbles, catalog, source, k=5)
+    assert report["guarantees"]["unknown_retention_all_lenses"] is True
+    # Every lens strength in the sweep is reported with 100% unknown retention.
+    assert set(report["unknown_retention"].values()) == {1.0}

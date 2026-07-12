@@ -298,7 +298,7 @@ APIs.
   which API, and what to do next; two shells in different cwd's share one
   cache.
 
-## FIX-13 — Scale the scoring path (and settle the numpy question)
+## FIX-13 — Scale the scoring path (and settle the numpy question) — ✅ Done (2026-07-03)
 
 **Pitch:** Make recommendation latency sane on full-history profiles — and
 either use or drop the declared numpy dependency.
@@ -319,6 +319,21 @@ either use or drop the declared numpy dependency.
   snapshots must remain byte-stable (`tests/test_reproducibility.py`).
 - **Excellent looks like:** p95 end-to-end recommend < 2 s on a 50k-scrobble /
   5k-candidate profile, measured and committed; zero unused runtime deps.
+- **Status:** Implemented. The numpy question is settled: `numpy>=1.26` is
+  dropped from `[project.dependencies]` in `pyproject.toml` (it was imported
+  nowhere — `recommender/content.py`'s tag cosine is a sparse dict dot
+  product, which does not benefit from dense numpy vectors) and `uv.lock`
+  regenerated. `scripts/bench.py` (`make bench`) builds a seeded, reproducible
+  synthetic world (200 known + 5,000 candidate artists, 50,000 scrobbles) via
+  `pipeline.models`/`pipeline.lastfm.FixtureLastfm`, and reports p50/p95 for
+  `collaborative_scores`, `content_scores`, and the end-to-end `recommend()`
+  over 20 iterations — all randomness is confined to world generation, never
+  the scored path, so `tests/test_reproducibility.py` stays byte-stable
+  (verified). Measured p95 for `recommend()` is ~140 ms on this machine,
+  comfortably under the 2 s target — `content_scores` (~60 ms), not
+  `collaborative_scores` (~10 ms), is the larger of the two signal costs, but
+  neither is a hotspot at this scale, so no candidate-set pruning was added
+  (kept the diff minimal per the "only if needed" gate in the shape of work).
 
 ## FIX-14 — Honest confidence semantics
 
