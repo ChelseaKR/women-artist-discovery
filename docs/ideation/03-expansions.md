@@ -62,6 +62,9 @@ way.
 can answer "what exactly does this lens boost, and why?" without reading code.
 
 ### EXP-04 — Serendipity control with provably identity-blind diversification
+**Status:** ✅ Implemented — `recommender/diversify.py` provides a deterministic,
+tag-only MMR pass; the CLI and dashboard expose the control, and AST plus
+behavioural tests enforce its identity blindness and score preservation.
 **Pitch:** An "explore ↔ exploit" control that diversifies results (MMR-style
 over tag space) while a test proves diversification never reads identity.
 **Impact:** Single-user discovery tools die of staleness; the collaborative
