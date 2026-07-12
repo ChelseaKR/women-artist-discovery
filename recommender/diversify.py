@@ -58,6 +58,14 @@ def diversify(
     if not (0.0 <= explore <= 1.0):
         raise ValueError("explore must be in [0, 1]")
 
+    limit = len(recs) if k is None else max(0, min(k, len(recs)))
+    if limit == 0:
+        return []
+    # The relevance-only default must remain linear. Greedy MMR would produce
+    # the same order at quadratic cost on large catalogs.
+    if explore == 0.0:
+        return [rec.with_rank(i + 1) for i, rec in enumerate(recs[:limit])]
+
     remaining = list(recs)
     if not remaining:
         return []
@@ -80,7 +88,7 @@ def diversify(
     selected: list[Recommendation] = [remaining.pop(first_idx)]
     selected_tags: list[frozenset[str]] = [tags_by_id[selected[0].artist.artist_id]]
 
-    while remaining:
+    while remaining and len(selected) < limit:
         best_idx = 0
         best_mmr: float | None = None
         for idx, cand in enumerate(remaining):
@@ -100,5 +108,4 @@ def diversify(
         selected.append(chosen)
         selected_tags.append(tags_by_id[chosen.artist.artist_id])
 
-    ranked = [rec.with_rank(i + 1) for i, rec in enumerate(selected)]
-    return ranked[:k] if k is not None else ranked
+    return [rec.with_rank(i + 1) for i, rec in enumerate(selected)]
