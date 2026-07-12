@@ -1,0 +1,179 @@
+{
+  "k": 5,
+  "n_positives": 4,
+  "models": {
+    "hybrid": {
+      "model": "hybrid",
+      "k": 5,
+      "precision_at_k": 0.6,
+      "recall_at_k": 0.75,
+      "map_at_k": 0.6875,
+      "n_positives": 4
+    },
+    "popularity": {
+      "model": "popularity",
+      "k": 5,
+      "precision_at_k": 0.2,
+      "recall_at_k": 0.25,
+      "map_at_k": 0.0833,
+      "n_positives": 4
+    }
+  },
+  "hybrid_beats_popularity": true,
+  "fairness": {
+    "k": 5,
+    "lens_strengths": [
+      0.0,
+      0.25,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "segments": [
+      "woman",
+      "nonbinary",
+      "female-fronted",
+      "man",
+      "other",
+      "unknown"
+    ],
+    "exposure_at_k": {
+      "0.00": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.0,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.2
+      },
+      "0.25": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "0.50": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "0.75": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      },
+      "1.00": {
+        "woman": 0.8,
+        "nonbinary": 0.0,
+        "female-fronted": 0.2,
+        "man": 0.0,
+        "other": 0.0,
+        "unknown": 0.0
+      }
+    },
+    "unknown_retention": {
+      "0.00": 1.0,
+      "0.25": 1.0,
+      "0.50": 1.0,
+      "0.75": 1.0,
+      "1.00": 1.0
+    },
+    "mean_rank_shift": {
+      "0.25": {
+        "woman": -0.4,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.0,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "0.50": {
+        "woman": -0.6,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "0.75": {
+        "woman": -0.6,
+        "nonbinary": -1.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.0
+      },
+      "1.00": {
+        "woman": -0.6,
+        "nonbinary": -2.0,
+        "female-fronted": -1.0,
+        "man": 1.5,
+        "other": 0.0,
+        "unknown": 1.5
+      }
+    },
+    "popularity_identity_crosstab": {
+      "niche": {
+        "woman": 0,
+        "nonbinary": 0,
+        "female-fronted": 0,
+        "man": 0,
+        "other": 0,
+        "unknown": 1
+      },
+      "mid": {
+        "woman": 5,
+        "nonbinary": 1,
+        "female-fronted": 1,
+        "man": 1,
+        "other": 0,
+        "unknown": 0
+      },
+      "popular": {
+        "woman": 0,
+        "nonbinary": 0,
+        "female-fronted": 0,
+        "man": 1,
+        "other": 0,
+        "unknown": 1
+      }
+    },
+    "guarantees": {
+      "unknown_retention_all_lenses": true,
+      "min_unknown_retention": 1.0,
+      "unknown_downranked_count": 0
+    }
+  },
+  "regression_vs_baseline": {
+    "regressed": false,
+    "tolerance": 0.1,
+    "metrics": {
+      "precision_at_k": {
+        "baseline": 0.6,
+        "current": 0.6,
+        "floor": 0.54,
+        "regressed": false
+      },
+      "recall_at_k": {
+        "baseline": 0.75,
+        "current": 0.75,
+        "floor": 0.675,
+        "regressed": false
+      },
+      "map_at_k": {
+        "baseline": 0.6875,
+        "current": 0.6875,
+        "floor": 0.6188,
+        "regressed": false
+      }
+    }
+  }
+}

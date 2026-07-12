@@ -38,25 +38,15 @@ produces real recommendations.
   zero network calls (cache hit rate reported); privacy tests updated in the
   same commit; no coverage drop on core logic.
 
-## FIX-02 — Paginated, incremental scrobble ingest — ✅ Done (2026-07-03)
+## FIX-02 — Paginated, incremental scrobble ingest — **Done**
 
 **Pitch:** Ingest full listening histories, resumably, instead of one page of
 200 recent tracks.
 
-**Status:** Implemented. `ScrobbleSource` gained `scrobbles_since(username,
-since_ts, page_size)`; `FixtureLastfm` filters+sorts its in-memory history,
-and `LastfmClient` paginates `user.getrecenttracks` with `from=`/`page=`,
-reading `@attr.totalPages` until exhausted (`pragma: no cover`, like the rest
-of the live client). `Cache.last_synced_ts(username)` derives the since-cursor
-from `MAX(ts)` on the existing `scrobbles` table — no schema migration needed.
-`ingest()` now fetches only `ts > last_synced_ts` when a cache is present,
-merges it in, and builds the `ListeningProfile` from the full stored history
-(`cache.get_scrobbles`) so play counts reflect everything synced, not just the
-latest delta; the no-cache single-page path is unchanged. Covered by
-`tests/test_ingest.py` (full-history pagination, incremental second sync
-fetching only the delta, and idempotent repeated ingest) and
-`tests/test_cache_serde.py` (watermark derivation). `make test` and `make
-typecheck` both green.
+> `ScrobbleSource.scrobbles_since` now drains paginated history from a stored
+> timestamp watermark. Cached ingest requests only new plays, deduplicates
+> them, and rebuilds the profile from full stored history; repeated syncs are
+> idempotent and test-covered.
 
 - **Why it matters:** Real scrobble histories run 10⁴–10⁵ plays.
   `LastfmClient.recent_scrobbles` makes one call; the recommender's ground
@@ -197,9 +187,14 @@ layer enforces it".
 - **Excellent looks like:** A deliberately-added `requests.get` anywhere in
   `app/` fails two independent gates (scan + socket guard) before review.
 
-## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification
+## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification — **Done**
 
 **Pitch:** Make the Spotify flow follow current native-app OAuth best practice.
+
+> Spotify authorization now uses an in-memory S256 PKCE pair, verifies the
+> returned state for both loopback and pasted-URL flows, and rejects OAuth
+> error redirects. The loopback listener binds only to `127.0.0.1`; the
+> fallback requires the full redirect URL so state is never decorative.
 
 - **Why it matters:** `app/dashboard.py` generates a CSRF `state` (line 86)
   but the paste-the-code flow never verifies the state Spotify returns — the
@@ -242,11 +237,19 @@ layer enforces it".
   app in `docs/audits/`; upstream Streamlit issues filed or worked around;
   the manual SR walkthrough checklist executed against the same surface.
 
-## FIX-10 — Source-conflict surfacing and a local correction ledger
+## FIX-10 — Source-conflict surfacing and a local correction ledger — **Done (2026-07-03)**
 
 **Pitch:** When sources disagree about someone's identity, show the
 disagreement; when a source is wrong, record the correction locally with a
 citation.
+
+> **Status: implemented.** `IdentityLabel` carries neutral conflict metadata;
+> `WhyThisArtist` and the accessible renderer show every disagreeing cited
+> claim. Cache schema v3 adds a cited local corrections ledger without
+> disturbing v2 dedupe/TTL migrations. `wad corrections` records or lists
+> corrections, and `wad refresh` expires stale HTTP rows while preserving the
+> ledger. Local corrections remain visibly labelled in provenance and enter
+> resolution only as cited `ARTIST_STATEMENT` evidence.
 
 - **Why it matters:** `pipeline/identity.py::resolve_identity` silently picks
   the highest-priority source on conflict and caps confidence at 0.5 — the
@@ -293,52 +296,15 @@ examples.
   at least one previously-unknown edge documented (or an explicit note that
   none was found).
 
-## FIX-12 — Operability pass: logging, doctor, data location — ✅ Done (2026-07-03)
+## FIX-12 — Operability pass: logging, doctor, data location — **Done**
 
 **Pitch:** Make failure states legible for a tool that talks to four external
 APIs.
 
-**Status:** Implemented. `pipeline/paths.py` adds `resolve_data_dir()`
-(`WAD_DATA_DIR` env override, else a stdlib-only platformdirs-style per-OS
-default — `~/Library/Application Support/wad` on macOS, `%APPDATA%\wad` on
-Windows, `$XDG_DATA_HOME/wad` (default `~/.local/share/wad`) elsewhere; always
-absolute and cwd-independent) and `default_db_path()` (same, plus
-`mkdir(parents=True, exist_ok=True)`). `pipeline/cache.py`'s `DEFAULT_DB_PATH`
-now derives from `default_db_path()` instead of the old cwd-relative
-`data/cache.db`, and a new `CACHE_SCHEMA_VERSION` constant is stamped into
-`PRAGMA user_version` on first create (never downgraded on open). Verified
-manually that two shells started in different working directories resolve to
-the identical cache file.
-
-`pipeline/logconfig.py` adds `configure_logging()`: a single stdlib
-`logging.StreamHandler` on stderr with a local-only `key=value` formatter —
-no network handler is ever attached (reaffirms FIX-07's no-egress posture;
-`tests/test_privacy.py`'s network-confinement scan now explicitly allowlists
-only `lastfm.py` and `doctor.py`'s opt-in upstream probe). Module loggers live
-under the `wad.*` namespace; `pipeline/ingest.py` logs start/end + elapsed
-time for each ingest stage (fetch, cache, enrich) via `wad.ingest`, and wraps
-the scrobble-fetch and per-artist-enrich calls to log which stage/source
-failed (via `log.exception`) before re-raising — nothing is swallowed.
-
-`pipeline/doctor.py::run_diagnostics()` holds all the diagnostic logic
-(pure, unit-tested); `pipeline/cli.py`'s `wad doctor` subcommand (+
-`--check-upstream`, opt-in and off by default) is thin glue over it, per
-cli.py's existing coverage exclusion. Checks: each API-related env var's
-*presence* only (never its value) — informational, never hard-fails, since
-demo mode needs none of them; the resolved data dir + cache path, whether the
-cache opens, and whether its schema version matches — hard checks, since a
-cache that won't open is exactly the silent failure this command exists to
-catch; and, opt-in only, a reachability ping of the four upstream APIs
-(Last.fm, MusicBrainz, Wikidata, Discogs) — always informational, so a bad
-network never fails an otherwise-healthy local install. Covered by
-`tests/test_paths.py`, `tests/test_doctor.py`, and `tests/test_logconfig.py`
-(env override + cwd-independence, healthy/corrupt/stale-schema cache states,
-missing-vs-present env reporting with no value leakage, upstream
-reachable/unreachable, and the logging formatter/idempotency/no-network-sink
-invariants); `pipeline/ingest.py`'s new failure-logging paths are covered in
-`tests/test_ingest.py`. `make lint`, `make typecheck`, and `make test`
-(97% coverage on core logic) are all green; `wad doctor` and
-`wad doctor --check-upstream` both verified manually.
+> The cache now resolves from `WAD_DATA_DIR` or a stable per-OS user-data
+> directory. `wad doctor` reports environment and cache/schema health, with
+> upstream probes strictly opt-in. Ingest emits local-only structured stage
+> timing and failure logs; no logging transport leaves the machine.
 
 - **Why it matters:** There is no logging anywhere in `pipeline/` or
   `export/`; a live-mode failure (rate limit, expired token, malformed
@@ -377,7 +343,7 @@ either use or drop the declared numpy dependency.
 - **Excellent looks like:** p95 end-to-end recommend < 2 s on a 50k-scrobble /
   5k-candidate profile, measured and committed; zero unused runtime deps.
 
-## FIX-14 — Honest confidence semantics
+## FIX-14 — Honest confidence semantics — **DONE (2026-07-03)**
 
 **Pitch:** Stop presenting hand-set constants as percentages.
 
@@ -396,3 +362,19 @@ either use or drop the declared numpy dependency.
 - **Risks/deps:** Pairs naturally with FIX-10; wording is review-gated.
 - **Excellent looks like:** No unexplained numbers in any identity statement;
   the tier vocabulary documented in `docs/audits/identity-data-ethics.md`.
+- **Landed:** `recommender/why.py::artist_identity_phrase` no longer renders
+  `label.confidence` as a `:.0%` percentage. `_confidence_tier(label)` maps the
+  actual cited `SourceKind` to one of three provenance-tied phrases —
+  `"directly stated by the artist"` (artist statement), `"recorded in
+  Wikidata"` (Wikidata P21), or `"editorial database entry"` (MusicBrainz).
+  The numeric value cannot alter that wording. `IdentityLabel.confidence` is kept
+  as an internal-only field for ordering, per the doc's second option — not
+  removed. `app/render.py` and `recommender/explain.py` needed no change
+  (the latter only calls `artist_identity_phrase`; the former never rendered
+  confidence). `tests/test_why.py` gained
+  `test_artist_identity_phrase_uses_qualitative_tier_not_percentage`,
+  asserting the rendered phrase contains `"directly stated by the artist"`
+  and no `%` character; `tests/test_explanation.py` and
+  `tests/test_unknown_first_class.py` had no hard-coded confidence-percentage
+  expectations to update. `docs/audits/identity-data-ethics.md` gained the
+  tier vocabulary under a new "Confidence tiers" policy bullet.
