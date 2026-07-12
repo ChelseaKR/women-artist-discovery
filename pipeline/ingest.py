@@ -162,7 +162,7 @@ def ingest(
                 name,
                 source,
                 enricher,
-                playcount=profile.play_counts.get(artist_id, 0),
+                playcount=int(profile.play_counts.get(artist_id, 0)),
                 cache=cache,
             )
         except Exception:
