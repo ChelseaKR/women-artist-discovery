@@ -31,6 +31,7 @@ def test_report_contains_card_markup(tmp_path: Path) -> None:
     assert "Why this artist" in html
     assert "Identity:" in html
     assert "<table>" in html and "<caption>" in html
+    assert "Privacy note:" in html
 
 
 def test_report_default_out_is_my_discoveries_html(tmp_path: Path, monkeypatch) -> None:
