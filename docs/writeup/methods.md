@@ -1,5 +1,7 @@
 # Values-aware recommendation without inferring identity
 
+Last verified: 2026-07-11
+
 > The engineering-ethics piece [`docs/ROADMAP.md` §9](../ROADMAP.md) calls "the
 > artifact": *"The writeup is the artifact: how to do values-aware recommendation
 > without inferring identity."* This document is that writeup — and, per
