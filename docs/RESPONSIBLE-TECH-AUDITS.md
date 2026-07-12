@@ -41,7 +41,7 @@ Instantiates `/STANDARDS/RESPONSIBLE-TECH-FRAMEWORK.md`. The distinctive edge he
 - **Container scan:** N/A — no `Dockerfile`/container image is built or shipped.
 - **SAST posture:** ruff's bandit (`S`) subset is the real, merge-blocking SAST layer
   (`pyproject.toml` `[tool.ruff.lint] select`), plus CodeQL (`python` + `actions` queries,
-  `.github/workflows/codeql.yml`, nightly + PR). No Semgrep — this pairing is the repo's declared
+  `.github/workflows/codeql.yml`, weekly + manual dispatch). No Semgrep — this pairing is the repo's declared
   SAST posture rather than the standard's default Semgrep expectation; revisit if a Semgrep policy
   pack becomes cheap to run at this repo's scale.
 - **SBOM + signing:** prepared, not yet exercised — `.github/workflows/release.yml` generates a

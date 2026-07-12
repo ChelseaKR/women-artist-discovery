@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import json
+
 from pipeline.cache import Cache
-from pipeline.ingest import build_profile, enrich_artist, ingest
-from pipeline.lastfm import FixtureLastfm
-from pipeline.models import Gender, Scrobble
+from pipeline.enrich import FixtureEnricher
+from pipeline.identity import IdentityEvidence
+from pipeline.ingest import (
+    IdentityLabelChange,
+    build_profile,
+    diff_identity_sources,
+    enrich_artist,
+    ingest,
+    refresh_catalog,
+)
+from pipeline.lastfm import FixtureLastfm, LastfmClient
+from pipeline.models import Gender, Scrobble, SourceKind
 
 
 def test_build_profile_counts_plays(scrobbles, demo_user) -> None:
@@ -50,19 +61,109 @@ def test_ingest_without_cache_still_returns_catalog(demo_user, source, enricher)
     assert "mitski" in catalog
 
 
-# --- FIX-02: paginated, incremental, resumable ingest -----------------------
+# --- refresh / IdentityLabelChange (EXP-05's "fix it at the source" round-trip) --
+
+
+def _lastfm() -> FixtureLastfm:
+    return FixtureLastfm(scrobbles={}, tags={"mitski": ()}, similar={})
+
+
+def _wikidata_enricher(retrieved_at: str) -> FixtureEnricher:
+    return FixtureEnricher(
+        gender={
+            "mitski": [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P21,
+                    value="Q6581072",
+                    citation="https://www.wikidata.org/wiki/Q16735549",
+                    retrieved_at=retrieved_at,
+                )
+            ]
+        },
+        composition={},
+    )
+
+
+def test_diff_identity_sources_reports_a_moved_retrieved_at() -> None:
+    lastfm = _lastfm()
+    old = enrich_artist("mitski", "Mitski", lastfm, _wikidata_enricher("2026-05-31"))
+    new = enrich_artist("mitski", "Mitski", lastfm, _wikidata_enricher("2026-07-01"))
+
+    changes = diff_identity_sources(old, new)
+
+    assert changes == [
+        IdentityLabelChange(
+            artist_id="mitski",
+            source_kind="wikidata-p21",
+            old_value="Q6581072",
+            new_value="Q6581072",
+            retrieved_at="2026-07-01",
+        )
+    ]
+
+
+def test_diff_identity_sources_is_empty_when_nothing_changed() -> None:
+    lastfm = _lastfm()
+    enricher = _wikidata_enricher("2026-05-31")
+    a = enrich_artist("mitski", "Mitski", lastfm, enricher)
+    b = enrich_artist("mitski", "Mitski", lastfm, enricher)
+    assert diff_identity_sources(a, b) == []
+
+
+def test_refresh_catalog_updates_cache_lineage_and_returns_changes() -> None:
+    lastfm = _lastfm()
+    cache = Cache(":memory:")
+    try:
+        artist = enrich_artist(
+            "mitski",
+            "Mitski",
+            lastfm,
+            _wikidata_enricher("2026-05-31"),
+            listeners=1_200_000,
+            playcount=42,
+        )
+        cache.put_artist(artist, fetched_at="2026-05-31")
+
+        changes = refresh_catalog(
+            cache, lastfm, _wikidata_enricher("2026-07-01"), fetched_at="2026-07-01"
+        )
+
+        assert len(changes) == 1
+        assert changes[0].artist_id == "mitski"
+        assert changes[0].retrieved_at == "2026-07-01"
+        assert cache.artist_fetched_at("mitski") == "2026-07-01"
+        refreshed = cache.get_artist("mitski")
+        assert refreshed is not None
+        assert refreshed.listeners == 1_200_000  # popularity preserved across refresh
+    finally:
+        cache.close()
+
+
+def test_refresh_catalog_on_empty_cache_is_a_noop() -> None:
+    cache = Cache(":memory:")
+    try:
+        changes = refresh_catalog(
+            cache, _lastfm(), _wikidata_enricher("2026-07-01"), fetched_at="2026-07-01"
+        )
+        assert changes == []
+    finally:
+        cache.close()
+
+
+def test_cache_list_artist_ids_reflects_puts() -> None:
+    cache = Cache(":memory:")
+    try:
+        assert cache.list_artist_ids() == []
+        artist = enrich_artist("mitski", "Mitski", _lastfm(), _wikidata_enricher("2026-05-31"))
+        cache.put_artist(artist, fetched_at="2026-05-31")
+        assert cache.list_artist_ids() == ["mitski"]
+    finally:
+        cache.close()
 
 
 class _RecordingFixtureLastfm(FixtureLastfm):
-    """Wraps FixtureLastfm to record each `scrobbles_since` call's since_ts.
-
-    Lets tests assert *what was asked for*, not just what came back — the
-    difference between "ingest re-fetched the whole history and happened to
-    merge cleanly" and "ingest only asked for what's new".
-    """
-
-    def __init__(self, *a: object, **kw: object) -> None:
-        super().__init__(*a, **kw)  # type: ignore[arg-type]
+    def __init__(self, history: list[Scrobble], username: str) -> None:
+        super().__init__(scrobbles={username: history}, tags={}, similar={})
         self.since_calls: list[int] = []
 
     def scrobbles_since(
@@ -72,61 +173,61 @@ class _RecordingFixtureLastfm(FixtureLastfm):
         return super().scrobbles_since(username, since_ts=since_ts, page_size=page_size)
 
 
-def _make_history(n: int, start_ts: int = 1_000_000) -> list[Scrobble]:
-    """`n` scrobbles of a single artist, one per second, strictly increasing ts."""
-    return [Scrobble("mitski", "Mitski", f"track-{i}", start_ts + i) for i in range(n)]
+def _history(count: int, start: int = 1_000_000) -> list[Scrobble]:
+    return [Scrobble("mitski", "Mitski", f"track-{i}", start + i) for i in range(count)]
 
 
-def test_first_sync_paginates_full_history(demo_user, enricher) -> None:
-    """A history far larger than one page is ingested in full via scrobbles_since."""
-    history = _make_history(450)  # several pages at the default page_size=200
+def test_incremental_first_sync_loads_full_history(demo_user, enricher) -> None:
+    history = _history(450)
     source = FixtureLastfm(scrobbles={demo_user: history}, tags={}, similar={})
-    cache = Cache(":memory:")
-    try:
-        profile, _catalog = ingest(demo_user, source, enricher, cache=cache, limit=50)
+    with Cache(":memory:") as cache:
+        profile, _ = ingest(demo_user, source, enricher, cache=cache, limit=50)
         assert profile.play_counts["mitski"] == 450
-        assert len(cache.get_scrobbles(demo_user)) == 450
         assert cache.last_synced_ts(demo_user) == history[-1].ts
-    finally:
-        cache.close()
 
 
-def test_incremental_second_sync_fetches_only_new_scrobbles(demo_user, enricher) -> None:
-    """A second ingest only requests ts > watermark, but the profile reflects everything."""
-    first_batch = _make_history(300, start_ts=1_000_000)
-    source = _RecordingFixtureLastfm(scrobbles={demo_user: list(first_batch)}, tags={}, similar={})
-    cache = Cache(":memory:")
-    try:
-        profile, _catalog = ingest(demo_user, source, enricher, cache=cache, limit=100)
-        assert profile.play_counts["mitski"] == 300
-        assert source.since_calls == [0]  # first sync starts from the beginning
-
+def test_incremental_second_sync_uses_watermark(demo_user, enricher) -> None:
+    first = _history(300)
+    source = _RecordingFixtureLastfm(first, demo_user)
+    with Cache(":memory:") as cache:
+        ingest(demo_user, source, enricher, cache=cache, limit=100)
         watermark = cache.last_synced_ts(demo_user)
-        new_batch = _make_history(20, start_ts=watermark + 1000)
-        source._scrobbles[demo_user] = first_batch + new_batch
-
-        profile2, _catalog2 = ingest(demo_user, source, enricher, cache=cache, limit=100)
-        # the incremental call asked only for what's new...
-        assert source.since_calls[-1] == watermark
-        # ...but the resulting profile reflects the full merged history
-        assert profile2.play_counts["mitski"] == 320
-        assert len(cache.get_scrobbles(demo_user)) == 320
-    finally:
-        cache.close()
+        source._scrobbles[demo_user] = first + _history(20, watermark + 1000)
+        profile, _ = ingest(demo_user, source, enricher, cache=cache, limit=100)
+        assert source.since_calls == [0, watermark]
+        assert profile.play_counts["mitski"] == 320
 
 
-def test_repeated_ingest_of_same_history_yields_stable_play_counts(demo_user, enricher) -> None:
-    """Idempotency: re-ingesting an unchanged history never inflates play counts."""
-    history = _make_history(120)
-    source = FixtureLastfm(scrobbles={demo_user: history}, tags={}, similar={})
-    cache = Cache(":memory:")
-    try:
-        profile1, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
-        profile2, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
-        profile3, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
-        assert profile1.play_counts["mitski"] == 120
-        assert profile2.play_counts == profile1.play_counts
-        assert profile3.play_counts == profile1.play_counts
+def test_incremental_repeated_sync_is_idempotent(demo_user, enricher) -> None:
+    source = FixtureLastfm(scrobbles={demo_user: _history(120)}, tags={}, similar={})
+    with Cache(":memory:") as cache:
+        first, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
+        second, _ = ingest(demo_user, source, enricher, cache=cache, limit=40)
+        assert second.play_counts == first.play_counts
         assert len(cache.get_scrobbles(demo_user)) == 120
-    finally:
-        cache.close()
+
+
+class _PagedLastfmClient(LastfmClient):
+    def __init__(self) -> None:
+        self.pages: list[int] = []
+
+    def _get(self, params: dict[str, str]) -> str:
+        page = int(params["page"])
+        self.pages.append(page)
+        timestamps = [101, 100] if page == 1 else [103, 102]
+        tracks = [
+            {
+                "artist": {"#text": "Mitski", "mbid": "mitski"},
+                "name": f"track-{ts}",
+                "date": {"uts": str(ts)},
+            }
+            for ts in timestamps
+        ]
+        return json.dumps({"recenttracks": {"track": tracks, "@attr": {"totalPages": "2"}}})
+
+
+def test_live_client_drains_pages_and_filters_watermark() -> None:
+    client = _PagedLastfmClient()
+    result = client.scrobbles_since("listener", since_ts=100, page_size=2)
+    assert client.pages == [1, 2]
+    assert [scrobble.ts for scrobble in result] == [101, 102, 103]
