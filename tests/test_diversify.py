@@ -115,6 +115,17 @@ def test_explore_zero_is_identity_to_input_order() -> None:
     assert [r.score for r in out] == [r.score for r in recs]
 
 
+def test_explore_zero_k_returns_the_ranked_prefix() -> None:
+    recs = [
+        _rec("a", 0.9, ("pop",)),
+        _rec("b", 0.7, ("jazz",)),
+        _rec("c", 0.5, ("folk",)),
+    ]
+    out = diversify(recs, 0.0, k=2)
+    assert [r.artist.artist_id for r in out] == ["a", "b"]
+    assert [r.rank for r in out] == [1, 2]
+
+
 def test_higher_explore_raises_intra_list_tag_diversity() -> None:
     """Diversity of the top-k rises as ``explore`` increases toward 1."""
     recs = [
@@ -174,7 +185,7 @@ def test_output_is_a_permutation_never_a_rescore(explore: float) -> None:
         assert r.rerank_delta == original.rerank_delta
 
 
-def test_k_slices_after_diversifying_the_full_list() -> None:
+def test_k_limits_the_diversified_prefix() -> None:
     recs = [
         _rec("a", 0.9, ("pop",)),
         _rec("b", 0.7, ("jazz",)),

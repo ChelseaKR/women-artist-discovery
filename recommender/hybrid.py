@@ -94,4 +94,4 @@ def recommend(
     recs = [rec.with_base_rank(base_rank_of[rec.artist.artist_id]) for rec in recs]
 
     ranked = sort_and_rank(recs)
-    return diversify(ranked, explore)[:k]
+    return diversify(ranked, explore, k=k)

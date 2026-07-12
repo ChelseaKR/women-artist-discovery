@@ -17,7 +17,6 @@ dependencies = [
     # advisories (GHSA-gc5v-m9x4-r6x2, PYSEC-2026-141/142) — installable now that the
     # floor is >=3.10. urllib3 is pinned reproducibly via uv.lock.
     "requests>=2.33",
-    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

@@ -12,7 +12,7 @@ A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n bench audit clean
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -120,6 +120,9 @@ eval-real: ## LOCAL-ONLY — real-data eval leg against your own cached scrobble
 
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh
+
+bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble world
+	$(PYTHON) scripts/bench.py
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
