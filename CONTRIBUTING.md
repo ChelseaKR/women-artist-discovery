@@ -112,6 +112,39 @@ review:
 Keep PRs focused and explain the *why* in the description. Review looks hardest at anything near an
 identity label, a ranking signal, or the export egress.
 
+## Fix it at the source
+
+Every identity claim the tool shows already links back to its citation. When a why-card's
+provenance is wrong or stale, the honest fix is to correct it **at the source it came from** —
+never to quietly override it locally. Where a citation resolves to a known upstream edit surface
+(`recommender/upstream.py::upstream_edit_url`), the provenance list carries a labelled **"Fix at
+source"** link next to it:
+
+- A Wikidata `P21` ("sex or gender") citation links to the entity's own page, anchored at the P21
+  statement (`https://www.wikidata.org/wiki/{Qid}#P21`) — Wikidata has no query-string that opens
+  a pre-filled edit form for a specific claim, so this is the safe, honest anchor rather than a
+  fabricated deep link.
+- A MusicBrainz gender or relationship citation links to that artist's `/edit` page.
+- Anything else (a Discogs-lineup-only citation, or a citation that doesn't parse) gets **no**
+  link — never a guessed one.
+
+Clicking the link opens the upstream site's own edit UI in your browser; nothing in this project
+ever writes to Wikidata or MusicBrainz on your behalf. If you note what you're proposing and why,
+file it locally with `wad corrections add --artist <id> --source-kind <kind> --citation <url>
+--proposed <value> --note <why>` (`pipeline/corrections.py`) — a small JSON file next to the local
+cache, never sent anywhere. `wad corrections` lists what's pending.
+
+The round-trip closes itself: make the real edit upstream, then run `wad refresh`. It re-enriches
+the cache, reports any identity-source change it observes (a new `retrieved_at` is the signal an
+edit landed), and reconciles — clearing — any pending correction whose `artist_id` + `source_kind`
+matches.
+
+**TODO (tracked, not yet done):** a real, documented round-trip — a local note filed against a
+genuinely stale Wikidata `P21` claim, the actual edit made on wikidata.org, and a `wad refresh` run
+showing the pending correction reconciled — is EXP-05's excellence bar and is a human follow-up
+outside of code (it requires an account and a real edit on live Wikidata). Record it under
+`docs/audits/` once completed.
+
 ## Reporting bugs and security issues
 
 - **Security or any identity-sourcing / unknown-handling defect:** do **not** open a public issue.

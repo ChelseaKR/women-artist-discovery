@@ -28,7 +28,11 @@ from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Scrobble
 
+from recommender.exposure import exposure_report
 from recommender.hybrid import recommend
+
+DEFAULT_LENS_SWEEP: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
+DEFAULT_REGRESSION_TOLERANCE = 0.10
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -138,6 +142,58 @@ def evaluate(
         "hybrid": _score("hybrid", hybrid_ranked, positives, k),
         "popularity": _score("popularity", pop_ranked, positives, k),
     }
+
+
+def fairness_report(
+    username: str,
+    scrobbles: list[Scrobble],
+    catalog: dict[str, Artist],
+    source: ScrobbleSource,
+    *,
+    k: int = 10,
+    train_frac: float = 0.7,
+    lens_strengths: tuple[float, ...] = DEFAULT_LENS_SWEEP,
+) -> dict[str, object]:
+    """Compute exposure and unknown-retention across a lens sweep."""
+    train, _ = temporal_split(scrobbles, train_frac)
+    base_profile = build_profile(username, train)
+    train_profile = ListeningProfile(
+        username=base_profile.username,
+        play_counts=base_profile.play_counts,
+        artist_names=base_profile.artist_names,
+        tags={aid: catalog[aid].tags for aid in base_profile.play_counts if aid in catalog},
+    )
+    recs_by_lens = {
+        lens: recommend(train_profile, catalog, source, k=len(catalog), lens_strength=lens)
+        for lens in lens_strengths
+    }
+    return exposure_report(recs_by_lens, k=k)
+
+
+def check_regression(
+    current: EvalResult,
+    baseline_metrics: dict[str, float],
+    *,
+    tolerance: float = DEFAULT_REGRESSION_TOLERANCE,
+) -> dict[str, object]:
+    """Compare current hybrid metrics with a committed relative-tolerance floor."""
+    detail: dict[str, dict[str, object]] = {}
+    regressed = False
+    for field in ("precision_at_k", "recall_at_k", "map_at_k"):
+        baseline = baseline_metrics.get(field)
+        if baseline is None:
+            continue
+        current_value = getattr(current, field)
+        floor = baseline * (1.0 - tolerance)
+        field_regressed = current_value < floor
+        regressed = regressed or field_regressed
+        detail[field] = {
+            "baseline": baseline,
+            "current": current_value,
+            "floor": round(floor, 4),
+            "regressed": field_regressed,
+        }
+    return {"regressed": regressed, "tolerance": tolerance, "metrics": detail}
 
 
 @dataclass(frozen=True)

@@ -38,10 +38,15 @@ produces real recommendations.
   zero network calls (cache hit rate reported); privacy tests updated in the
   same commit; no coverage drop on core logic.
 
-## FIX-02 — Paginated, incremental scrobble ingest
+## FIX-02 — Paginated, incremental scrobble ingest — **Done**
 
 **Pitch:** Ingest full listening histories, resumably, instead of one page of
 200 recent tracks.
+
+> `ScrobbleSource.scrobbles_since` now drains paginated history from a stored
+> timestamp watermark. Cached ingest requests only new plays, deduplicates
+> them, and rebuilds the profile from full stored history; repeated syncs are
+> idempotent and test-covered.
 
 - **Why it matters:** Real scrobble histories run 10⁴–10⁵ plays.
   `LastfmClient.recent_scrobbles` makes one call; the recommender's ground
@@ -136,23 +141,16 @@ eval artifact.
   lens 0.0/0.5/1.0; CI fails if an unknown artist ever loses rank to the lens;
   `fairness-identity.md` cites computed numbers, not just tests.
 
-## FIX-06 — De-circularize the eval
-
-**Status: Done (2026-07-03)** — implemented on
-`roadmap/fix-06-de-circularize-the-eval`. `pipeline/fixtures.py` adds four
-independent synthetic worlds (sparse-tags, popularity-skewed,
-no-collaborative-signal, adversarial-near-misses) alongside the disclosed,
-labelled `demo-tuned-indie` world; `recommender/eval.py::evaluate_worlds`
-aggregates across all of them with the tuning caveat embedded in the report
-(`caveats` key) and per-world effect sizes (`map_delta`/`recall_delta`/`lift`/
-`verdict`), not just a boolean. `make eval` now runs the multi-world
-aggregate; `recommender/eval.py::eval_real` + `wad eval-real` +
-`make eval-real` are the separate, human-gated, local-only real-data leg
-(deliberately excluded from `verify`/`audit`/CI) — not yet exercised against
-real data (still gated on FIX-01's live catalog/enrichment landing first).
+## FIX-06 — De-circularize the eval — **Done (synthetic leg)**
 
 **Pitch:** Stop grading the recommender on the fixture that was tuned to make
 it pass.
+
+> `make eval` now aggregates five labelled fixture worlds, reports effect
+> sizes, and embeds the tuning/synthetic-data caveat in its JSON artifact.
+> `make eval-real` is a separate local-only harness that summarizes the
+> operator's cached plays without emitting raw listening data; the real-data
+> run remains honestly human-gated.
 
 - **Why it matters:** `pipeline/demo.py`'s docstring admits the demo world is
   "tuned so the hybrid recommender recovers held-out discoveries". The CI eval
@@ -195,9 +193,14 @@ layer enforces it".
 - **Excellent looks like:** A deliberately-added `requests.get` anywhere in
   `app/` fails two independent gates (scan + socket guard) before review.
 
-## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification
+## FIX-08 — OAuth hardening: PKCE, loopback listener, state verification — **Done**
 
 **Pitch:** Make the Spotify flow follow current native-app OAuth best practice.
+
+> Spotify authorization now uses an in-memory S256 PKCE pair, verifies the
+> returned state for both loopback and pasted-URL flows, and rejects OAuth
+> error redirects. The loopback listener binds only to `127.0.0.1`; the
+> fallback requires the full redirect URL so state is never decorative.
 
 - **Why it matters:** `app/dashboard.py` generates a CSRF `state` (line 86)
   but the paste-the-code flow never verifies the state Spotify returns — the
@@ -240,11 +243,19 @@ layer enforces it".
   app in `docs/audits/`; upstream Streamlit issues filed or worked around;
   the manual SR walkthrough checklist executed against the same surface.
 
-## FIX-10 — Source-conflict surfacing and a local correction ledger
+## FIX-10 — Source-conflict surfacing and a local correction ledger — **Done (2026-07-03)**
 
 **Pitch:** When sources disagree about someone's identity, show the
 disagreement; when a source is wrong, record the correction locally with a
 citation.
+
+> **Status: implemented.** `IdentityLabel` carries neutral conflict metadata;
+> `WhyThisArtist` and the accessible renderer show every disagreeing cited
+> claim. Cache schema v3 adds a cited local corrections ledger without
+> disturbing v2 dedupe/TTL migrations. `wad corrections` records or lists
+> corrections, and `wad refresh` expires stale HTTP rows while preserving the
+> ledger. Local corrections remain visibly labelled in provenance and enter
+> resolution only as cited `ARTIST_STATEMENT` evidence.
 
 - **Why it matters:** `pipeline/identity.py::resolve_identity` silently picks
   the highest-priority source on conflict and caps confidence at 0.5 — the
@@ -291,10 +302,15 @@ examples.
   at least one previously-unknown edge documented (or an explicit note that
   none was found).
 
-## FIX-12 — Operability pass: logging, doctor, data location
+## FIX-12 — Operability pass: logging, doctor, data location — **Done**
 
 **Pitch:** Make failure states legible for a tool that talks to four external
 APIs.
+
+> The cache now resolves from `WAD_DATA_DIR` or a stable per-OS user-data
+> directory. `wad doctor` reports environment and cache/schema health, with
+> upstream probes strictly opt-in. Ingest emits local-only structured stage
+> timing and failure logs; no logging transport leaves the machine.
 
 - **Why it matters:** There is no logging anywhere in `pipeline/` or
   `export/`; a live-mode failure (rate limit, expired token, malformed
@@ -333,7 +349,7 @@ either use or drop the declared numpy dependency.
 - **Excellent looks like:** p95 end-to-end recommend < 2 s on a 50k-scrobble /
   5k-candidate profile, measured and committed; zero unused runtime deps.
 
-## FIX-14 — Honest confidence semantics
+## FIX-14 — Honest confidence semantics — **DONE (2026-07-03)**
 
 **Pitch:** Stop presenting hand-set constants as percentages.
 
@@ -352,3 +368,19 @@ either use or drop the declared numpy dependency.
 - **Risks/deps:** Pairs naturally with FIX-10; wording is review-gated.
 - **Excellent looks like:** No unexplained numbers in any identity statement;
   the tier vocabulary documented in `docs/audits/identity-data-ethics.md`.
+- **Landed:** `recommender/why.py::artist_identity_phrase` no longer renders
+  `label.confidence` as a `:.0%` percentage. `_confidence_tier(label)` maps the
+  actual cited `SourceKind` to one of three provenance-tied phrases —
+  `"directly stated by the artist"` (artist statement), `"recorded in
+  Wikidata"` (Wikidata P21), or `"editorial database entry"` (MusicBrainz).
+  The numeric value cannot alter that wording. `IdentityLabel.confidence` is kept
+  as an internal-only field for ordering, per the doc's second option — not
+  removed. `app/render.py` and `recommender/explain.py` needed no change
+  (the latter only calls `artist_identity_phrase`; the former never rendered
+  confidence). `tests/test_why.py` gained
+  `test_artist_identity_phrase_uses_qualitative_tier_not_percentage`,
+  asserting the rendered phrase contains `"directly stated by the artist"`
+  and no `%` character; `tests/test_explanation.py` and
+  `tests/test_unknown_first_class.py` had no hard-coded confidence-percentage
+  expectations to update. `docs/audits/identity-data-ethics.md` gained the
+  tier vocabulary under a new "Confidence tiers" policy bullet.
