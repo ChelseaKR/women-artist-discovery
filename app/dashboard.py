@@ -187,11 +187,22 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
     with st.expander("What exactly does this lens boost, and why?"):
         st.write(VALUES_LENS.rationale)
         st.caption(VALUES_LENS.harms_note)
+    explore = st.slider(
+        "Serendipity",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.0,
+        step=0.05,
+        help=(
+            "Trades relevance for tag-space variety. This pass reads tags and scores "
+            "only; it never reads identity or composition."
+        ),
+    )
 
     if os.environ.get("WAD_LASTFM_API_KEY") and username != DEMO_USER:
         st.info("Live mode would fetch this user; this demo build uses cached data.")
     profile, catalog, source = _load_demo()
-    recs = recommend(profile, catalog, source, k=10, lens_strength=lens)
+    recs = recommend(profile, catalog, source, k=10, lens_strength=lens, explore=explore)
 
     st.subheader("Score summary")
     st.table(

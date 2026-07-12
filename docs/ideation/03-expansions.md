@@ -40,11 +40,6 @@ falsifiable statement; deepens §D transparency beyond signals+sources.
 no unknown-identity card ever shows a negative shift attributable to the lens.
 
 ### EXP-03 — First-class lens specification (LensSpec)
-**Status:** ✅ Implemented on `roadmap/exp-03-first-class-lens-specification-le`
-— `recommender/lens.py` (`LensSpec`, `VALUES_LENS`), `recommender/rerank.py`
-(delegates to it; `MAX_BOOST` re-exported for compat), `app/dashboard.py`
-(renders the active lens's name + rationale), `docs/audits/identity-data-ethics.md`
-(the `Gender.OTHER` exclusion decided and documented), `tests/test_lens.py`.
 **Pitch:** Make the values lens a declared, inspectable object — which sourced
 attributes count as aligned, what the boost curve is — instead of constants
 scattered in code.
@@ -67,6 +62,9 @@ way.
 can answer "what exactly does this lens boost, and why?" without reading code.
 
 ### EXP-04 — Serendipity control with provably identity-blind diversification
+**Status:** ✅ Implemented — `recommender/diversify.py` provides a deterministic,
+tag-only MMR pass; the CLI and dashboard expose the control, and AST plus
+behavioural tests enforce its identity blindness and score preservation.
 **Pitch:** An "explore ↔ exploit" control that diversifies results (MMR-style
 over tag space) while a test proves diversification never reads identity.
 **Impact:** Single-user discovery tools die of staleness; the collaborative
@@ -81,6 +79,16 @@ similarity — with an AST/behavioural guard in the spirit of
 **Excellence bar:** Diversity metric (intra-list tag distance) demonstrably
 rises with the slider; identity-segment exposure (FIX-05) statistically
 unchanged by the diversifier at any setting.
+**Status:** ✅ Implemented (`roadmap/exp-04-serendipity-control-with-identity`
+branch) — `recommender/diversify.py` adds a greedy MMR pass over `Artist.tags`
+only, gated by an `explore ∈ [0, 1]` slider wired through
+`recommender.hybrid.recommend(..., explore=0.0)` (default unchanged, so the
+offline eval baseline is untouched) and surfaced as a second `--explore` flag
+in `pipeline/cli.py` alongside `--lens`. `tests/test_diversify.py` proves the
+identity-blindness with an AST guard (mirroring
+`tests/test_no_inference.py`), a behavioural diversity-rises-with-explore
+check, and a permutation invariant showing scores are never altered — only
+re-ordered.
 
 ### EXP-05 — "Fix it at the source" contribution flow
 **Pitch:** When a label is missing, stale, or wrong, the UI offers a
