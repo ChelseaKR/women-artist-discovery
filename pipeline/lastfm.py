@@ -223,11 +223,15 @@ def parse_recent_tracks(payload: object) -> list[Scrobble]:
             continue  # malformed/non-numeric timestamp — skip, don't crash the batch
         artist = t.get("artist", {})
         if not isinstance(artist, dict):
-            artist = {}
+            continue
+        artist_id = str(artist.get("mbid") or artist.get("#text", "")).strip()
+        artist_name = str(artist.get("#text", "")).strip()
+        if not artist_id and not artist_name:
+            continue
         out.append(
             Scrobble(
-                artist_id=str(artist.get("mbid") or artist.get("#text", "")).strip(),
-                artist_name=str(artist.get("#text", "")).strip(),
+                artist_id=artist_id,
+                artist_name=artist_name,
                 track=str(t.get("name", "")).strip(),
                 ts=ts_int,
             )

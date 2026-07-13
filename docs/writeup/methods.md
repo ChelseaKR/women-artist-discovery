@@ -96,7 +96,9 @@ The values lens re-ranks, it never penalizes. That's implemented in
 otherwise; `rerank()` asserts `delta >= 0.0`, sorts only the non-unknown
 candidates by boosted score, then reinserts unknown artists in their pure-taste
 slots. By construction, an `UNKNOWN`-identity artist's score and rank are
-invariant to `lens_strength`.
+invariant to `lens_strength`. The optional identity-blind MMR pass receives only
+the movable candidates; `hybrid.recommend()` reconstructs them around those same
+unknown slots before slicing top-k, so exploration cannot undo the guarantee.
 
 "True by construction" is a claim about the code. It is only a credible claim
 about the *product* once it's checked against what the pipeline actually emits —
@@ -109,7 +111,7 @@ top-k check as a number:
 
 > **unknown-retention = 1.0** at every lens strength `[recommender/exposure.py →
 > unknown_retention(); exercised on real reranked output by
-> tests/test_exposure.py::test_unknown_retention_is_1_across_lens_strengths_on_real_reranked_output]`
+> tests/test_exposure.py::test_unknown_slots_survive_end_to_end_exploration]`
 > — 1.0 by construction (§3, `rerank.py`), and checked on emitted output, not
 > asserted in prose, every time `make audit` runs the test suite. The guard
 > itself is tested too: hostile rank-shift and top-k-drop tests build synthetic violations and confirm

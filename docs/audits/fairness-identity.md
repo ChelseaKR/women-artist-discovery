@@ -20,8 +20,9 @@ other), and by **popularity tier** (listener count).
 2. **Representational — unknown erased by the re-rank.**
    *Finding:* the lens is **boost-only** and treats pure-taste unknown positions as
    protected slots; an unknown artist's score and rank are invariant to lens
-   strength, including at the evaluated top-k boundary. `tests/test_unknown_first_class.py`
-   and `tests/test_exposure.py`. This is the project's central fairness guarantee.
+   strength, including after identity-blind exploration and at the evaluated top-k
+   boundary. `tests/test_unknown_first_class.py` and `tests/test_exposure.py`. This is
+   the project's central fairness guarantee.
    → metric *down-ranked-for-unknown = 0*.
 
 3. **Allocational — the lens over-favours already-popular women.**

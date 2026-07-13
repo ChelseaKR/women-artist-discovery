@@ -144,8 +144,10 @@ def test_cli_eval_missing_baseline_warns_but_passes(tmp_path, capsys) -> None:
         '{"metrics": []}',
         '{"metrics": {"map_at_k": true}}',
         '{"metrics": {"map_at_k": NaN}}',
+        '{"metrics": {"map_at_k": 0.5}}',
         '{"metrics": {"map_at_typo": 0.5}}',
-        '{"metrics": {"map_at_k": 0.5}, "tolerance": 1.0}',
+        '{"metrics": {"precision_at_k": 0.5, "recall_at_k": 0.5, "map_at_k": 0.5}, '
+        '"tolerance": 1.0}',
     ],
 )
 def test_cli_eval_rejects_malformed_baseline_cleanly(tmp_path, capsys, payload: str) -> None:
@@ -160,6 +162,18 @@ def test_cli_eval_rejects_malformed_baseline_cleanly(tmp_path, capsys, payload: 
     assert not out.exists()
 
 
+def test_cli_eval_names_every_missing_baseline_metric(tmp_path, capsys) -> None:
+    from pipeline.cli import main as cli_main
+
+    baseline = tmp_path / "partial-baseline.json"
+    baseline.write_text('{"metrics": {"map_at_k": 0.5}}', encoding="utf-8")
+
+    assert cli_main(["eval", "--baseline", str(baseline)]) == 2
+    error = capsys.readouterr().err
+    assert "missing metric(s)" in error
+    assert "precision_at_k" in error and "recall_at_k" in error
+
+
 @pytest.mark.parametrize("command", ["eval", "recommend", "export", "report"])
 def test_cli_rejects_nonpositive_k(command: str) -> None:
     from pipeline.cli import main as cli_main
@@ -172,7 +186,14 @@ def test_cli_rejects_nonpositive_k(command: str) -> None:
 def test_cli_eval_fails_on_regression_vs_baseline(tmp_path, capsys) -> None:
     import json
 
-    impossible = {"metrics": {"map_at_k": 100.0}, "tolerance": 0.10}
+    impossible = {
+        "metrics": {
+            "precision_at_k": 100.0,
+            "recall_at_k": 100.0,
+            "map_at_k": 100.0,
+        },
+        "tolerance": 0.10,
+    }
     baseline = tmp_path / "baseline.json"
     baseline.write_text(json.dumps(impossible), encoding="utf-8")
     code, report = _run_eval(tmp_path, str(baseline))

@@ -17,6 +17,10 @@ particular it never reads ``artist.identity``, ``artist.composition``,
 serendipity knob, not a values lens, and the two must stay structurally
 separate. ``tests/test_diversify.py`` proves this with an AST guard in the
 spirit of ``tests/test_no_inference.py``.
+
+The hybrid orchestrator passes only candidates that are eligible to move and
+reconstructs protected unknown slots afterward. This module remains a generic,
+identity-blind ranking primitive.
 """
 
 from __future__ import annotations

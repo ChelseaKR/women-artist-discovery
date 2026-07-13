@@ -86,9 +86,13 @@ def _load_eval_baseline(path: Path) -> tuple[dict[str, float], float]:
     raw_metrics = document.get("metrics")
     if not isinstance(raw_metrics, dict) or not raw_metrics:
         raise ValueError("baseline metrics must be a non-empty object")
-    unknown = set(raw_metrics) - _BASELINE_METRICS
+    metric_names = set(raw_metrics)
+    missing = _BASELINE_METRICS - metric_names
+    unknown = metric_names - _BASELINE_METRICS
     if unknown:
         raise ValueError(f"baseline contains unknown metric(s): {', '.join(sorted(unknown))}")
+    if missing:
+        raise ValueError(f"baseline is missing metric(s): {', '.join(sorted(missing))}")
     metrics = {
         field: _baseline_number(value, field=f"metrics.{field}")
         for field, value in raw_metrics.items()

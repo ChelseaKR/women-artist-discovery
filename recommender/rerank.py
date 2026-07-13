@@ -54,7 +54,7 @@ def sort_and_rank(recs: list[Recommendation]) -> list[Recommendation]:
     return [rec.with_rank(i + 1) for i, rec in enumerate(ordered)]
 
 
-def _is_unknown(artist: Artist) -> bool:
+def is_unknown_artist(artist: Artist) -> bool:
     """Match the fairness report's sourced-identity segmentation without a cycle."""
     return artist.identity.gender is Gender.UNKNOWN and artist.female_fronted is not True
 
@@ -75,10 +75,10 @@ def rerank(recs: list[Recommendation], lens_strength: float) -> list[Recommendat
         boosted.append(replace(rec, rerank_delta=delta))
 
     movable = sorted(
-        (rec for rec in boosted if not _is_unknown(rec.artist)),
+        (rec for rec in boosted if not is_unknown_artist(rec.artist)),
         key=lambda r: (-r.score, r.artist.artist_id),
     )
     movable_iter = iter(movable)
-    ordered = [rec if _is_unknown(rec.artist) else next(movable_iter) for rec in boosted]
+    ordered = [rec if is_unknown_artist(rec.artist) else next(movable_iter) for rec in boosted]
 
     return [rec.with_rank(i + 1) for i, rec in enumerate(ordered)]

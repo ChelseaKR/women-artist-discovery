@@ -118,6 +118,33 @@ def test_assert_unknown_retained_passes_on_demo_output(profile, catalog, source)
     assert_unknown_retained(_recs_by_lens(profile, catalog, source), k=5)  # must not raise
 
 
+def test_unknown_slots_survive_end_to_end_exploration(profile, catalog, source) -> None:
+    """Post-rerank MMR must not undo the top-k guarantee at the product boundary."""
+    rankings = {
+        lens: recommend(
+            profile,
+            catalog,
+            source,
+            k=5,
+            lens_strength=lens,
+            explore=0.03,
+        )
+        for lens in DEFAULT_LENS_SWEEP
+    }
+
+    assert_unknown_retained(rankings, k=5)
+    unknown_positions = {
+        lens: {
+            rec.artist.artist_id: rec.rank
+            for rec in recs
+            if identity_segment(rec.artist) == UNKNOWN
+        }
+        for lens, recs in rankings.items()
+    }
+    assert all(positions == unknown_positions[0.0] for positions in unknown_positions.values())
+    assert unknown_positions[0.0] == {"mystery-act": 2}
+
+
 def test_assert_unknown_retained_detects_a_dropped_unknown() -> None:
     unknown = make_artist("mystery", gender=Gender.UNKNOWN)
     woman = make_artist("w", gender=Gender.WOMAN)

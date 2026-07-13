@@ -88,8 +88,9 @@ over tag space) while a test proves diversification never reads identity.
 **Impact:** Single-user discovery tools die of staleness; the collaborative
 graph (`recommender/collaborative.py`) converges on near-neighbours. This adds
 freshness without touching the fairness contract.
-**Shape:** A post-rerank diversification pass keyed only on `Artist.tags` and
-similarity — with an AST/behavioural guard in the spirit of
+**Shape:** A post-rerank diversification pass over movable candidates, keyed only
+on `Artist.tags` and similarity; the orchestrator reconstructs the result around
+protected unknown slots before top-k selection. An AST/behavioural guard in the spirit of
 `tests/test_no_inference.py` asserting the diversifier never accesses
 `identity`/`composition`; surfaced as a second explained slider.
 **Effort:** M. **Risks/deps:** Re-ordering interacts with rank-shift wording

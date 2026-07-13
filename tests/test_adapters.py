@@ -93,11 +93,24 @@ def test_parse_recent_tracks_skips_malformed_attr_without_crashing() -> None:
 
 
 def test_parse_recent_tracks_skips_non_object_artist_without_crashing() -> None:
-    """A non-object 'artist' field must be skipped, not crash the whole batch."""
-    payload = {"recenttracks": {"track": [{"name": "T", "artist": "Mitski", "date": {"uts": "1"}}]}}
+    """Malformed artist rows are absent while valid siblings survive."""
+    payload = {
+        "recenttracks": {
+            "track": [
+                {"name": "bad-type", "artist": "Mitski", "date": {"uts": "1"}},
+                {"name": "bad-empty", "artist": {}, "date": {"uts": "2"}},
+                {
+                    "name": "good",
+                    "artist": {"#text": "Mitski", "mbid": "m1"},
+                    "date": {"uts": "3"},
+                },
+            ]
+        }
+    }
     out = parse_recent_tracks(payload)
     assert len(out) == 1
-    assert out[0].artist_id == "" and out[0].artist_name == ""
+    assert out[0].artist_id == "m1" and out[0].artist_name == "Mitski"
+    assert out[0].track == "good" and out[0].ts == 3
 
 
 def test_parse_recent_tracks_skips_non_numeric_timestamp_without_crashing() -> None:
