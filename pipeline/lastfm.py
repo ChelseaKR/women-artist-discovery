@@ -210,19 +210,26 @@ def parse_recent_tracks(payload: object) -> list[Scrobble]:
     for t in tracks:
         if not isinstance(t, dict):
             continue
-        if t.get("@attr", {}).get("nowplaying") == "true":
+        attr = t.get("@attr", {})
+        if isinstance(attr, dict) and attr.get("nowplaying") == "true":
             continue
         date = t.get("date", {})
         ts = date.get("uts") if isinstance(date, dict) else None
         if ts is None:
             continue
+        try:
+            ts_int = int(ts)
+        except (TypeError, ValueError):
+            continue  # malformed/non-numeric timestamp — skip, don't crash the batch
         artist = t.get("artist", {})
+        if not isinstance(artist, dict):
+            artist = {}
         out.append(
             Scrobble(
                 artist_id=str(artist.get("mbid") or artist.get("#text", "")).strip(),
                 artist_name=str(artist.get("#text", "")).strip(),
                 track=str(t.get("name", "")).strip(),
-                ts=int(ts),
+                ts=ts_int,
             )
         )
     return out

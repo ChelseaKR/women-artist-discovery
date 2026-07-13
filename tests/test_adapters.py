@@ -79,6 +79,42 @@ def test_lastfm_parsers_reject_non_object(parser) -> None:
         parser(["not", "an", "object"])
 
 
+def test_parse_recent_tracks_skips_malformed_attr_without_crashing() -> None:
+    """A non-object '@attr' (malformed/untrusted payload) must be skipped, not crash."""
+    payload = {
+        "recenttracks": {
+            "track": [
+                {"name": "T", "artist": {"#text": "A"}, "date": {"uts": "1"}, "@attr": "oops"}
+            ]
+        }
+    }
+    out = parse_recent_tracks(payload)
+    assert len(out) == 1 and out[0].ts == 1
+
+
+def test_parse_recent_tracks_skips_non_object_artist_without_crashing() -> None:
+    """A non-object 'artist' field must be skipped, not crash the whole batch."""
+    payload = {"recenttracks": {"track": [{"name": "T", "artist": "Mitski", "date": {"uts": "1"}}]}}
+    out = parse_recent_tracks(payload)
+    assert len(out) == 1
+    assert out[0].artist_id == "" and out[0].artist_name == ""
+
+
+def test_parse_recent_tracks_skips_non_numeric_timestamp_without_crashing() -> None:
+    """A non-numeric 'uts' (malformed/untrusted payload) must be skipped, not crash."""
+    payload = {
+        "recenttracks": {
+            "track": [
+                {"name": "bad", "artist": {"#text": "A"}, "date": {"uts": "not-a-number"}},
+                {"name": "good", "artist": {"#text": "B", "mbid": "m1"}, "date": {"uts": "100"}},
+            ]
+        }
+    }
+    out = parse_recent_tracks(payload)
+    assert len(out) == 1
+    assert out[0].artist_id == "m1" and out[0].ts == 100
+
+
 # --- enrichment parsers (validation + provenance) ----------------------------
 def test_musicbrainz_gender_valid_and_invalid() -> None:
     ev = parse_musicbrainz_gender({"gender": "Female"}, "mb://1", "2026-05-31")
