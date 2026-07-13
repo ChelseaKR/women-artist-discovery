@@ -108,7 +108,6 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 """
 
-
 class CacheSchemaError(RuntimeError):
     """Raised when a cache file's schema is newer than this code can safely read."""
 
@@ -160,8 +159,12 @@ class Cache:
 
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
-        if isinstance(db_path, Path):
-            db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure the parent directory exists regardless of whether the caller
+        # passed a Path or a plain str (the CLI passes ``--db`` as a str, so a
+        # Path-only check here previously left `data/` uncreated and crashed
+        # with sqlite3.OperationalError on a fresh clone). ``:memory:``'s
+        # "parent" is just ``.``, which always exists, so this is a no-op there.
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self._migrate()
