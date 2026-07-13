@@ -9,7 +9,7 @@
 |------|-------------|---------------|---------|-----------|
 | Last.fm username | low (personal) | identifies whose history to fetch | in-memory / local cache | until cache cleared |
 | Scrobbles (plays) | personal | the recommendation ground truth | `data/cache.db` (local) | until `make clean` |
-| Enriched artist metadata | public | identity + tags + similarity | `data/cache.db` (local) | re-enriched on demand |
+| Enriched artist metadata | public | identity + tags + similarity | `data/cache.db` (local) | fixture-rewritten on demand; live re-enrichment not shipped |
 | API responses | public | rate-limit-respecting cache | `data/cache.db` (local) | overwritten on refetch |
 | Playlist export (opt-in) | personal | user-initiated push of the recommended artist names to Spotify | none (sent, not stored) | n/a — only on click |
 
@@ -20,8 +20,9 @@ public figures (artists), never about the user.
 
 There are two product data-flow purposes plus one opt-in diagnostic probe:
 
-1. **Last.fm / enrichment fetch** — confined to `pipeline/lastfm.py` (asserted by
-   `tests/test_privacy.py`), cached locally, rate-limit-respecting.
+1. **Last.fm-shaped client / enrichment interfaces** — network-capable Last.fm code
+   is confined to `pipeline/lastfm.py` (asserted by `tests/test_privacy.py`), but no
+   product command currently wires it to a live identity enricher.
 2. **Playlist export** (`export/`) — the project's only *user-initiated* egress.
    It is opt-in (nothing leaves on load), runs only when the user clicks
    export/connect, and sends just the recommended **artist names** (a public

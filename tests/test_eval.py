@@ -136,6 +136,39 @@ def test_cli_eval_missing_baseline_warns_but_passes(tmp_path, capsys) -> None:
     assert "fairness" in report  # fairness block is emitted regardless
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{",
+        "{}",
+        '{"metrics": []}',
+        '{"metrics": {"map_at_k": true}}',
+        '{"metrics": {"map_at_k": NaN}}',
+        '{"metrics": {"map_at_typo": 0.5}}',
+        '{"metrics": {"map_at_k": 0.5}, "tolerance": 1.0}',
+    ],
+)
+def test_cli_eval_rejects_malformed_baseline_cleanly(tmp_path, capsys, payload: str) -> None:
+    from pipeline.cli import main as cli_main
+
+    baseline = tmp_path / "bad-baseline.json"
+    baseline.write_text(payload, encoding="utf-8")
+    out = tmp_path / "eval-report.json"
+
+    assert cli_main(["eval", "--out", str(out), "--baseline", str(baseline)]) == 2
+    assert "invalid eval baseline" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("command", ["eval", "recommend", "export", "report"])
+def test_cli_rejects_nonpositive_k(command: str) -> None:
+    from pipeline.cli import main as cli_main
+
+    with pytest.raises(SystemExit) as exc:
+        cli_main([command, "--k", "0"])
+    assert exc.value.code == 2
+
+
 def test_cli_eval_fails_on_regression_vs_baseline(tmp_path, capsys) -> None:
     import json
 

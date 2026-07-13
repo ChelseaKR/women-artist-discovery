@@ -261,34 +261,34 @@
       "0.25": {
         "woman": 0.8,
         "nonbinary": 0.0,
-        "female-fronted": 0.2,
+        "female-fronted": 0.0,
         "man": 0.0,
         "other": 0.0,
-        "unknown": 0.0
+        "unknown": 0.2
       },
       "0.50": {
         "woman": 0.8,
         "nonbinary": 0.0,
-        "female-fronted": 0.2,
+        "female-fronted": 0.0,
         "man": 0.0,
         "other": 0.0,
-        "unknown": 0.0
+        "unknown": 0.2
       },
       "0.75": {
         "woman": 0.8,
         "nonbinary": 0.0,
-        "female-fronted": 0.2,
+        "female-fronted": 0.0,
         "man": 0.0,
         "other": 0.0,
-        "unknown": 0.0
+        "unknown": 0.2
       },
       "1.00": {
         "woman": 0.8,
         "nonbinary": 0.0,
-        "female-fronted": 0.2,
+        "female-fronted": 0.0,
         "man": 0.0,
         "other": 0.0,
-        "unknown": 0.0
+        "unknown": 0.2
       }
     },
     "unknown_retention": {
@@ -300,36 +300,36 @@
     },
     "mean_rank_shift": {
       "0.25": {
-        "woman": -0.4,
+        "woman": -0.2,
         "nonbinary": -1.0,
-        "female-fronted": -1.0,
+        "female-fronted": 0.0,
         "man": 1.0,
         "other": 0.0,
-        "unknown": 1.0
+        "unknown": 0.0
       },
       "0.50": {
         "woman": -0.6,
         "nonbinary": -1.0,
-        "female-fronted": -1.0,
-        "man": 1.5,
+        "female-fronted": 0.0,
+        "man": 2.0,
         "other": 0.0,
-        "unknown": 1.0
+        "unknown": 0.0
       },
       "0.75": {
         "woman": -0.6,
         "nonbinary": -1.0,
-        "female-fronted": -1.0,
-        "man": 1.5,
+        "female-fronted": 0.0,
+        "man": 2.0,
         "other": 0.0,
-        "unknown": 1.0
+        "unknown": 0.0
       },
       "1.00": {
         "woman": -0.6,
-        "nonbinary": -2.0,
-        "female-fronted": -1.0,
-        "man": 1.5,
+        "nonbinary": -1.0,
+        "female-fronted": 0.0,
+        "man": 2.0,
         "other": 0.0,
-        "unknown": 1.5
+        "unknown": 0.0
       }
     },
     "popularity_identity_crosstab": {

@@ -32,9 +32,10 @@ source kind for a name, voice, image, or genre. Code: `pipeline/identity.py`.
   `tests/test_identity_model.py::test_female_fronted_is_distinct_from_member_gender`.
 - **Trans inclusion.** Trans women are women; trans men are men (Wikidata QID map
   in `pipeline/identity.py`). Intersex/third-gender are represented, not flattened.
-- **Correctability.** Labels are cache rows keyed to a citation; a wrong source is
-  corrected at the source and re-enriched. Corrupt rows that violate a guardrail
-  fail closed on load (`tests/test_cache_serde.py`).
+- **Correctability.** Labels are cache rows keyed to a citation, and a cited local
+  correction can override a stale claim. Automated re-reading of a corrected
+  upstream source is not shipped because the CLI has no live enricher; corrupt
+  rows that violate a guardrail still fail closed (`tests/test_cache_serde.py`).
 - **Confidence is a tier, never a percentage.** `IdentityLabel.confidence` is an
   internal float used only to order/prioritise sources
   (`pipeline/identity.py::_SOURCE_BASE_CONFIDENCE`: 0.95 artist statement, 0.80

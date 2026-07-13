@@ -5,9 +5,10 @@ mechanically true: the lens can only *add* a non-negative boost to artists whose
 *sourced* identity or *sourced* composition aligns with the lens. It can never
 subtract. Therefore:
 
-* an artist with an UNKNOWN identity keeps its exact base score (delta = 0);
+* an artist with an UNKNOWN identity keeps its exact base score and base rank;
 * a sourced woman/nonbinary/female-fronted artist may move *up*;
-* nothing ever moves *down* because its identity is unknown.
+* aligned artists re-order only the non-unknown slots, so an unknown artist can
+  never fall below the pure-taste position or disappear at a top-k boundary.
 
 ``lens_strength`` ∈ [0, 1] is surfaced in the UI and explained. At 0 the ranking
 is identical to the pure hybrid ranking. The maximum boost is bounded so the lens
@@ -23,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from pipeline.models import Artist, Recommendation
+from pipeline.models import Artist, Gender, Recommendation
 
 from recommender.lens import VALUES_LENS
 
@@ -53,18 +54,31 @@ def sort_and_rank(recs: list[Recommendation]) -> list[Recommendation]:
     return [rec.with_rank(i + 1) for i, rec in enumerate(ordered)]
 
 
+def _is_unknown(artist: Artist) -> bool:
+    """Match the fairness report's sourced-identity segmentation without a cycle."""
+    return artist.identity.gender is Gender.UNKNOWN and artist.female_fronted is not True
+
+
 def rerank(recs: list[Recommendation], lens_strength: float) -> list[Recommendation]:
-    """Apply the boost-only lens and re-sort. Deterministic and non-penalising.
+    """Apply the boost-only lens while protecting every unknown artist's base slot.
 
     Raises ``ValueError`` for a lens strength outside [0, 1].
     """
     if not (0.0 <= lens_strength <= 1.0):
         raise ValueError("lens_strength must be in [0, 1]")
 
+    base_order = sorted(recs, key=lambda r: (-r.base_score, r.artist.artist_id))
     boosted: list[Recommendation] = []
-    for rec in recs:
+    for rec in base_order:
         delta = values_boost(rec, lens_strength)
         assert delta >= 0.0  # invariant: the lens never penalises
         boosted.append(replace(rec, rerank_delta=delta))
 
-    return sort_and_rank(boosted)
+    movable = sorted(
+        (rec for rec in boosted if not _is_unknown(rec.artist)),
+        key=lambda r: (-r.score, r.artist.artist_id),
+    )
+    movable_iter = iter(movable)
+    ordered = [rec if _is_unknown(rec.artist) else next(movable_iter) for rec in boosted]
+
+    return [rec.with_rank(i + 1) for i, rec in enumerate(ordered)]

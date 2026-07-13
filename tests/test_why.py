@@ -90,10 +90,13 @@ def test_rank_shift_statement_wording() -> None:
     assert rank_shift_statement(5, 0) == "the values lens did not change this pick's position"
 
 
-def test_rank_shift_reflects_boost(profile, catalog, source) -> None:
+def test_rank_shift_does_not_misattribute_boost_as_movement(profile, catalog, source) -> None:
     rec = _rec_for(profile, catalog, source, "boygenius", lens=1.0)
-    assert rec.base_rank == 3 and rec.rank == 2
-    assert why_this_artist(rec).rank_shift == "the values lens moved this pick from #3 to #2"
+    assert rec.rerank_delta > 0.0
+    assert rec.base_rank == rec.rank == 3
+    assert why_this_artist(rec).rank_shift == (
+        "the values lens did not change this pick's position"
+    )
 
 
 def test_rank_shift_unchanged_at_zero_lens(profile, catalog, source) -> None:

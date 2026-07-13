@@ -18,9 +18,11 @@ other), and by **popularity tier** (listener count).
    (a nonbinary artist appears in results with a boost and a correct explanation).
 
 2. **Representational — unknown erased by the re-rank.**
-   *Finding:* the lens is **boost-only**; an unknown artist's score is invariant to
-   lens strength and it is never dropped. `tests/test_unknown_first_class.py`. This
-   is the project's central fairness guarantee. → metric *down-ranked-for-unknown = 0*.
+   *Finding:* the lens is **boost-only** and treats pure-taste unknown positions as
+   protected slots; an unknown artist's score and rank are invariant to lens
+   strength, including at the evaluated top-k boundary. `tests/test_unknown_first_class.py`
+   and `tests/test_exposure.py`. This is the project's central fairness guarantee.
+   → metric *down-ranked-for-unknown = 0*.
 
 3. **Allocational — the lens over-favours already-popular women.**
    *Mitigation:* the boost is bounded (`MAX_BOOST`, `recommender/rerank.py`) so it
@@ -47,7 +49,7 @@ per run (deliberately not target-driven — they measure, they do not set quotas
   unknown retention, mean rank shift by identity segment, and a popularity-tier
   cross-tab across a lens sweep, reported in `eval-report.json`. It shows what the
   bounded lens changes while separately enforcing that unknown artists are never
-  dropped or score-penalised. `tests/test_exposure.py`.
+  dropped from top-k, score-penalised, or moved to a worse rank. `tests/test_exposure.py`.
 
 ## Enforcement summary
 

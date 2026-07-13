@@ -3,14 +3,15 @@
 Argparse glue over the library; omitted from coverage accounting, but the gate
 behaviour of ``wad eval`` (exit codes, regression/fairness blocks) and ``wad
 refresh`` is exercised directly by ``tests/test_eval.py`` and
-``tests/test_cache_lifecycle.py``. Live mode (a real Last.fm username) requires
-``WAD_LASTFM_API_KEY`` in the environment.
+``tests/test_cache_lifecycle.py``. All product commands remain demo-first; no
+live identity enricher is constructed here.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +44,60 @@ from pipeline.ingest import diff_identity_labels, refresh_catalog
 from pipeline.logconfig import configure_logging
 from pipeline.models import SourceKind, UnsourcedIdentityError
 
+_BASELINE_METRICS = frozenset({"precision_at_k", "recall_at_k", "map_at_k"})
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
+def _baseline_number(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field} must be a number")
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"{field} must be finite")
+    return parsed
+
+
+def _load_eval_baseline(path: Path) -> tuple[dict[str, float], float]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not parse {path}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise ValueError("baseline root must be an object")
+    raw_metrics = document.get("metrics")
+    if not isinstance(raw_metrics, dict) or not raw_metrics:
+        raise ValueError("baseline metrics must be a non-empty object")
+    unknown = set(raw_metrics) - _BASELINE_METRICS
+    if unknown:
+        raise ValueError(f"baseline contains unknown metric(s): {', '.join(sorted(unknown))}")
+    metrics = {
+        field: _baseline_number(value, field=f"metrics.{field}")
+        for field, value in raw_metrics.items()
+    }
+    tolerance = _baseline_number(document.get("tolerance", 0.10), field="tolerance")
+    if not 0.0 <= tolerance < 1.0:
+        raise ValueError("tolerance must be in [0, 1)")
+    return metrics, tolerance
+
 
 def _cmd_eval(args: argparse.Namespace) -> int:
     scrobbles, catalog, source = demo_scrobbles(), demo_catalog(), demo_source()
@@ -61,11 +116,15 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     baseline_path = Path(args.baseline)
     regression: dict[str, object] | None = None
     if baseline_path.is_file():
-        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        try:
+            baseline_metrics, tolerance = _load_eval_baseline(baseline_path)
+        except ValueError as exc:
+            print(f"invalid eval baseline: {exc}", file=sys.stderr)  # noqa: T201
+            return 2
         regression = check_regression(
             results["hybrid"],
-            baseline["metrics"],
-            tolerance=baseline.get("tolerance", 0.10),
+            baseline_metrics,
+            tolerance=tolerance,
         )
         report["regression_vs_baseline"] = regression
     else:
@@ -112,7 +171,7 @@ def _cmd_eval_real(args: argparse.Namespace) -> int:
 
 
 def _cmd_refresh(args: argparse.Namespace) -> int:
-    """FIX-04: force re-enrichment, report identity-label changes, expire stale http cache."""
+    """Exercise cache refresh with demo fixtures; no upstream enricher is wired."""
     from datetime import date
 
     catalog = demo_catalog()
@@ -125,6 +184,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
     with Cache(args.db) as cache:
         expired = cache.expire_http_cache(ttl_days=args.ttl_days, now=today)
         changes = refresh_catalog(cache, catalog, fetched_at=today)
+    print("DEMO ONLY: rewrote fixture catalog; no upstream identity API was queried")  # noqa: T201
     source_changes = [
         source_change
         for change in changes
@@ -321,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_eval = sub.add_parser("eval", help="offline eval vs popularity baseline")
-    p_eval.add_argument("--k", type=int, default=5)
+    p_eval.add_argument("--k", type=_positive_int, default=5)
     p_eval.add_argument("--out", default="docs/audits/eval-report.json")
     p_eval.add_argument(
         "--baseline",
@@ -335,12 +395,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_eval_real.add_argument("--user", required=True)
     p_eval_real.add_argument("--scrobbles", required=True, metavar="PATH")
-    p_eval_real.add_argument("--k", type=int, default=10)
+    p_eval_real.add_argument("--k", type=_positive_int, default=10)
     p_eval_real.add_argument("--out", default=None)
     p_eval_real.set_defaults(func=_cmd_eval_real)
 
     p_rec = sub.add_parser("recommend", help="print demo recommendations")
-    p_rec.add_argument("--k", type=int, default=10)
+    p_rec.add_argument("--k", type=_positive_int, default=10)
     p_rec.add_argument("--lens", type=float, default=0.5)
     p_rec.add_argument(
         "--explore",
@@ -354,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     p_exp.add_argument(
         "--format", choices=[str(f) for f in ExportFormat], default=str(ExportFormat.TEXT)
     )
-    p_exp.add_argument("--k", type=int, default=10)
+    p_exp.add_argument("--k", type=_positive_int, default=10)
     p_exp.add_argument("--lens", type=float, default=0.5)
     p_exp.add_argument(
         "--explore",
@@ -377,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     p_report = sub.add_parser(
         "report", help="write a self-contained, accessible HTML discovery report"
     )
-    p_report.add_argument("--k", type=int, default=10)
+    p_report.add_argument("--k", type=_positive_int, default=10)
     p_report.add_argument("--lens", type=float, default=0.5)
     p_report.add_argument("--out", default="my-discoveries.html")
     p_report.set_defaults(func=_cmd_report)
@@ -391,15 +451,15 @@ def main(argv: list[str] | None = None) -> int:
     p_doctor.set_defaults(func=_cmd_doctor)
 
     p_ref = sub.add_parser(
-        "refresh", help="re-enrich the local cache, reporting identity-label changes"
+        "refresh", help="DEMO ONLY: rewrite fixture cache; no upstream identity re-enrichment"
     )
     p_ref.add_argument("--db", default=str(DEFAULT_DB_PATH), help="cache database path")
     p_ref.add_argument("--artist", default=None, help="refresh only this artist_id")
     p_ref.add_argument(
         "--ttl-days",
-        type=int,
+        type=_nonnegative_int,
         default=DEFAULT_HTTP_TTL_DAYS,
-        help="expire http-cache rows older than this many days",
+        help="expire demo http-cache rows older than this many days",
     )
     p_ref.add_argument(
         "--pending-corrections",

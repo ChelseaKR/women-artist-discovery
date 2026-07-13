@@ -29,7 +29,7 @@ from recommender.content import ContentResult, content_scores
 from recommender.diversify import diversify
 from recommender.explain import build_explanation
 from recommender.feedback import Feedback, feedback_adjustment
-from recommender.rerank import sort_and_rank, values_boost_for_artist
+from recommender.rerank import rerank, values_boost_for_artist
 
 
 def _normalise(value: float, peak: float) -> float:
@@ -95,13 +95,12 @@ def recommend(
             )
         )
 
-    # Counterfactual pure-taste rank (lens_strength=0): same tie-break as
-    # sort_and_rank, but keyed on base_score alone, so every card can say how
-    # (or whether) the values lens moved it. At lens_strength=0 this is
+    # Counterfactual pure-taste rank (lens_strength=0), keyed on base_score, so every
+    # card can say how (or whether) the values lens moved it. At lens_strength=0 this is
     # identical to the lens-applied order by construction (score == base_score).
     base_ordered = sorted(recs, key=lambda r: (-r.base_score, r.artist.artist_id))
     base_rank_of = {r.artist.artist_id: i + 1 for i, r in enumerate(base_ordered)}
     recs = [rec.with_base_rank(base_rank_of[rec.artist.artist_id]) for rec in recs]
 
-    ranked = sort_and_rank(recs)
+    ranked = rerank(recs, lens_strength)
     return diversify(ranked, explore, k=k)

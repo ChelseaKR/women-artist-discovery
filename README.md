@@ -25,6 +25,11 @@ Your library leans toward women and female-fronted bands by taste, but no recomm
 - **Export your picks:** push the current set to a Spotify playlist (env-configured OAuth), or download a portable, account-free track list (plain text / CSV / M3U / JSPF).
 - **Local-first:** your listening history stays yours. Sanctioned egress is limited to explicit Last.fm fetches, opt-in upstream diagnostics, and user-initiated Spotify export (artist names only).
 
+`wad refresh` is deliberately labeled **demo-only**: it exercises cache expiry and
+before/after reporting with the committed fixture catalog, but it does not query an
+upstream identity provider. Real correction fold-back remains open with the deferred
+live-enrichment work; the command prints this limitation on every run.
+
 ## For Claude Code
 - **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
 - **Hard guardrails:** **never infer an artist's gender or identity from name, voice, image, genre, or any heuristic** — identity labels come only from cited self-identification sources (artist statement, sourced Wikidata P21 claim, MusicBrainz gender field) and must carry that citation; **"unknown" is first-class and must never reduce, down-rank, or drop a recommendation**; "female-fronted" is band-composition metadata (lineup/role), sourced not guessed, and kept distinct from any individual's gender; every recommendation must show why + identity basis + source; do not redistribute a scraped musician-identity dataset (minimize, cite, keep correctable).

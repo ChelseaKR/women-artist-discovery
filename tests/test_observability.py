@@ -21,9 +21,12 @@ def test_panel_aligns_rows_and_retention(profile, catalog, source) -> None:
     assert all(value == 1.0 for value in panel["retention_row"]["by_lens"].values())
 
 
-def test_panel_exposure_changes_for_demo(profile, catalog, source) -> None:
+def test_panel_exposure_preserves_protected_demo_top_k(profile, catalog, source) -> None:
     panel = observability_panel(_rankings(profile, catalog, source), 1.0, k=3)
-    assert any(row["base_share"] != row["current_share"] for row in panel["exposure_rows"])
+    # The demo's top three include an unknown artist in slot 2.  The eligible
+    # artists receive boosts, but none can cross that protected slot, so the
+    # top-three segment shares intentionally stay unchanged.
+    assert all(row["base_share"] == row["current_share"] for row in panel["exposure_rows"])
 
 
 def test_panel_rejects_missing_lenses(profile, catalog, source) -> None:

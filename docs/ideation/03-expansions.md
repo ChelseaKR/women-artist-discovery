@@ -1,10 +1,13 @@
 # Expansions (2026-07-01)
 
-Last verified: 2026-07-11
+Last verified: 2026-07-12
 
 ## Current disposition
 
-- **Implemented:** EXP-01 through EXP-06, EXP-10, and EXP-11.
+- **Implemented:** EXP-01 through EXP-04, EXP-06, EXP-10, and EXP-11.
+- **Partially implemented:** EXP-05 ships edit links and a local pending-correction
+  queue, but `wad refresh` only replays fixtures. A real correction round-trip is
+  still blocked on the deferred live enricher (FIX-01).
 - **Deferred pending provider/live validation:** EXP-07. EXP-08 was reviewed
   and rejected in its current form: ListenBrainz populated playlists require
   MusicBrainz recording MBIDs, while this system recommends artists; claiming
@@ -96,6 +99,8 @@ rises with the slider; identity-segment exposure (FIX-05) statistically
 unchanged by the diversifier at any setting.
 
 ### EXP-05 — "Fix it at the source" contribution flow
+**Status:** Partial — edit links and the queue are implemented; upstream
+reconciliation is not, and the excellence-bar real round-trip remains open.
 **Pitch:** When a label is missing, stale, or wrong, the UI offers a
 pre-filled path to correct it upstream (Wikidata P21 edit page, MusicBrainz
 edit, with the citation the user supplies), and logs the pending correction
