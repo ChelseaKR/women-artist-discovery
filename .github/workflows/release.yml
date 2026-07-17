@@ -18,6 +18,12 @@ on:
 permissions:
   contents: read
 
+# §8b: never cancel an in-flight release; the group still serializes
+# accidental duplicate runs of the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
