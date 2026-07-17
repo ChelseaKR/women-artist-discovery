@@ -21,7 +21,9 @@ files=$(git ls-files '*.py' '*.toml' '*.yml' '*.yaml' '*.sh' '*.md' 2>/dev/null 
 
 found=0
 for pat in "${patterns[@]}"; do
-  if echo "$files" | xargs grep -InE "$pat" 2>/dev/null; then
+  # Honor gitleaks' inline allowlist marker so the fallback and the real
+  # gitleaks scan agree on deliberate test canaries (e.g. tests/test_doctor.py).
+  if echo "$files" | xargs grep -InE "$pat" 2>/dev/null | grep -v 'gitleaks:allow'; then
     found=1
   fi
 done
