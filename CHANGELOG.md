@@ -13,6 +13,12 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- `wad --log-format json`: opt-in JSON log lines on stderr, carrying the same fields as the
+  `key=value` default; logging remains stderr-only with no network sink either way. Makes the
+  README Observability claim true — the flag was documented before it existed.
+- Merge-blocking no-identity-in-logs gate (`tests/test_log_privacy.py`, OBS-11): behavioural and
+  AST-scan proofs that no log call site emits identity vocabulary, extending the no-inference
+  invariant into the log stream.
 - Playlist export: push recommendations to a Spotify playlist (OAuth Authorization Code flow,
   env-only credentials) or download a portable, account-free track list (plain text / CSV / M3U /
   JSPF) (#1).
