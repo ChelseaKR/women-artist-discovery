@@ -40,7 +40,7 @@ from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles,
 from pipeline.doctor import run_diagnostics
 from pipeline.identity import IdentityEvidence
 from pipeline.ingest import diff_identity_labels, refresh_catalog
-from pipeline.logconfig import configure_logging
+from pipeline.logconfig import LOG_FORMATS, configure_logging
 from pipeline.models import SourceKind, UnsourcedIdentityError
 
 
@@ -316,8 +316,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
+    parser.add_argument(
+        "--log-format",
+        choices=LOG_FORMATS,
+        default="kv",
+        help="stderr log line format (default: kv). Both formats are local-only — "
+        "logging never gains a network sink (OBS Tier C).",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_eval = sub.add_parser("eval", help="offline eval vs popularity baseline")
@@ -434,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     p_pending.set_defaults(func=_cmd_pending_corrections)
 
     args = parser.parse_args(argv)
+    configure_logging(log_format=args.log_format)
     return int(args.func(args))
 
 
