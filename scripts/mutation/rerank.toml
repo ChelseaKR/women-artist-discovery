@@ -1,0 +1,17 @@
+# Mutation-testing config (CQ-47) — recommender/rerank.py, the values-aware
+# re-ranker. The never-penalise/boost-only invariant ("unknown never
+# down-ranks, the lens only ever boosts") is enforced here; a surviving mutant
+# is a hole in the safety suite.
+#
+# Driven by scripts/mutation-gate.sh (Makefile `mutation` target, weekly CI in
+# .github/workflows/mutation.yml). Same contract as identity.toml: full unit
+# suite as the killer, coverage disabled per run.
+
+[cosmic-ray]
+module-path = "recommender/rerank.py"
+timeout = 60.0
+excluded-modules = []
+test-command = ".venv/bin/python -m pytest -x -q --no-cov -p no:cacheprovider tests/"
+
+[cosmic-ray.distributor]
+name = "local"

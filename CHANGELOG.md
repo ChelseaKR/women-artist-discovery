@@ -13,6 +13,19 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- Mutation-testing gate on the safety-critical modules (CQ-47): `make mutation` runs cosmic-ray
+  over `pipeline/identity.py` (no-inference) and `recommender/rerank.py` (boost-only), executing
+  the full unit suite against every generated mutant, and fails if fewer than 70% are killed per
+  module (`scripts/mutation-gate.sh`, `scripts/mutation/*.toml`). Runs weekly + on demand in CI
+  (`.github/workflows/mutation.yml`) rather than nightly — a deliberate lean-Actions trade,
+  documented in the workflow. The first run measured identity at only 62.3% killed **despite
+  100% branch coverage** — exactly the coverage-vs-assertion-strength gap CQ-47 names — so this
+  change also hardens `tests/test_identity_model.py` with exact-semantics tests (priority order
+  under conflict, per-kind confidence arithmetic, filter/guard paths). Measured after hardening:
+  identity 107/122 killed (87.7%), rerank 43/44 (97.7%); the survivors are equivalent mutants
+  (enum `is`→`==`, unreachable dict defaults, order-preserving sort-key transforms, no-op
+  rounding widths) plus one weakened defensive `assert delta >= 0.0` whose condition never fires
+  precisely because the boost-only invariant holds upstream.
 - `wad --log-format json`: opt-in JSON log lines on stderr, carrying the same fields as the
   `key=value` default; logging remains stderr-only with no network sink either way. Makes the
   README Observability claim true — the flag was documented before it existed.

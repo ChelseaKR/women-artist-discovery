@@ -1,0 +1,19 @@
+# Mutation-testing config (CQ-47) — pipeline/identity.py, the identity
+# resolver. The no-inference invariant ("identity is sourced, never inferred")
+# makes this the portfolio's clearest mutation-testing candidate: a mutant that
+# survives here is a hole in the safety suite, not a style nit.
+#
+# Driven by scripts/mutation-gate.sh (Makefile `mutation` target, weekly CI in
+# .github/workflows/mutation.yml). The killer is the FULL unit suite — no
+# hand-picked subset — so the kill rate measures the real suite's sensitivity.
+# Coverage plugins are disabled per run (--no-cov): a partial run would trip the
+# 85% fail-under and count every mutant as "killed" spuriously.
+
+[cosmic-ray]
+module-path = "pipeline/identity.py"
+timeout = 60.0
+excluded-modules = []
+test-command = ".venv/bin/python -m pytest -x -q --no-cov -p no:cacheprovider tests/"
+
+[cosmic-ray.distributor]
+name = "local"

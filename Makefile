@@ -12,7 +12,7 @@ A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n bench audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n bench mutation audit clean
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -126,6 +126,13 @@ i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §
 
 bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble world
 	$(PYTHON) scripts/bench.py
+
+# Deliberately NOT part of `verify`: a full-suite-per-mutant run takes minutes,
+# not seconds. It runs weekly + on demand in CI (.github/workflows/mutation.yml)
+# and any time locally. Requires a clean checkout of the two target files —
+# cosmic-ray mutates them in place and restores them (guarded in the script).
+mutation: $(PYTHON) ## Mutation-test identity.py + rerank.py (CQ-47; fails under 70% mutants killed; slow)
+	@./scripts/mutation-gate.sh
 
 audit: a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
