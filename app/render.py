@@ -8,6 +8,9 @@ mechanical WCAG 2.2 AA checks run in CI without a live browser server.
 Accessibility decisions baked in here:
 
 * every page has ``lang`` + a viewport meta (zoom/reflow at 320 px),
+* data tables sit in keyboard-focusable scroll regions so the page itself never
+  scrolls horizontally at 320 px (reflow, verified by the Playwright specs in
+  ``tests/test_e2e_a11y.py``),
 * a skip link to ``<main>`` and proper landmarks/heading order,
 * identity is conveyed as **text**, never colour alone,
 * the score "chart" ships with a real ``<table>`` data equivalent,
@@ -130,15 +133,33 @@ def _row_html(r: Recommendation) -> str:
     )
 
 
+def _scroll_region(label: str, table_html: str) -> str:
+    """Wrap a data table in a keyboard-operable horizontal-scroll region.
+
+    WCAG 2.2 §1.4.10 (Reflow) excepts data tables — genuinely two-dimensional
+    content — from the 320 px no-horizontal-scroll requirement, but only the
+    table itself may scroll: the *page* must still reflow. ``overflow-x: auto``
+    scopes the scrolling to this wrapper, and ``tabindex="0"`` +
+    ``role="region"`` + an accessible name make the region reachable and
+    announceable for keyboard/AT users (axe: scrollable-region-focusable), so
+    Arrow keys can scroll it without a pointer (§2.1.1).
+    """
+    return (
+        f'<div class="table-scroll" role="region" tabindex="0" aria-label="{escape(label)}">'
+        f"{table_html}</div>"
+    )
+
+
 def _table_html(recs: Sequence[Recommendation]) -> str:
     rows = "".join(_row_html(r) for r in recs)
-    return (
+    return _scroll_region(
+        "Recommendation scores table (scrolls sideways on narrow screens)",
         "<table><caption>Recommendation scores (data-table equivalent of "
         "the score chart)</caption><thead><tr>"
         '<th scope="col">Rank</th><th scope="col">Artist</th>'
         '<th scope="col">Taste score</th><th scope="col">Values boost</th>'
         '<th scope="col">Total</th><th scope="col">Identity basis</th>'
-        f"</tr></thead><tbody>{rows}</tbody></table>"
+        f"</tr></thead><tbody>{rows}</tbody></table>",
     )
 
 
@@ -163,14 +184,20 @@ def _exposure_panel_html(panel: dict[str, object] | None) -> str:
         "<h2>Fairness observability</h2>"
         "<p>Exposure changes are shown alongside the merge-blocking "
         "unknown-retention guarantee.</p>"
-        f"<table><caption>Top-{k} exposure share by identity segment — base lens "
-        f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
-        '<th scope="col">Identity segment</th><th scope="col">Base share</th>'
-        f'<th scope="col">Current share</th></tr></thead><tbody>{body}</tbody></table>'
-        "<table><caption>Unknown-identity retention across the lens</caption><thead><tr>"
-        f'<th scope="col">Identity segment</th>{retention_headers}</tr></thead><tbody><tr>'
-        f'<th scope="row">{escape(str(retention["segment"]))}</th>{retention_cells}'
-        "</tr></tbody></table>"
+        + _scroll_region(
+            "Exposure share table (scrolls sideways on narrow screens)",
+            f"<table><caption>Top-{k} exposure share by identity segment — base lens "
+            f"({base_pct}) vs current lens ({current_pct})</caption><thead><tr>"
+            '<th scope="col">Identity segment</th><th scope="col">Base share</th>'
+            f'<th scope="col">Current share</th></tr></thead><tbody>{body}</tbody></table>',
+        )
+        + _scroll_region(
+            "Unknown-identity retention table (scrolls sideways on narrow screens)",
+            "<table><caption>Unknown-identity retention across the lens</caption><thead><tr>"
+            f'<th scope="col">Identity segment</th>{retention_headers}</tr></thead><tbody><tr>'
+            f'<th scope="row">{escape(str(retention["segment"]))}</th>{retention_cells}'
+            "</tr></tbody></table>",
+        )
     )
 
 
@@ -234,11 +261,17 @@ a {{ color: var(--link); }}
 .conflict-heading {{ font-weight: 700; margin: 0 0 0.25rem; }}
 .conflict-heading::before {{ content: "\\26A0  "; }}
 .local-correction {{ font-style: italic; }}
-a:focus, .skip:focus {{ outline: 3px solid var(--focus); }}
+a:focus, .skip:focus, .table-scroll:focus {{ outline: 3px solid var(--focus); }}
 .skip {{ position: absolute; left: -999px; }}
 .skip:focus {{ left: 1rem; top: 1rem; background: var(--bg); }}
+/* Reflow (WCAG 1.4.10): data tables are excepted 2-D content, but only the
+   table may scroll — the wrapper scopes it so the page itself never scrolls
+   horizontally at 320 px. Keyboard-focusable, so Arrow keys can drive it. */
+.table-scroll {{ overflow-x: auto; }}
 table {{ border-collapse: collapse; width: 100%; }}
 th, td {{ border: 1px solid var(--border); padding: 0.4rem; text-align: left; }}
+/* Long unbroken citation URLs must wrap rather than force horizontal scroll. */
+.sources + ul a, .sources a {{ overflow-wrap: anywhere; }}
 @media (prefers-reduced-motion: reduce) {{
   * {{ animation: none !important; transition: none !important; }}
 }}

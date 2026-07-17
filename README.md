@@ -5,9 +5,10 @@
 **Status:** `Beta` · **Track:** Personal (data/ML + small web app) · **License:** MIT · **Data:** personal/local
 
 > **Build:** M0–M6 demo scope implemented. `make verify` runs formatting/lint/SAST,
-> strict typing, 419 tests at 97% coverage, dependency and secret scans, three
-> axe/pa11y renders, offline multiworld evaluation with regression/fairness gates,
-> and the i18n declaration gate. CodeQL, zizmor, OSV, Scorecard, release, and CI
+> strict typing, 433 tests at 97% coverage, dependency and secret scans, three
+> axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion specs
+> (Playwright, required in CI), offline multiworld evaluation with
+> regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV, Scorecard, release, and CI
 > workflows are present; hosted runs are currently unavailable because of the
 > GitHub account billing limit, so the drained queue was gated locally. Review-gated
 > manual screen-reader and keyboard sign-offs remain pending — see
@@ -56,7 +57,7 @@ Inherits [`/STANDARDS`](../STANDARDS/). Per-standard declarations (Documentation
 | 3 | Security & Supply-Chain | Applies — **ASVS 5.0 Level 1** | No auth / no multi-user surface, so L2 controls are N/A (no server); see `docs/RESPONSIBLE-TECH-AUDITS.md` §F |
 | 4 | CI/CD | Applies | CODEOWNERS, workflows, and the live main ruleset are configured; hosted execution is externally blocked by the account billing limit. |
 | 5 | Release & Versioning | Applies — **release-producing, unreleased** | No tag/release exists yet; see `CHANGELOG.md` and `SECURITY.md` for the current stance |
-| 6 | Accessibility | Applies | axe gate blocking (0 violations); manual screen-reader + keyboard sign-offs pending the first release (`docs/audits/accessibility-2026-05-31.md`) |
+| 6 | Accessibility | Applies | axe gate blocking (0 violations) + Playwright keyboard/reflow/reduced-motion specs (`tests/test_e2e_a11y.py`); Lighthouse not wired; manual screen-reader + keyboard sign-offs pending the first release (`docs/audits/accessibility-2026-07-17.md`) |
 | 7 | Observability | Applies — **Tier C** | See Observability section above |
 | 8 | Internationalization | **N/A** | Single-user, operator-only output — `docs/I18N.md` (self-enforced via `scripts/i18n-gate.sh`) |
 | 9 | AI Evaluation | Applies — **narrow** | See AI-evaluation status above |

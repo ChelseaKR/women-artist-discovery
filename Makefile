@@ -12,7 +12,7 @@ A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security a11y eval eval-real i18n bench audit clean
+.PHONY: help install dev verify format lint typecheck test security a11y a11y-e2e eval eval-real i18n bench audit clean
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -25,8 +25,8 @@ help: ## Show this help
 # Bootstraps from uv.lock (CQ-09/SEC-13): `--frozen` refuses to update the lock,
 # so this is also the local lockfile-drift check — if pyproject.toml and uv.lock
 # have drifted apart, this fails loudly instead of silently re-resolving.
-$(PYTHON): pyproject.toml uv.lock ## Bootstrap the virtualenv + dev/app deps from uv.lock (uv sync --frozen)
-	$(UV) sync --frozen --group dev --extra app
+$(PYTHON): pyproject.toml uv.lock ## Bootstrap the virtualenv + dev/e2e/app deps from uv.lock (uv sync --frozen)
+	$(UV) sync --frozen --group dev --group e2e --extra app
 	touch $(PYTHON)
 
 install: $(PYTHON) ## Install the project (editable) with dev + app extras, pinned via uv.lock
@@ -108,6 +108,13 @@ a11y: ## Stage 5 — render the dashboard (auto + pinned light/dark) and run the
 			$(PYTHON) -m app.a11y_check $$f || exit 1; \
 		done; \
 	fi
+
+# The specs also run inside `make test` (they auto-skip when no Chrome/Chromium
+# is reachable); this dedicated entry point makes a missing browser a hard
+# failure, which is exactly how CI runs them (WAD_E2E_REQUIRE=1 on `make
+# verify`), so local and server strictness cannot silently diverge (A11Y-03).
+a11y-e2e: ## Stage 5b — browser-driven keyboard/reflow/reduced-motion specs (Playwright + Chrome)
+	WAD_E2E_REQUIRE=1 $(PYTHON) -m pytest tests/test_e2e_a11y.py -m e2e --no-cov -q
 
 eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baseline on aggregate (FIX-06)
 	$(PYTHON) -m pipeline.cli eval --k 5 --out docs/audits/eval-report.json

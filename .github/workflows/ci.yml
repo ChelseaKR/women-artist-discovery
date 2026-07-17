@@ -52,19 +52,25 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install project (dev + app groups, pinned via uv.lock)
+      - name: Install project (dev + e2e + app groups, pinned via uv.lock)
         run: |
-          uv sync --frozen --group dev --extra app
+          uv sync --frozen --group dev --group e2e --extra app
           npm install -g pa11y@9.1.1  # pinned (zizmor adhoc-packages: was unpinned)
 
-      # The full local gate set — lint, typecheck, test+coverage, security
-      # (pip-audit + secret-scan.sh), a11y (axe=0), eval (beats popularity
-      # baseline), i18n (N/A declaration gate) — in the order Makefile defines.
+      # The full local gate set — lint, typecheck, test+coverage (incl. the
+      # Playwright keyboard/reflow/reduced-motion specs, which use the runner's
+      # preinstalled Chrome — no browser download), security (pip-audit +
+      # secret-scan.sh), a11y (axe=0), eval (beats popularity baseline), i18n
+      # (N/A declaration gate) — in the order Makefile defines.
       # `uv sync` above populates `.venv` at the repo root, which is exactly the
       # Makefile's default `PYTHON ?= .venv/bin/python` — no override needed, so
       # local `make verify` and CI's `make verify` are the literal same command.
+      # WAD_E2E_REQUIRE=1 turns the browser specs' no-browser skip into a hard
+      # failure here: a silent skip in CI would be the A11Y-03 gap again.
       - name: make verify
         run: make verify
+        env:
+          WAD_E2E_REQUIRE: "1"
 
       # Dedicated, annotating secret-scan layer (kept alongside `make security`'s
       # scripts/secret-scan.sh, which falls back to a grep heuristic when the

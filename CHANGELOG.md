@@ -13,6 +13,14 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- Browser-driven accessibility specs (`tests/test_e2e_a11y.py`, A11Y-02/07/08/09): Playwright
+  drives real Chrome over the static render and asserts keyboard completeness (skip link first
+  and working, every interactive element reached in DOM order, no trap, 3px focus visible),
+  320 px reflow (no page-level horizontal scroll), and reduced-motion (the
+  `prefers-reduced-motion` override ships and nothing animates in either preference state).
+  They auto-skip locally without a Chrome/Chromium; CI sets `WAD_E2E_REQUIRE=1` so a missing
+  browser fails there instead of silently weakening the gate. Lighthouse CI remains absent, and
+  the manual screen-reader walkthrough sign-off (M5) remains pending and human-only.
 - `wad --log-format json`: opt-in JSON log lines on stderr, carrying the same fields as the
   `key=value` default; logging remains stderr-only with no network sink either way. Makes the
   README Observability claim true — the flag was documented before it existed.
@@ -34,6 +42,13 @@ tag, not backfilled to an earlier commit date.
 ### Changed
 - Migrated the Python floor from 3.9 to `>=3.10` (#6). Unblocked every dependency fix gated to
   Python ≥3.10 (see Security, below) and dropped Python 3.9 (EOL 2025-10-31) from the CI matrix.
+
+### Fixed
+- 320 px reflow defect caught by the new browser specs: the score-summary and fairness tables
+  forced page-level horizontal scrolling at narrow widths (WCAG 2.2 §1.4.10). Data tables now sit
+  in keyboard-focusable, labelled scroll regions (`role="region"`, `tabindex="0"`,
+  `overflow-x: auto`) so only the excepted two-dimensional content scrolls — Arrow keys operate
+  it, and the page itself reflows; long citation URLs additionally wrap (`overflow-wrap`).
 
 ### Security
 - `persist-credentials: false` on the CI checkout step, so the default `GITHUB_TOKEN` is not
