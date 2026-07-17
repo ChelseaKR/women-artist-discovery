@@ -5,9 +5,6 @@ name: osv-scanner
 # transitive vulnerability is caught even before anything is installed from it.
 
 on:
-  push:
-    branches: [main]
-    paths: ["uv.lock", "pyproject.toml"]
   pull_request:
     branches: [main]
     paths: ["uv.lock", "pyproject.toml"]
@@ -18,8 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: osv-scanner-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: osv-scanner-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   scan:
