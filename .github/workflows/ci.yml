@@ -1,23 +1,26 @@
 name: ci
 
 # Mirrors QUALITY-AND-METRICS-STANDARD §"enforcement pipeline". Every stage is
-# blocking; a merge to main requires this workflow green (branch protection, no
-# admin bypass — see docs/audits/branch-ruleset.json for the target ruleset).
+# blocking; a merge to main requires Python 3.12 and 3.13 green (branch
+# protection, no admin bypass — see docs/audits/branch-ruleset.json for the
+# target ruleset). The full supported-version matrix runs weekly and on demand
+# instead of four more times after every merge.
 # `make verify` runs the exact same stages locally — CI just invokes that one
 # target instead of re-listing its steps, so the two cannot drift (CICD-27).
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "11 5 * * 2"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -26,7 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         # Python 3.9 dropped (EOL 2025-10-31). Floor is now >=3.10.
-        python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.12"]') || fromJSON('["3.10", "3.11", "3.12", "3.13"]') }}
+        # Branch protection requires the two current runtimes on PRs. Older
+        # supported runtimes are compatibility coverage, not duplicate merge
+        # gates, and therefore run on the weekly/manual matrix.
+        python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.12", "3.13"]') || fromJSON('["3.10", "3.11", "3.12", "3.13"]') }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -65,7 +71,9 @@ jobs:
       # gitleaks binary isn't installed locally — this is the real gitleaks scan
       # with PR file annotations).
       - name: Secret scan (gitleaks, annotated)
-        if: github.event_name != 'pull_request'
+        # One annotated scan per workflow is enough; running it inside every
+        # compatibility-matrix copy only multiplies identical work.
+        if: matrix.python-version == '3.12'
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,5 +82,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: audit-artifacts
+          name: audit-artifacts-${{ matrix.python-version }}
           path: docs/audits/
