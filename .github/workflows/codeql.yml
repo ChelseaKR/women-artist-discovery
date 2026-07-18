@@ -7,6 +7,8 @@ name: codeql
 
 on:
   workflow_dispatch: {}
+  pull_request:
+    branches: [main]  # CI-CD-STANDARD §11e: PRs into main + weekly schedule
   schedule:
     - cron: '17 4 * * 6' # weekly — re-armed 2026-07-11 (metrics plan Phase 0.2)
 
