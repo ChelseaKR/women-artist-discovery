@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -157,7 +157,7 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            today = datetime.now(timezone.utc).date().isoformat()
+            today = datetime.now(UTC).date().isoformat()
             evidence = IdentityEvidence(
                 kind=SourceKind.ARTIST_STATEMENT,
                 value=args.value,
@@ -198,7 +198,7 @@ def _cmd_pending_corrections(args: argparse.Namespace) -> int:
             current_value=args.current,
             proposed_value=args.proposed,
             note=args.note,
-            filed_at=datetime.now(timezone.utc).date().isoformat(),
+            filed_at=datetime.now(UTC).date().isoformat(),
             edit_url=edit_url,
         )
         print(f"filed pending correction for {row.artist_id} ({row.source_kind})")  # noqa: T201
@@ -267,7 +267,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_feedback(args: argparse.Namespace) -> int:
     """Record or replace one listener's vote for an artist."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     feedback = Feedback(
         username=args.user,
         artist_id=args.artist,

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from export.models import ExportError, ExportFormat
@@ -55,7 +55,7 @@ def _load_demo() -> tuple[list[Scrobble], dict[str, Artist], ScrobbleSource]:
 
 
 def _year_range(scrobbles: list[Scrobble]) -> tuple[int, int]:
-    years = [datetime.fromtimestamp(item.ts, tz=timezone.utc).year for item in scrobbles]
+    years = [datetime.fromtimestamp(item.ts, tz=UTC).year for item in scrobbles]
     lo, hi = min(years), max(years)
     return (lo - 1, hi + 1) if lo == hi else (lo, hi)
 
@@ -254,8 +254,8 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             max_value=hi_year,
             value=(lo_year, hi_year),
         )
-        era_start = int(datetime(year_from, 1, 1, tzinfo=timezone.utc).timestamp())
-        era_end = int(datetime(year_to, 12, 31, 23, 59, 59, tzinfo=timezone.utc).timestamp())
+        era_start = int(datetime(year_from, 1, 1, tzinfo=UTC).timestamp())
+        era_end = int(datetime(year_to, 12, 31, 23, 59, 59, tzinfo=UTC).timestamp())
 
     if os.environ.get("WAD_LASTFM_API_KEY") and username != DEMO_USER:
         st.info("Live mode would fetch this user; this demo build uses cached data.")
@@ -354,7 +354,7 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             ):
                 vote = -1
             if vote is not None:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 with Cache(DEFAULT_DB_PATH) as cache:
                     cache.record_feedback(
                         Feedback(
