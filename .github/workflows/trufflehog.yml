@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# §11c/§8b: serialize runs; never cancel an in-flight full-history scan.
+concurrency:
+  group: trufflehog-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest

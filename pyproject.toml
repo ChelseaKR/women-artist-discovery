@@ -9,7 +9,7 @@ name = "women-artist-discovery"
 version = "0.1.0"
 description = "A values-aware music-discovery engine with a sourced-not-inferred identity model."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Chelsea" }]
 dependencies = [
@@ -46,6 +46,12 @@ dev = [
     # Property-based guardrail tests (FIX-11) exercise generated inputs.
     "hypothesis>=6",
 ]
+# Browser-driven a11y specs (A11Y-02/07/08/09): keyboard reachability, 320 px
+# reflow, and reduced-motion, run against the static render in a real browser.
+# Split from `dev` so the plain unit-test environment stays browser-free; the
+# specs auto-skip when no Chrome/Chromium is reachable (CI sets
+# WAD_E2E_REQUIRE=1 so a missing browser fails there instead of skipping).
+e2e = ["playwright>=1.55"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["pipeline", "recommender", "app", "export"]
@@ -57,7 +63,7 @@ packages = ["pipeline", "recommender", "app", "export"]
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 src = ["pipeline", "recommender", "app", "tests"]
 
 [tool.ruff.lint]
@@ -82,7 +88,7 @@ max-complexity = 10
 # Type-check gate (CI stage 2) — strict.
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -122,6 +128,13 @@ addopts = [
     "--import-mode=importlib",
 ]
 testpaths = ["tests"]
+markers = [
+    # Browser-driven a11y specs (tests/test_e2e_a11y.py). They need a real
+    # Chrome/Chromium and auto-skip when none is reachable; setting
+    # WAD_E2E_REQUIRE=1 (as CI does) turns that skip into a hard failure so the
+    # server-side gate cannot silently weaken.
+    "e2e: browser-driven accessibility spec (Playwright + Chrome/Chromium)",
+]
 filterwarnings = ["error::DeprecationWarning:pipeline.*", "error::DeprecationWarning:recommender.*"]
 
 [tool.coverage.run]
