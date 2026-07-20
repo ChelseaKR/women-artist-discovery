@@ -54,8 +54,8 @@ for the committed regression baseline):
 Two merge-blocking gates: the hybrid must beat the popularity baseline, and it must not regress
 more than 10% (relative) below the committed baseline on any of precision/recall/MAP@5
 (`recommender/eval.py::check_regression`, AIEV-26/27). A separate, computed exposure/fairness
-report (`recommender/exposure.py`) tracks per-identity-segment exposure@k, rank-shift, and the
-unknown-retention guarantee across a sweep of lens strengths — also emitted into
+report (`recommender/exposure.py`) tracks per-identity-segment exposure@k, rank-shift, and
+unknown-retention@k (top-k presence, score, and rank) across a sweep of lens strengths — emitted into
 `docs/audits/eval-report.json` under `fairness`.
 
 **Caveat on scale:** the eval world today is a small, hand-built demo fixture spanning every

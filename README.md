@@ -53,6 +53,11 @@ username-to-recommendation orchestration (deferred in the roadmap ledger), and
 review-gated manual screen-reader/keyboard sign-offs — see
 [`docs/audits/`](./docs/audits/).
 
+`wad refresh` is deliberately labeled **demo-only**: it exercises cache expiry and
+before/after reporting with the committed fixture catalog, but it does not query an
+upstream identity provider. Real correction fold-back remains open with the deferred
+live-enrichment work; the command prints this limitation on every run.
+
 This project is built in the open: [`docs/RESEARCH-ROADMAP.md`](./docs/RESEARCH-ROADMAP.md),
 [`docs/ideation/`](./docs/ideation/), and [`docs/USER-RESEARCH.md`](./docs/USER-RESEARCH.md)
 are working notes, published deliberately and labeled for what they are (the

@@ -91,3 +91,33 @@ def test_lens_can_reorder_upward_only() -> None:
     assert out["man"].score == 0.9
     assert out["woman"].score == 0.7 + MAX_BOOST
     assert out["woman"].rank == 1 and out["man"].rank == 2
+
+
+def test_unknown_slots_are_pinned_while_other_candidates_reorder() -> None:
+    recs = [
+        _rec(make_artist("unknown-high", gender=Gender.UNKNOWN), 0.8),
+        _rec(make_artist("man", gender=Gender.MAN), 0.7),
+        _rec(make_artist("unknown-low", gender=Gender.UNKNOWN), 0.6),
+        _rec(make_artist("woman", gender=Gender.WOMAN), 0.5),
+    ]
+
+    base = rerank(recs, lens_strength=0.0)
+    boosted = rerank(recs, lens_strength=1.0)
+    base_unknown_ranks = {
+        rec.artist.artist_id: rec.rank
+        for rec in base
+        if rec.artist.identity.gender is Gender.UNKNOWN
+    }
+    boosted_unknown_ranks = {
+        rec.artist.artist_id: rec.rank
+        for rec in boosted
+        if rec.artist.identity.gender is Gender.UNKNOWN
+    }
+
+    assert boosted_unknown_ranks == base_unknown_ranks == {"unknown-high": 1, "unknown-low": 3}
+    assert [rec.artist.artist_id for rec in boosted] == [
+        "unknown-high",
+        "woman",
+        "unknown-low",
+        "man",
+    ]

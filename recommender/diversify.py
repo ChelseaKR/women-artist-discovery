@@ -17,6 +17,10 @@ particular it never reads ``artist.identity``, ``artist.composition``,
 serendipity knob, not a values lens, and the two must stay structurally
 separate. ``tests/test_diversify.py`` proves this with an AST guard in the
 spirit of ``tests/test_no_inference.py``.
+
+The hybrid orchestrator passes only candidates that are eligible to move and
+reconstructs protected unknown slots afterward. This module remains a generic,
+identity-blind ranking primitive.
 """
 
 from __future__ import annotations
@@ -61,11 +65,16 @@ def diversify(
     limit = len(recs) if k is None else max(0, min(k, len(recs)))
     if limit == 0:
         return []
-    # The relevance-only default must remain non-quadratic. Greedy MMR would produce
-    # the same order at quadratic cost on large catalogs. Sorting also preserves
-    # this public function's contract when a caller supplies an unranked list.
+    # A ranked input came from the values lens and can contain protected unknown
+    # slots, so it must be a true no-op. Preserve the historical convenience for
+    # direct callers that pass unranked (rank=0) recommendations by sorting those.
     if explore == 0.0:
-        ordered = sorted(recs, key=lambda rec: (-rec.score, rec.artist.artist_id))
+        has_complete_ranks = [rec.rank for rec in recs] == list(range(1, len(recs) + 1))
+        ordered = (
+            recs
+            if has_complete_ranks
+            else sorted(recs, key=lambda rec: (-rec.score, rec.artist.artist_id))
+        )
         return [rec.with_rank(i + 1) for i, rec in enumerate(ordered[:limit])]
 
     remaining = list(recs)

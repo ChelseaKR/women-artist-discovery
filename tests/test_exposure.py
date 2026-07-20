@@ -92,6 +92,13 @@ def test_exposure_at_k_empty_is_all_zero() -> None:
     assert set(shares.values()) == {0.0}
 
 
+def test_exposure_metrics_reject_nonpositive_k() -> None:
+    with pytest.raises(ValueError, match="at least 1"):
+        exposure_at_k([], k=0)
+    with pytest.raises(ValueError, match="at least 1"):
+        unknown_retention({0.0: []}, k=0)
+
+
 def test_lens_shifts_exposure_toward_aligned_segments(profile, catalog, source) -> None:
     at0 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=0.0), k=5)
     at1 = exposure_at_k(recommend(profile, catalog, source, k=5, lens_strength=1.0), k=5)
@@ -102,13 +109,40 @@ def test_lens_shifts_exposure_toward_aligned_segments(profile, catalog, source) 
 
 # -- the merge-blocking unknown-retention guarantee --------------------------
 def test_unknown_retention_is_100pct_at_every_lens(profile, catalog, source) -> None:
-    retention = unknown_retention(_recs_by_lens(profile, catalog, source))
+    retention = unknown_retention(_recs_by_lens(profile, catalog, source), k=5)
     assert retention  # non-empty sweep
     assert all(value == 1.0 for value in retention.values())
 
 
 def test_assert_unknown_retained_passes_on_demo_output(profile, catalog, source) -> None:
-    assert_unknown_retained(_recs_by_lens(profile, catalog, source))  # must not raise
+    assert_unknown_retained(_recs_by_lens(profile, catalog, source), k=5)  # must not raise
+
+
+def test_unknown_slots_survive_end_to_end_exploration(profile, catalog, source) -> None:
+    """Post-rerank MMR must not undo the top-k guarantee at the product boundary."""
+    rankings = {
+        lens: recommend(
+            profile,
+            catalog,
+            source,
+            k=5,
+            lens_strength=lens,
+            explore=0.03,
+        )
+        for lens in DEFAULT_LENS_SWEEP
+    }
+
+    assert_unknown_retained(rankings, k=5)
+    unknown_positions = {
+        lens: {
+            rec.artist.artist_id: rec.rank
+            for rec in recs
+            if identity_segment(rec.artist) == UNKNOWN
+        }
+        for lens, recs in rankings.items()
+    }
+    assert all(positions == unknown_positions[0.0] for positions in unknown_positions.values())
+    assert unknown_positions[0.0] == {"mystery-act": 2}
 
 
 def test_assert_unknown_retained_detects_a_dropped_unknown() -> None:
@@ -117,7 +151,7 @@ def test_assert_unknown_retained_detects_a_dropped_unknown() -> None:
     base = [_rec(unknown, 0.5), _rec(woman, 0.4)]
     boosted = [_rec(woman, 0.4, delta=0.5)]  # unknown vanished from the output
     with pytest.raises(FairnessAssertionError):
-        assert_unknown_retained({0.0: base, 1.0: boosted})
+        assert_unknown_retained({0.0: base, 1.0: boosted}, k=2)
 
 
 def test_assert_unknown_retained_detects_a_penalised_unknown() -> None:
@@ -125,12 +159,35 @@ def test_assert_unknown_retained_detects_a_penalised_unknown() -> None:
     base = [_rec(unknown, 0.5)]
     penalised = [_rec(unknown, 0.3)]  # score lowered by the (mis-implemented) lens
     with pytest.raises(FairnessAssertionError):
-        assert_unknown_retained({0.0: base, 1.0: penalised})
+        assert_unknown_retained({0.0: base, 1.0: penalised}, k=1)
+
+
+def test_retention_at_k_detects_rank_loss_hidden_by_full_catalog_presence() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    women = [make_artist(f"w{i}", gender=Gender.WOMAN) for i in range(5)]
+    base = [_rec(women[0], 0.9), _rec(unknown, 0.8), *[_rec(a, 0.7) for a in women[1:]]]
+    boosted = [*[_rec(a, 0.7, delta=0.5) for a in women], _rec(unknown, 0.8)]
+
+    retention = unknown_retention({0.0: base, 1.0: boosted}, k=5)
+    assert retention == {"0.00": 1.0, "1.00": 0.0}
+    with pytest.raises(FairnessAssertionError, match="dropped from top-5"):
+        assert_unknown_retained({0.0: base, 1.0: boosted}, k=5)
+
+
+def test_retention_detects_worse_rank_even_when_unknown_stays_inside_top_k() -> None:
+    unknown = make_artist("mystery", gender=Gender.UNKNOWN)
+    woman = make_artist("w", gender=Gender.WOMAN)
+    man = make_artist("m", gender=Gender.MAN)
+    base = [_rec(unknown, 0.8), _rec(man, 0.7), _rec(woman, 0.6)]
+    shifted = [_rec(woman, 0.6, delta=0.5), _rec(unknown, 0.8), _rec(man, 0.7)]
+
+    with pytest.raises(FairnessAssertionError, match="lost rank"):
+        assert_unknown_retained({0.0: base, 1.0: shifted}, k=3)
 
 
 def test_retention_is_one_when_no_unknown_artists_present() -> None:
     woman = make_artist("w", gender=Gender.WOMAN)
-    retention = unknown_retention({0.0: [_rec(woman, 0.4)], 1.0: [_rec(woman, 0.4, 0.5)]})
+    retention = unknown_retention({0.0: [_rec(woman, 0.4)], 1.0: [_rec(woman, 0.4, 0.5)]}, k=1)
     assert retention == {"0.00": 1.0, "1.00": 1.0}
 
 
@@ -141,7 +198,8 @@ def test_rank_shift_moves_aligned_up_without_penalising_unknown(profile, catalog
     shift = rank_shift_by_segment(base, boosted)
     assert shift[WOMAN] <= 0.0  # sourced women move up (or stay), never down on average
     # And the score guarantee still holds even though positions changed:
-    assert_unknown_retained({0.0: base, 1.0: boosted})
+    assert_unknown_retained({0.0: base, 1.0: boosted}, k=len(base))
+    assert shift[UNKNOWN] == 0.0
 
 
 # -- cross-tab ---------------------------------------------------------------

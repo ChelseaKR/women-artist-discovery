@@ -12,9 +12,9 @@ scratchpad:
 * **Dedupe** — scrobbles carry a ``UNIQUE(username, artist_id, track, ts)`` key and
   are inserted ``OR IGNORE``, so re-ingesting the same history is byte-identical in
   the DB (no duplicate play weights).
-* **TTL** — cached HTTP responses (which back identity claims) can be treated as
-  stale past a TTL and re-fetched, so a corrected upstream claim is not cached
-  forever (RR-2 correction story).
+* **TTL** — cached HTTP responses can be treated as stale past a TTL. This is the
+  storage primitive a future live enricher needs; the shipped demo CLI does not
+  fetch corrected upstream identity claims.
 * **Schema versioning** — ``PRAGMA user_version`` plus a tiny forward-only migration
   runner. Opening an *older* cache migrates it in place; opening a *newer* one fails
   loudly rather than silently misreading.
@@ -160,8 +160,12 @@ class Cache:
 
     def __init__(self, db_path: str | Path = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
-        if isinstance(db_path, Path):
-            db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure the parent directory exists regardless of whether the caller
+        # passed a Path or a plain str (the CLI passes ``--db`` as a str, so a
+        # Path-only check here previously left `data/` uncreated and crashed
+        # with sqlite3.OperationalError on a fresh clone). ``:memory:``'s
+        # "parent" is just ``.``, which always exists, so this is a no-op there.
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self._migrate()
@@ -224,7 +228,7 @@ class Cache:
         return row["fetched_at"] if row else None
 
     def list_artist_ids(self) -> list[str]:
-        """Every cached artist id — the set ``wad refresh`` re-enriches."""
+        """Every cached artist id available to a dependency-injected refresh."""
         rows = self.conn.execute("SELECT artist_id FROM artists").fetchall()
         return [row["artist_id"] for row in rows]
 
@@ -310,8 +314,8 @@ class Cache:
     def expire_http_cache(self, *, ttl_days: int, now: Optional[str] = None) -> int:
         """Delete cached responses older than ``ttl_days``. Returns the number removed.
 
-        The forced re-fetch mechanism behind ``wad refresh``: dropping stale rows
-        makes the next enrichment re-check the upstream identity source.
+        This makes a subsequent live client call miss the cache. The shipped
+        ``wad refresh`` command is fixture-only and does not make that client call.
         """
         rows = self.conn.execute("SELECT url, fetched_at FROM http_cache").fetchall()
         stale = [r["url"] for r in rows if self._is_stale(r["fetched_at"], ttl_days, now)]

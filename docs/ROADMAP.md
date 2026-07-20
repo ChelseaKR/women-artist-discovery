@@ -41,7 +41,7 @@ A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking la
 Per the Documentation Standard ("keep docs live"), decisions the plan didn't anticipate:
 - **Guardrails as type invariants, not just tests.** `IdentityLabel`/`Source`/`BandComposition` in `pipeline/models.py` raise on any unsourced or mis-sourced identity, so a guardrail violation can't even be constructed. The no-inference test (`tests/test_no_inference.py`) adds an AST scan of the resolver as a regression backstop.
 - **`female_fronted` is tri-state** (`True`/`None`), never `False` by inference — absence of a sourced woman/nonbinary front is "unknown", not "male-fronted".
-- **Re-rank is boost-only** (`recommender/rerank.py`), which is how "unknown never penalised" is made mechanically true rather than merely intended; bounded by `MAX_BOOST` so taste is preserved.
+- **Re-rank is boost-only with protected unknown slots** (`recommender/rerank.py`, `recommender/hybrid.py`): unknown scores and pure-taste ranks stay invariant, while aligned artists and identity-blind MMR reorder only sourced non-unknown slots. The full list is reconstructed before top-k selection. The boost remains bounded by `MAX_BOOST` so taste is preserved.
 - **Coverage gate scoped to core logic** (`pipeline` + `recommender`, 94%); the Streamlit UI is verified by the a11y gate + manual walkthrough rather than unit coverage.
 - **A11y gate** = static render (`app/render.py` → `docs/audits/dashboard.html`) checked by `pa11y --runner axe`, with a dependency-free `app/a11y_check.py` fallback for offline/CI-without-Chromium.
 - **Performance/Lighthouse budgets N/A** for this local-first, single-user data app (no hosted LLM/API route) — recorded as residual risk RR-3.
@@ -147,7 +147,7 @@ docs/
 ## 9. Go-to-market & community
 - **Positioning.** "Discovery with a values lens, done right." A thoughtful portfolio piece on responsible, identity-aware ML.
 - **Marketing/comms.** The writeup is the artifact: how to do values-aware recommendation *without* inferring identity. That's a rare, credible engineering-ethics story.
-- **Community.** Contribution guide; a reusable "identity data ethics" doc; a correction mechanism for mislabeled sources.
+- **Community.** Contribution guide and reusable identity-data-ethics doc are shipped; a real upstream correction fold-back mechanism remains open (the current refresh CLI is demo-only).
 
 ## 10. Legal & compliance
 - **API terms** (Last.fm, Discogs, MusicBrainz, Wikidata) honored; **no redistribution** of a scraped identity dataset; personal-use scope; MusicBrainz/Wikidata attribution.
@@ -155,7 +155,7 @@ docs/
 
 ## 11. Operations & sustainability
 - **Hosting/cost.** Runs locally or on a small host; cheap; the cache cuts API load.
-- **Maintenance.** Periodic re-enrichment; source corrections folded back in.
+- **Maintenance.** Cache TTL/diff primitives exist; periodic live re-enrichment and automatic source-correction fold-back remain deferred with FIX-01.
 - **Sustainability.** Single-user, low cost, open methodology survives the maintainer.
 
 ## 12. Responsible-tech summary
