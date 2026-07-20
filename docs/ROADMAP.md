@@ -144,8 +144,7 @@ docs/
 - **M6 — Polish.** Feedback loop, export, discovery report. *Done when all §7 gates pass.*
 - **Claude Code approach.** Write the no-inference guardrail test *first*; identity defaults to unknown everywhere; never let a missing label change a score.
 
-## 9. Go-to-market & community
-- **Positioning.** "Discovery with a values lens, done right." A thoughtful portfolio piece on responsible, identity-aware ML.
+## 9. Community & comms
 - **Marketing/comms.** The writeup is the artifact: how to do values-aware recommendation *without* inferring identity. That's a rare, credible engineering-ethics story.
 - **Community.** Contribution guide and reusable identity-data-ethics doc are shipped; a real upstream correction fold-back mechanism remains open (the current refresh CLI is demo-only).
 
