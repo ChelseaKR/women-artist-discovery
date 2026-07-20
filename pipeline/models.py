@@ -5,7 +5,9 @@ The README guardrails are enforced *here*, in the type system, not merely in tes
 1. Identity is **sourced, never inferred.** A non-``unknown`` gender cannot be
    constructed without at least one citation (:class:`Source`). There is no code
    path that derives gender from a name, voice, image, or genre — and there is no
-   :class:`SourceKind` member that represents such a thing.
+   :class:`SourceKind` member that represents such a thing. ``woman`` includes
+   trans women, explicitly: sourced self-identification is the only test, and the
+   vocabulary deliberately contains no cis/trans distinction to draw.
 2. ``unknown`` is **first-class.** It is a real :class:`Gender` member and the
    default for every artist. Downstream code must never penalise it; the re-rank
    layer is boost-only (see :mod:`recommender.rerank`).

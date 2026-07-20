@@ -2,6 +2,8 @@
 
 **A demo-first music-discovery engine that surfaces new women, nonbinary, and female-fronted artists through an explicit values lens.** It combines collaborative and content signals with a sourced-identity re-ranker. Identity is never inferred, and "unknown" is a normal, first-class answer. The offline demo and pipeline are complete; wiring a real username through live enrichment into the app remains deferred work.
 
+**Trans women are women here — explicitly.** The three terms in the tagline are not redundant; they cover three different shapes: *women* (solo artists whose sourced self-identification is woman — cis or trans, with no distinction drawn anywhere in the data model), *nonbinary* artists (represented as nonbinary, never folded into another category), and *female-fronted* (band-composition metadata: an act whose sourced lineup/role data shows a woman — cis or trans — fronting it, which is a fact about the band, never a claim about any individual). A trans woman artist whose self-identification is sourced is surfaced as a woman, full stop.
+
 **Status:** `Beta` · **Track:** Personal (data/ML + small web app) · **License:** MIT · **Data:** personal/local
 
 > **Build:** M0–M6 demo scope implemented. `make verify` runs formatting/lint/SAST,
@@ -21,14 +23,14 @@ Your library leans toward women and female-fronted bands by taste, but no recomm
 ## What it does
 - **Builds listening profiles** from Last.fm-shaped scrobbles and tags; paginated/incremental client and cache paths are tested, while live app orchestration is still deferred.
 - **Hybrid recommendations:** collaborative similarity + content/tags, then a values-aware re-rank.
-- **Sourced identity, never inferred:** identity basis is shown and cited; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
+- **Sourced identity, never inferred:** identity basis is shown and cited; woman means woman, cis or trans, with no distinction drawn; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
 - **Explains every pick:** a shared "Why this artist" view — why (which signals) + identity basis + provenance (the *raw value each source asserted*, never inferred).
 - **Export your picks:** push the current set to a Spotify playlist (env-configured OAuth), or download a portable, account-free track list (plain text / CSV / M3U / JSPF).
 - **Local-first:** your listening history stays yours. Sanctioned egress is limited to explicit Last.fm fetches, opt-in upstream diagnostics, and user-initiated Spotify export (artist names only).
 
 ## For Claude Code
 - **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
-- **Hard guardrails:** **never infer an artist's gender or identity from name, voice, image, genre, or any heuristic** — identity labels come only from cited self-identification sources (artist statement, sourced Wikidata P21 claim, MusicBrainz gender field) and must carry that citation; **"unknown" is first-class and must never reduce, down-rank, or drop a recommendation**; "female-fronted" is band-composition metadata (lineup/role), sourced not guessed, and kept distinct from any individual's gender; every recommendation must show why + identity basis + source; do not redistribute a scraped musician-identity dataset (minimize, cite, keep correctable).
+- **Hard guardrails:** **never infer an artist's gender or identity from name, voice, image, genre, or any heuristic** — identity labels come only from cited self-identification sources (artist statement, sourced Wikidata P21 claim, MusicBrainz gender field) and must carry that citation; **woman includes trans women explicitly — sourced self-identification is the only test, and no cis/trans distinction exists anywhere in the vocabulary**; **"unknown" is first-class and must never reduce, down-rank, or drop a recommendation**; "female-fronted" is band-composition metadata (lineup/role), sourced not guessed, and kept distinct from any individual's gender; every recommendation must show why + identity basis + source; do not redistribute a scraped musician-identity dataset (minimize, cite, keep correctable).
 - **Commands:** `make dev` · `make verify` · `make a11y` · `make eval`.
 - **Current definition of done:** demo recommendations are explainable and reproducible, sourced identity is enforced, unknown is retained, and every local gate is green. Live username-to-recommendation orchestration is explicitly deferred in the roadmap ledger.
 
