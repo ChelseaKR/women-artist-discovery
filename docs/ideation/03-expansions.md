@@ -188,7 +188,7 @@ artifacts; `scripts/writeup-check.py` prevents its reported metrics drifting.
 **Pitch:** Write the engineering-ethics piece ROADMAP §9 calls "the artifact"
 — "values-aware recommendation without inferring identity" — as a
 docs-plus-runnable-demo bundle.
-**Impact:** ROADMAP's own go-to-market says the writeup is the point; it does
+**Impact:** ROADMAP §9 says the writeup is the point; it does
 not exist. With FIX-05's metrics and the type-level guardrails, this repo can
 back every claim with a command the reader can run offline (`make dev`, demo
 mode, no key).
