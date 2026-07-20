@@ -93,27 +93,28 @@ The values lens re-ranks, it never penalizes. That's implemented in
 [`recommender/rerank.py`](../../recommender/rerank.py):
 `values_boost_for_artist` returns `0.0` for any artist that isn't
 *sourced*-aligned (including every `UNKNOWN` artist) and a non-negative boost
-otherwise; `rerank()` asserts `delta >= 0.0` on every recommendation before
-re-sorting. By construction, an `UNKNOWN`-identity artist's score is invariant to
-`lens_strength` — it can move in *list position* only if a sourced-aligned artist
-is boosted above it, never because its own score dropped.
+otherwise; `rerank()` asserts `delta >= 0.0`, sorts only the non-unknown
+candidates by boosted score, then reinserts unknown artists in their pure-taste
+slots. By construction, an `UNKNOWN`-identity artist's score and rank are
+invariant to `lens_strength`. The optional identity-blind MMR pass receives only
+the movable candidates; `hybrid.recommend()` reconstructs them around those same
+unknown slots before slicing top-k, so exploration cannot undo the guarantee.
 
 "True by construction" is a claim about the code. It is only a credible claim
 about the *product* once it's checked against what the pipeline actually emits —
 which is what [`recommender/exposure.py`](../../recommender/exposure.py) is for.
-`assert_unknown_retained(recs_by_lens, base_lens=0.0)` takes the *emitted*
+`assert_unknown_retained(recs_by_lens, k=..., base_lens=0.0)` takes the *emitted*
 recommendation lists at each lens strength and raises `FairnessAssertionError` if
-any `UNKNOWN`-segment artist present at `lens_strength = 0` (pure taste) is either
-dropped from later output or has its score lowered. `unknown_retention()` reports
-the same check as a number:
+any `UNKNOWN`-segment artist in pure taste's top-k is dropped from that top-k,
+loses score, or moves to a worse rank. `unknown_retention()` reports the same
+top-k check as a number:
 
 > **unknown-retention = 1.0** at every lens strength `[recommender/exposure.py →
 > unknown_retention(); exercised on real reranked output by
-> tests/test_exposure.py::test_unknown_retention_is_1_across_lens_strengths_on_real_reranked_output]`
+> tests/test_exposure.py::test_unknown_slots_survive_end_to_end_exploration]`
 > — 1.0 by construction (§3, `rerank.py`), and checked on emitted output, not
 > asserted in prose, every time `make audit` runs the test suite. The guard
-> itself is tested too: `test_assert_unknown_retained_raises_on_a_downranked_unknown`
-> and `..._raises_on_a_dropped_unknown` build synthetic violations and confirm
+> itself is tested too: hostile rank-shift and top-k-drop tests build synthetic violations and confirm
 > `FairnessAssertionError` actually fires — the check isn't a rubber stamp.
 
 This is the same guarantee `docs/audits/fairness-identity.md` names as "metric

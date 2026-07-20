@@ -1,15 +1,19 @@
 # Large-Scale Fixes (2026-07-01)
 
-Last verified: 2026-07-11
+Last verified: 2026-07-12
 
 ## Current disposition
 
 This was an ideation backlog, not a promise to ship every entry. After the PR
 drain, the ledger is:
 
-- **Implemented:** FIX-02 and FIX-04 through FIX-08, plus FIX-10 through
+- **Implemented:** FIX-02, FIX-05 through FIX-08, plus FIX-10 through
   FIX-14. Their acceptance paths are covered by the cache/ingest, fairness,
   OAuth, property, operability, benchmark, and confidence tests and docs.
+- **Partially implemented:** FIX-04's dedupe, TTL storage primitive, migrations,
+  and before/after diffing are shipped. `wad refresh` currently replays demo
+  fixtures and does **not** call an upstream identity enricher, so real
+  re-enrichment/correction fold-back remains open and depends on FIX-01.
 - **Deferred:** FIX-01 (live username-to-enriched-catalog orchestration) and
   FIX-03 (cross-provider canonical entity resolution). Shipping either without
   real provider contracts, credentials, and live-data validation would turn a
@@ -106,6 +110,9 @@ Discogs.
   zero silent merges.
 
 ## FIX-04 — Cache lifecycle: dedupe, TTL, re-enrichment, migrations
+
+**Status:** Partial. Storage lifecycle and deterministic diffing are implemented;
+the CLI is explicitly demo-only until a live enricher exists.
 
 **Pitch:** Turn the cache from an append-only scratchpad into a managed local
 datastore.

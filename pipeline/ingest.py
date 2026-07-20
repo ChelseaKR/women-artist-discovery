@@ -280,12 +280,12 @@ def refresh_catalog(
     *,
     fetched_at: str,
 ) -> list[LabelChange] | list[IdentityLabelChange]:
-    """Re-persist an enriched catalog, reporting identity-label changes (FIX-04).
+    """Re-persist or dependency-injected re-enrich a catalog, reporting changes.
 
-    The correction path (ROADMAP §9 / RR-2): each freshly-enriched artist is compared
-    against the label the cache currently holds; every changed identity label is
-    reported with its before/after, then the new label is written. Artists absent
-    from the cache are stored without being reported as "changes".
+    Passing a dict compares and writes already-enriched objects; it performs no
+    network fetch. Passing both a ``ScrobbleSource`` and ``EnrichmentSource`` calls
+    those sources for every cached artist. The shipped CLI uses the dict/demo branch
+    because no live ``EnrichmentSource`` is implemented yet (deferred FIX-01).
     """
     if isinstance(catalog_or_source, dict):
         label_changes: list[LabelChange] = []

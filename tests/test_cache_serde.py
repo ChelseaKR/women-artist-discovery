@@ -73,6 +73,22 @@ def test_http_cache_roundtrip(mem_cache) -> None:
     assert mem_cache.get_cached_response("u://1") == "body"
 
 
+def test_cache_creates_missing_parent_dir_for_str_path(tmp_path) -> None:
+    """A str db_path (e.g. from the CLI's --db argument) must create data/ too.
+
+    Previously only a Path instance triggered the mkdir, so `wad refresh` (which
+    passes DEFAULT_DB_PATH's str form) crashed with sqlite3.OperationalError on a
+    fresh clone with no `data/` directory yet.
+    """
+    db_path = str(tmp_path / "nested" / "cache.db")
+    cache = Cache(db_path)
+    try:
+        cache.put_cached_response("u://1", "body", "2026-05-31")
+        assert cache.get_cached_response("u://1") == "body"
+    finally:
+        cache.close()
+
+
 def test_composition_round_trips(mem_cache, catalog) -> None:
     band = catalog["big-thief"]
     assert band.female_fronted is True

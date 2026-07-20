@@ -158,6 +158,8 @@ def test_cli_refresh_populates_a_fresh_cache_and_exits_zero(tmp_path, capsys) ->
     db = tmp_path / "cache.db"
     assert cli_main(["refresh", "--db", str(db)]) == 0
     out = capsys.readouterr().out
+    assert "DEMO ONLY" in out
+    assert "no upstream identity API was queried" in out
     assert "no identity-label changes" in out
     assert "expired 0 stale http-cache row(s)" in out
     with Cache(db) as cache:
@@ -167,3 +169,9 @@ def test_cli_refresh_populates_a_fresh_cache_and_exits_zero(tmp_path, capsys) ->
 def test_cli_refresh_unknown_artist_fails(tmp_path, capsys) -> None:
     assert cli_main(["refresh", "--db", str(tmp_path / "c.db"), "--artist", "nope"]) == 1
     assert "no such artist" in capsys.readouterr().err
+
+
+def test_cli_refresh_rejects_negative_ttl(tmp_path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main(["refresh", "--db", str(tmp_path / "c.db"), "--ttl-days", "-1"])
+    assert exc.value.code == 2

@@ -10,11 +10,11 @@
 |---|---|
 | **Motivation** — why does this data exist? | `docs/audits/identity-data-ethics.md` intro: doing values-aware recommendation without inferring, essentializing, or building a misusable gender database. |
 | **Composition** — what's in it? | Two distinct datasets, handled differently: (1) a person's own Last.fm scrobbles/tags (personal, local-only — `docs/audits/privacy-notes.md`), and (2) sourced artist-identity metadata from Wikidata P21 / MusicBrainz gender / Discogs lineup (`docs/audits/identity-data-ethics.md` "Permitted identity sources" table). |
-| **Collection process** | On-demand resolution per artist encountered in a user's listening history — never a bulk scrape (`identity-data-ethics.md` "Non-redistribution"). Listening data comes from the user's own authenticated Last.fm history via `pipeline/lastfm.py`. |
+| **Collection process** | The shipped product uses committed Last.fm-shaped and identity fixtures. The library has source interfaces and parsers, but live username-to-enriched-catalog orchestration is explicitly deferred; it must remain on-demand rather than become a bulk scrape. |
 | **Preprocessing / cleaning** | Identity resolution is a strict, sourced-only mapping (`pipeline/identity.py`) — no cleaning step ever infers or corrects a label without a new citation; unrecognised/ambiguous values resolve to `unknown` (fail-safe, not fail-open). |
 | **Uses** | Ranking and re-ranking artists for one listener; explaining each recommendation's identity basis. Explicitly **not** used to build, export, or redistribute a standalone identity dataset. |
 | **Distribution** | Never distributed. Listening history and the resolved-identity cache are local-only (`data/cache.db`, git-ignored) — see `docs/audits/privacy-notes.md`. |
-| **Maintenance** | Corrections fold back via re-enrichment (`pipeline.cli refresh`, `pipeline/ingest.py::refresh_catalog`) — a wrong upstream source is corrected at the source, then re-resolved; the cache's HTTP-response TTL forces periodic re-checking (`pipeline/cache.py`). Recheck cadence: per identity-source API change, per `docs/audits/identity-data-ethics.md`'s stamp. |
+| **Maintenance** | The cache supplies TTL expiry and `refresh_catalog` supports a dependency-injected source/enricher, but `wad refresh` currently replays demo fixtures and performs no upstream request. Automated correction fold-back remains open with FIX-01; citations/fetch dates make stale rows visible in the meantime. |
 
 ## Known limits (restated from `identity-data-ethics.md`)
 
