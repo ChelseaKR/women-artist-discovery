@@ -84,7 +84,7 @@ Inherits [`/STANDARDS`](../STANDARDS/). Per-standard declarations (Documentation
 | # | Standard | Status | Notes |
 |---|----------|--------|-------|
 | 1 | Quality & Metrics | Applies | ROADMAP §7 metrics ledger; `make verify` enforces the current gates. |
-| 2 | Code Quality | Applies | Ruff, strict mypy, per-module coverage floor, PEP 735 dev group, and complexity checks are active. |
+| 2 | Code Quality | Applies | Ruff, strict mypy, per-module coverage floor, PEP 735 dev group, and complexity checks are active. Mutation testing (CQ-47) gates the safety-critical modules — `make mutation` fails under 70% mutants killed; weekly + on-demand in CI (`mutation.yml`). |
 | 3 | Security & Supply-Chain | Applies — **ASVS 5.0 Level 1** | No auth / no multi-user surface, so L2 controls are N/A (no server); see `docs/RESPONSIBLE-TECH-AUDITS.md` §F |
 | 4 | CI/CD | Applies | CODEOWNERS, workflows, and the live main ruleset are configured; hosted execution restored 2026-07-19 (repo made public — free runner minutes). |
 | 5 | Release & Versioning | Applies — **release-producing, unreleased** | No tag/release exists yet; see `CHANGELOG.md` and `SECURITY.md` for the current stance |

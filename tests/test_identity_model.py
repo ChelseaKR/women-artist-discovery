@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
-from pipeline.identity import IdentityEvidence, resolve_composition, resolve_identity
+from pipeline.identity import (
+    IdentityEvidence,
+    assert_permitted_only,
+    resolve_composition,
+    resolve_identity,
+)
 from pipeline.models import (
     FrontPerson,
     Gender,
@@ -214,3 +219,149 @@ def test_local_correction_flag_requires_artist_statement_kind() -> None:
             retrieved_at="2026-07-01",
             is_local_correction=True,
         )
+
+
+# --- CQ-47 mutation-hardening: exact resolver semantics ---------------------
+# The first mutation run (2026-07-17, `make mutation`) left 46 of 122 mutants
+# in pipeline/identity.py alive despite 100% branch coverage — coverage proves
+# lines ran, not that anything asserted their results. The killable survivors
+# clustered in four places: source-priority order under conflict, the
+# deterministic confidence arithmetic, the evidence-filter loop, and the
+# defensive guards. The tests below pin those behaviours exactly. (The
+# remainder are equivalent mutants: enum `is` vs `==`, unreachable dict
+# defaults, sort-key transforms that preserve order, no-op rounding widths.)
+
+_TS = "2026-05-31"
+
+
+def _ev(kind: SourceKind, value: str, citation: str = "c") -> IdentityEvidence:
+    return IdentityEvidence(kind, value, citation, _TS)
+
+
+def test_wikidata_outranks_musicbrainz_on_conflict() -> None:
+    """Priority is behaviour, not decoration: WD beats MB when they disagree."""
+    label = resolve_identity(
+        [
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "male", "mb://x"),
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+        ]
+    )
+    assert label.gender is Gender.WOMAN
+    assert label.conflict is True
+    # The sources tuple is priority-ordered, deterministically.
+    assert [s.kind for s in label.sources] == [
+        SourceKind.WIKIDATA_P21,
+        SourceKind.MUSICBRAINZ_GENDER,
+    ]
+
+
+def test_artist_statement_outranks_all_on_three_way_conflict() -> None:
+    """Self-statement wins over both third-party sources (R6)."""
+    label = resolve_identity(
+        [
+            _ev(SourceKind.WIKIDATA_P21, "Q6581097", "wd://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "male", "mb://x"),
+            _ev(SourceKind.ARTIST_STATEMENT, "nonbinary", "as://x"),
+        ]
+    )
+    assert label.gender is Gender.NONBINARY
+    assert [s.kind for s in label.sources] == [
+        SourceKind.ARTIST_STATEMENT,
+        SourceKind.WIKIDATA_P21,
+        SourceKind.MUSICBRAINZ_GENDER,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "expected_confidence"),
+    [
+        (SourceKind.ARTIST_STATEMENT, "woman", 0.95),
+        (SourceKind.WIKIDATA_P21, "Q6581072", 0.80),
+        (SourceKind.MUSICBRAINZ_GENDER, "female", 0.70),
+    ],
+)
+def test_single_source_confidence_is_exact(
+    kind: SourceKind, value: str, expected_confidence: float
+) -> None:
+    """The documented per-kind base confidences, to the digit."""
+    label = resolve_identity([_ev(kind, value)])
+    assert label.confidence == expected_confidence
+
+
+def test_agreeing_corroboration_bonus_is_exact() -> None:
+    """+0.05 per extra agreeing source on top of the best base, capped at 0.99."""
+    two = resolve_identity(
+        [
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://x"),
+        ]
+    )
+    assert two.confidence == 0.85  # best 0.80 + one agreeing source
+
+    three = resolve_identity(
+        [
+            _ev(SourceKind.ARTIST_STATEMENT, "woman", "as://x"),
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://x"),
+        ]
+    )
+    assert three.confidence == 0.99  # 0.95 + 0.10 hits the sub-certainty cap
+
+    four = resolve_identity(
+        [
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://1"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://2"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://3"),
+        ]
+    )
+    assert four.confidence == 0.95  # best 0.80 + three agreeing sources
+
+
+def test_conflict_confidence_is_exactly_half() -> None:
+    """Conflict hedges to exactly 0.5 — not merely 'low'."""
+    label = resolve_identity(
+        [
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "male", "mb://x"),
+        ]
+    )
+    assert label.confidence == 0.5
+
+
+def test_band_source_is_skipped_not_short_circuiting() -> None:
+    """A leading band-composition source must not stop the evidence scan."""
+    label = resolve_identity(
+        [
+            _ev(SourceKind.DISCOGS_LINEUP, "lineup", "dc://x"),
+            _ev(SourceKind.MUSICBRAINZ_GENDER, "female", "mb://x"),
+        ]
+    )
+    assert label.gender is Gender.WOMAN
+
+
+def test_composition_requires_lineup_and_sources_independently() -> None:
+    """Missing either leg (fronts, sourced lineup) means None — not a guess."""
+    band_ev = _ev(SourceKind.DISCOGS_LINEUP, "lineup", "dc://x")
+    front = FrontPerson("Singer", "lead vocals", IdentityLabel())
+    assert resolve_composition([], [band_ev]) is None
+    assert resolve_composition([front], []) is None
+
+
+def test_identity_evidence_is_immutable() -> None:
+    """Evidence is a frozen record — provenance cannot be edited in flight."""
+    ev = _ev(SourceKind.ARTIST_STATEMENT, "woman")
+    with pytest.raises(FrozenInstanceError):
+        ev.value = "man"  # type: ignore[misc]
+
+
+def test_guard_accepts_artist_statement_which_sits_in_both_source_sets() -> None:
+    """ARTIST_STATEMENT belongs to BOTH permitted sets; the guard must honour
+    the union (not a difference) of them."""
+    assert_permitted_only(
+        [
+            _ev(SourceKind.ARTIST_STATEMENT, "woman", "as://x"),
+            _ev(SourceKind.DISCOGS_LINEUP, "lineup", "dc://x"),
+            _ev(SourceKind.WIKIDATA_P21, "Q6581072", "wd://x"),
+        ]
+    )
