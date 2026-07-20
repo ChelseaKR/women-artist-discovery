@@ -2,8 +2,9 @@ name: codeql
 
 # SEC-08 / CICD-20: static analysis over both the Python source and the
 # workflow files themselves. Weekly (catches newly-published query packs
-# against unchanged code) plus manual dispatch. Results stay in-run because
-# code scanning is not enabled for this private repo.
+# against unchanged code) plus manual dispatch. Findings upload to GHAS code
+# scanning (public repo since 2026-07-19) AND the in-run gate below still
+# blocks — the dashboard is visibility, the gate is enforcement.
 
 on:
   workflow_dispatch: {}
@@ -25,6 +26,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      security-events: write  # SARIF upload to code scanning (public repo)
     strategy:
       fail-fast: false
       matrix:
@@ -43,11 +45,11 @@ jobs:
         uses: github/codeql-action/analyze@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a  # v4.36.3
         with:
           category: "/language:${{ matrix.language }}"
-          # No GHAS code scanning on this private repo — findings are checked in-run below.
-          upload: never
+          # Upload to GHAS code scanning; the in-run gate below still blocks.
+          upload: always
           output: codeql-results
 
-      - name: Fail on findings (no GHAS on this private repo; SARIF checked in-run)
+      - name: Fail on findings (blocking gate; GHAS upload above is visibility only)
         shell: bash
         run: |
           count=$(jq -s '[.[] | .runs[]?.results[]?] | length' codeql-results/*.sarif)
