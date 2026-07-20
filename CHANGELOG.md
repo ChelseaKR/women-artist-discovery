@@ -40,6 +40,8 @@ tag, not backfilled to an earlier commit date.
   (BL-8, 56628ee).
 
 ### Changed
+- **Relicensed from MIT to AGPL-3.0-or-later** (sole-author relicense): keeps
+  derivatives and network deployments open; prior released snapshots remain MIT.
 - Migrated the Python floor from 3.9 to `>=3.10` (#6). Unblocked every dependency fix gated to
   Python ≥3.10 (see Security, below) and dropped Python 3.9 (EOL 2025-10-31) from the CI matrix.
 
