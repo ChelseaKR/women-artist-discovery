@@ -13,7 +13,7 @@ import argparse
 import json
 import math
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -41,7 +41,7 @@ from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles,
 from pipeline.doctor import run_diagnostics
 from pipeline.identity import IdentityEvidence
 from pipeline.ingest import diff_identity_labels, refresh_catalog
-from pipeline.logconfig import configure_logging
+from pipeline.logconfig import LOG_FORMATS, configure_logging
 from pipeline.models import SourceKind, UnsourcedIdentityError
 
 _BASELINE_METRICS = frozenset({"precision_at_k", "recall_at_k", "map_at_k"})
@@ -221,7 +221,7 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            today = datetime.now(timezone.utc).date().isoformat()
+            today = datetime.now(UTC).date().isoformat()
             evidence = IdentityEvidence(
                 kind=SourceKind.ARTIST_STATEMENT,
                 value=args.value,
@@ -262,7 +262,7 @@ def _cmd_pending_corrections(args: argparse.Namespace) -> int:
             current_value=args.current,
             proposed_value=args.proposed,
             note=args.note,
-            filed_at=datetime.now(timezone.utc).date().isoformat(),
+            filed_at=datetime.now(UTC).date().isoformat(),
             edit_url=edit_url,
         )
         print(f"filed pending correction for {row.artist_id} ({row.source_kind})")  # noqa: T201
@@ -331,7 +331,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_feedback(args: argparse.Namespace) -> int:
     """Record or replace one listener's vote for an artist."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     feedback = Feedback(
         username=args.user,
         artist_id=args.artist,
@@ -380,8 +380,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
     parser = argparse.ArgumentParser(prog="wad", description=__doc__)
+    parser.add_argument(
+        "--log-format",
+        choices=LOG_FORMATS,
+        default="kv",
+        help="stderr log line format (default: kv). Both formats are local-only — "
+        "logging never gains a network sink (OBS Tier C).",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_eval = sub.add_parser("eval", help="offline eval vs popularity baseline")
@@ -498,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
     p_pending.set_defaults(func=_cmd_pending_corrections)
 
     args = parser.parse_args(argv)
+    configure_logging(log_format=args.log_format)
     return int(args.func(args))
 
 

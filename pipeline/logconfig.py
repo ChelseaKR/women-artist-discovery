@@ -1,12 +1,18 @@
 """Structured, local-only logging (FIX-12 — operability pass).
 
-Every WAD log record is written to **stderr only**, in a flat ``key=value``
-line. This is a deliberate privacy invariant, not an incidental choice: the
-same no-egress posture FIX-07's runtime guard enforces for API calls applies
-to logging too, so a diagnostic channel can never become a telemetry channel.
-There is no ``logging.handlers.HTTPHandler``, ``SysLogHandler`` pointed at a
-remote host, queue handler, or any other network sink configured anywhere in
-this module — only a single :class:`logging.StreamHandler` on ``sys.stderr``.
+Every WAD log record is written to **stderr only**, as either a flat
+``key=value`` line (the default) or, opt-in via ``--log-format json``, one
+JSON object per line carrying exactly the same fields. This is a deliberate
+privacy invariant, not an incidental choice: the same no-egress posture
+FIX-07's runtime guard enforces for API calls applies to logging too, so a
+diagnostic channel can never become a telemetry channel. There is no
+``logging.handlers.HTTPHandler``, ``SysLogHandler`` pointed at a remote host,
+queue handler, or any other network sink configured anywhere in this module —
+only a single :class:`logging.StreamHandler` on ``sys.stderr``.
+
+The no-inference invariant extends into the log stream (OBS-11): no log call
+site may emit identity vocabulary or per-artist identity data, in either
+format — enforced by ``tests/test_log_privacy.py``.
 
 Module loggers live under the ``wad`` namespace (``wad.ingest``, ``wad.cli``,
 …) so a single handler on the ``wad`` root logger captures everything and
@@ -15,12 +21,17 @@ callers can filter/silence a subsystem with the normal ``logging`` API.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import time
 
 _NAMESPACE = "wad"
 _CONFIGURED_LOGGERS: set[int] = set()
+_OUR_HANDLERS: dict[int, logging.Handler] = {}
+
+#: Supported ``--log-format`` values (both local-only, both stderr-only).
+LOG_FORMATS = ("kv", "json")
 
 
 class KeyValueFormatter(logging.Formatter):
@@ -42,20 +53,49 @@ class KeyValueFormatter(logging.Formatter):
         return " ".join(parts)
 
 
-def configure_logging(level: int = logging.INFO) -> logging.Logger:
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line — same fields as :class:`KeyValueFormatter`.
+
+    Still local-only and stderr-only; the format changes, the egress posture
+    does not. ``ts``/``level``/``logger``/``msg`` always, ``exc_info`` only
+    when an exception is attached.
+    """
+
+    converter = staticmethod(time.gmtime)  # UTC, deterministic across machines
+
+    def format(self, record: logging.LogRecord) -> str:
+        record.message = record.getMessage()
+        payload: dict[str, str] = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%SZ"),
+            "level": record.levelname.lower(),
+            "logger": record.name,
+            "msg": record.message,
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def configure_logging(level: int = logging.INFO, log_format: str = "kv") -> logging.Logger:
     """Configure the ``wad`` logger tree: one stderr handler, local-only.
 
     Idempotent per logger object — calling this more than once (``main()``
-    plus a test, say) never duplicates handlers on the same logger.
+    plus a test, say) never duplicates handlers on the same logger. Repeat
+    calls may switch ``log_format`` (``"kv"`` or ``"json"``); the existing
+    handler's formatter is swapped in place.
     """
+    if log_format not in LOG_FORMATS:
+        raise ValueError(f"unknown log_format {log_format!r}; expected one of {LOG_FORMATS}")
     root = logging.getLogger(_NAMESPACE)
     root.setLevel(level)
     if id(root) not in _CONFIGURED_LOGGERS:
         handler = logging.StreamHandler(stream=sys.stderr)
-        handler.setFormatter(KeyValueFormatter())
         root.addHandler(handler)
         root.propagate = False
         _CONFIGURED_LOGGERS.add(id(root))
+        _OUR_HANDLERS[id(root)] = handler
+    formatter: logging.Formatter = JsonFormatter() if log_format == "json" else KeyValueFormatter()
+    _OUR_HANDLERS[id(root)].setFormatter(formatter)
     return root
 
 

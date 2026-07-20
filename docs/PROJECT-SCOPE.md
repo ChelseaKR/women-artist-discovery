@@ -1,6 +1,6 @@
 # Project Scope
 
-Last verified: 2026-07-11 · Recheck cadence: per docs change. Base branch: `main`.
+Last verified: 2026-07-17 · Recheck cadence: per docs change. Base branch: `main`.
 
 This file is a plain-language map of the project as it exists on `main`. It does not replace the README, roadmap, audit docs, or source comments. It points to them so a reviewer can see the whole shape without reading every file first.
 
@@ -90,6 +90,12 @@ Primary docs checked:
 - `docs/adr/0001-single-maintainer-review-posture.md`
 - `docs/adr/0002-python-floor-3.10-not-3.12.md`
 - `docs/adr/0003-hatchling-build-backend.md`
+- `docs/adr/0005-streamlit-over-react.md`
+- `docs/adr/0006-hybrid-recommender-over-single-method.md`
+- `docs/adr/0007-sourced-only-identity-unknown-first-class.md`
+- `docs/adr/0008-cache-and-rate-limit-respect.md`
+- `docs/adr/0009-flat-package-layout-not-src.md`
+- `docs/adr/0010-release-producing-repository.md`
 - `docs/audits/accessibility-2026-05-31.md`
 - `docs/audits/accessibility-2026-07-09.md`
 - `docs/audits/ai-risk-register.md`
