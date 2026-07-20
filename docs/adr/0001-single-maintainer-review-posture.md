@@ -4,7 +4,7 @@ Date: 2026-07-05
 
 ## Status
 
-Accepted
+Accepted; the Python-version matrix provision is superseded by ADR 0004
 
 ## Context
 
