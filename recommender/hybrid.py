@@ -5,8 +5,10 @@ each signal min-max normalised across candidates so neither dominates by scale.
 Optional, artist-scoped thumbs feedback applies a bounded nudge to that base
 score; it never reads or generalises across identity.
 The values lens is then applied **boost-only** (see :mod:`recommender.rerank`),
-followed by an optional identity-blind serendipity/diversification pass (see
-:mod:`recommender.diversify`), and every result is explained.
+followed by an optional identity-blind serendipity/diversification pass over the
+movable non-unknown candidates (see :mod:`recommender.diversify`). The full list
+is reconstructed around protected unknown slots before top-k is selected, and
+every result is explained.
 
 At ``lens_strength = 0`` and ``explore = 0`` (both defaults) the output is the
 pure-taste hybrid ranking — which is what the offline eval compares against
@@ -29,7 +31,7 @@ from recommender.content import ContentResult, content_scores
 from recommender.diversify import diversify
 from recommender.explain import build_explanation
 from recommender.feedback import Feedback, feedback_adjustment
-from recommender.rerank import sort_and_rank, values_boost_for_artist
+from recommender.rerank import is_unknown_artist, rerank, values_boost_for_artist
 
 
 def _normalise(value: float, peak: float) -> float:
@@ -95,13 +97,21 @@ def recommend(
             )
         )
 
-    # Counterfactual pure-taste rank (lens_strength=0): same tie-break as
-    # sort_and_rank, but keyed on base_score alone, so every card can say how
-    # (or whether) the values lens moved it. At lens_strength=0 this is
+    # Counterfactual pure-taste rank (lens_strength=0), keyed on base_score, so every
+    # card can say how (or whether) the values lens moved it. At lens_strength=0 this is
     # identical to the lens-applied order by construction (score == base_score).
     base_ordered = sorted(recs, key=lambda r: (-r.base_score, r.artist.artist_id))
     base_rank_of = {r.artist.artist_id: i + 1 for i, r in enumerate(base_ordered)}
     recs = [rec.with_base_rank(base_rank_of[rec.artist.artist_id]) for rec in recs]
 
-    ranked = sort_and_rank(recs)
-    return diversify(ranked, explore, k=k)
+    ranked = rerank(recs, lens_strength)
+
+    # Serendipity remains identity-blind inside diversify(). At this orchestration
+    # boundary, pass it only the movable candidates, then reconstruct the full list
+    # around the unknown slots already protected by rerank(). Otherwise an MMR pass
+    # after reranking can silently undo the absolute top-k/rank guarantee.
+    movable = [rec for rec in ranked if not is_unknown_artist(rec.artist)]
+    diversified = iter(diversify(movable, explore))
+    protected = [rec if is_unknown_artist(rec.artist) else next(diversified) for rec in ranked]
+    limit = max(0, min(k, len(protected)))
+    return [rec.with_rank(i + 1) for i, rec in enumerate(protected[:limit])]

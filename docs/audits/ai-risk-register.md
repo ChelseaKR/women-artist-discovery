@@ -13,13 +13,13 @@
 | ID | Risk | Mitigation | Verified by | Owner |
 |----|------|------------|-------------|-------|
 | AIR-1 | Misgendering an artist by inferring identity from name/voice/image/genre | Identity is sourced-only, cited, and unconstructible otherwise (construction-time type invariant) | `tests/test_no_inference.py` (AST scan + behavioral proofs) | maintainer |
-| AIR-2 | An unsourced ("unknown") artist is quietly buried by the values lens | Re-rank is boost-only; unknown's score/rank is invariant to lens strength | `tests/test_unknown_first_class.py`, `recommender/exposure.py` unknown-retention guarantee | maintainer |
+| AIR-2 | An unsourced ("unknown") artist is quietly buried by the values lens or post-rank exploration | Re-rank is boost-only; MMR sees only movable candidates; unknown's score/rank is invariant through final top-k | `tests/test_unknown_first_class.py`, `tests/test_exposure.py::test_unknown_slots_survive_end_to_end_exploration`, `recommender/exposure.py` unknown-retention guarantee | maintainer |
 | AIR-3 | Nonbinary identity collapsed into a binary gender model | Nonbinary is a first-class `Gender` member, boosted identically to women when sourced | `tests/test_identity_model.py::test_nonbinary_survives_end_to_end_in_recommendations` | maintainer |
 | AIR-4 | "Female-fronted" conflated with an individual member's gender | Band composition is a separate, tri-state, sourced property, never inferred from a person's label | `tests/test_identity_model.py::test_female_fronted_is_distinct_from_member_gender` | maintainer |
 | AIR-5 | Allocational bias: the lens over-favours already-popular sourced women within the boosted set | Bounded boost (`MAX_BOOST`); base taste score never includes popularity as an input | `docs/audits/fairness-identity.md` §3; `recommender/exposure.py` popularity×identity cross-tab | maintainer |
 | AIR-6 | Building or redistributing a scraped musician-identity dataset | No bulk export path exists; identity is resolved on-demand and cached locally only | `tests/test_privacy.py` (egress confinement); `docs/audits/identity-data-ethics.md` "Non-redistribution" | maintainer |
 | AIR-7 | Listening-data privacy: a person's Last.fm history leaking beyond their own machine | Local-first; no telemetry; the only opt-in egress is a user-initiated Spotify export (artist names only) | `tests/test_privacy.py`; `docs/audits/privacy-notes.md` | maintainer |
-| AIR-8 | Cached identity claim goes stale or is later corrected upstream, but the app keeps serving the old label | HTTP-cache TTL + `wad refresh` re-enrichment path reports label changes explicitly | `pipeline/ingest.py::refresh_catalog`, `pipeline/cache.py` TTL/expiry | maintainer |
+| AIR-8 | Cached identity claim goes stale or is later corrected upstream, but the app keeps serving the old label | **Open residual risk:** TTL/diff primitives exist, but `wad refresh` is fixture-only and no live enricher calls upstream. Citations and fetch dates surface staleness; FIX-01 must close correction fold-back. | `pipeline/ingest.py::refresh_catalog`, `pipeline/cache.py` TTL/expiry, `docs/ideation/02-large-scale-fixes.md` FIX-01/04 | maintainer |
 | AIR-9 | Recommender quality regresses silently release-over-release | Eval gate checks both beats-popularity and regression-vs-committed-baseline | `recommender/eval.py::check_regression`, `docs/audits/eval-baseline.json` | maintainer |
 
 Dependency/security risks (vulnerable packages, secret leakage, supply-chain) are tracked
@@ -45,9 +45,9 @@ consent to being included in its candidate pool:
   merely policy — but "structurally prevented" is a claim this file's linked tests continuously
   re-verify, not a one-time assertion.
 - **Redress.** An artist (or anyone on their behalf) can report a wrong or outdated identity claim
-  via the same channel as a security report (`SECURITY.md`); the correction path
-  (`pipeline/ingest.py::refresh_catalog`) folds a corrected upstream source back in and reports the
-  change explicitly, rather than silently overwriting it.
+  via the same channel as a security report (`SECURITY.md`) and record a cited local correction.
+  Automated upstream fold-back is not shipped: `refresh_catalog` has an injectable integration
+  seam, while the CLI is fixture-only pending FIX-01.
 - **Asymmetry of power.** The maintainer controls the resolver and re-rank; affected artists have
   no direct visibility into or control over this specific tool's output about them (though they
   retain full control over the upstream sources — Wikidata, MusicBrainz — this tool reads from).

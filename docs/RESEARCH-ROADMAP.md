@@ -37,11 +37,12 @@ the historical backlog below is not mistaken for open committed work.
 | IDs | Disposition |
 | --- | --- |
 | R1, R4, R5, R6, R9, R10, R11 | Implemented: identity coverage; exposure/retention/rank-shift metrics; explicit popularity-independent wording; artist-statement priority; exact source/runtime egress guards plus identity-free export schemas; trans/intersex end-to-end tests; no-inference documentation and tests. |
-| R2 | Partially implemented by the cited local corrections ledger, pending-upstream queue, edit links, and refresh reconciliation. A public artist opt-out/intake route is not shipped because it requires consultation, authentication, and a hosted service. |
+| R2 | Partially implemented by the cited local corrections ledger, pending-upstream queue, and edit links. The CLI refresh is fixture-only, so upstream reconciliation and a public artist opt-out/intake route are not shipped. |
 | R3, R8 | Human-gated: automated axe checks pass in three color schemes, but a real VoiceOver/NVDA walkthrough and dynamic-announcement judgment cannot be fabricated in code. |
 | R7 | Superseded by per-card counterfactual rank-shift wording and the lens-reactive fairness panel, which show what the lens changed without duplicating the whole result set. |
 | R12 | Accepted operational follow-up rather than a product feature: dated audit docs carry recheck cadences; upstream changes are reviewed when dependency/API updates land. |
-| E1, E3, E4, E7, E8, E9, E10 | Implemented: bounded per-artist feedback; cited artist-statement source; static discovery report; LensSpec extension point and guard tests; respectful unknown explainer; correction queue/refresh workflow; reproducible methods writeup. |
+| E1, E3, E4, E7, E8, E10 | Implemented: bounded per-artist feedback; cited artist-statement source; static discovery report; LensSpec extension point and guard tests; respectful unknown explainer; reproducible methods writeup. |
+| E9 | Partial: the correction queue and diff/reconciliation helpers exist, but a real re-enrich step is blocked on the deferred live enricher (FIX-01). |
 | E2 | Rejected: exporting identity/provenance would conflict with data minimization and the promise not to create a portable musician-identity dataset. Portable exports intentionally contain artist names and non-identity recommendation reasons only. |
 | E5 | Human/ethics-gated. New identity-related lenses need affected-community review and a defensible sourced vocabulary before code. No placeholder BIPOC or similar classifier will be invented. |
 | E6 | Deferred, not represented as shipped. A ListenBrainz adapter needs a separate provider-contract, privacy, and live-data validation pass. |

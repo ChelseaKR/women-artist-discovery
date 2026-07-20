@@ -13,16 +13,13 @@ Metric choices (short justification, per FIX-05's requirement):
   it per lens strength so the lens's re-allocation is visible. (Attention-weighted
   exposure — discounting lower ranks — is a defensible alternative; we prefer the
   unweighted share because the list is short and every surfaced slot is seen.)
-* **Unknown-retention** — the fraction of ``unknown``-identity artists whose score
-  *and* presence in the output are preserved as the lens strengthens. It is 1.0 by
-  construction (the lens is boost-only) and is *verified on the emitted output*,
-  not only on the rerank function — see :func:`assert_unknown_retained`. This is
-  "down-ranked-for-unknown = 0" expressed as a number over real output.
+* **Unknown-retention@k** — the fraction of pure-taste unknown artists in the
+  evaluated top-``k`` whose score, top-``k`` presence, and rank are preserved as
+  the lens strengthens. It is *verified on emitted output*, not inferred from a
+  boost-only score formula — see :func:`assert_unknown_retained`.
 * **Rank-shift** — the mean change in list position per segment relative to pure
-  taste (lens 0). It is honest about the lens's *re-ordering*: aligned artists move
-  up (negative shift), and an unknown artist may move down *in position* — but never
-  in **score** (its score is invariant; retention stays 1.0). A position change
-  caused by a genuinely-aligned artist rising is the lens working, not a penalty.
+  taste (lens 0). Aligned artists can re-order sourced non-unknown slots, while
+  unknown slots stay pinned to their pure-taste positions.
 * **Popularity-tier x identity** — cross-tabs the candidate pool by listener count
   (:attr:`~pipeline.models.Artist.listeners`), surfacing the "lens over-favours
   already-popular women" allocational risk named in ``fairness-identity.md`` §3.
@@ -90,6 +87,8 @@ def _lens_key(lens_strength: float) -> str:
 
 def exposure_at_k(recs: list[Recommendation], k: int) -> dict[str, float]:
     """Share of the top-``k`` recommendation slots held by each identity segment."""
+    if k < 1:
+        raise ValueError("k must be at least 1")
     top = recs[:k]
     counts = dict.fromkeys(SEGMENTS, 0)
     for rec in top:
@@ -98,70 +97,82 @@ def exposure_at_k(recs: list[Recommendation], k: int) -> dict[str, float]:
     return {seg: round(counts[seg] / n, 4) if n else 0.0 for seg in SEGMENTS}
 
 
-def _unknown_scores(recs: list[Recommendation]) -> dict[str, float]:
-    """artist_id -> score for every ``unknown``-segment artist in the output."""
-    return {r.artist.artist_id: r.score for r in recs if identity_segment(r.artist) == UNKNOWN}
+def _unknown_state(recs: list[Recommendation], k: int) -> dict[str, tuple[float, int]]:
+    """artist_id -> (score, one-based rank) for unknown artists in the top-k."""
+    if k < 1:
+        raise ValueError("k must be at least 1")
+    return {
+        rec.artist.artist_id: (rec.score, rank)
+        for rank, rec in enumerate(recs[:k], start=1)
+        if identity_segment(rec.artist) == UNKNOWN
+    }
 
 
 def unknown_retention(
-    recs_by_lens: dict[float, list[Recommendation]], *, base_lens: float = 0.0
+    recs_by_lens: dict[float, list[Recommendation]], *, k: int, base_lens: float = 0.0
 ) -> dict[str, float]:
-    """Per-lens fraction of pure-taste unknown artists retained with an unchanged score.
+    """Per-lens fraction of pure-taste top-k unknowns without score/rank loss.
 
-    Computed over the *full emitted output* at each lens (presence + score), not on
-    the rerank function. 1.0 means every unknown artist that pure taste surfaced is
-    still present and un-penalised at that lens strength.
+    An artist is retained only if it remains in the emitted top-k, its score is not
+    lower, and its one-based rank is no worse than under pure taste.
     """
-    base = _unknown_scores(recs_by_lens[base_lens])
+    base = _unknown_state(recs_by_lens[base_lens], k)
     out: dict[str, float] = {}
     for lens in sorted(recs_by_lens):
-        present = _unknown_scores(recs_by_lens[lens])
+        present = _unknown_state(recs_by_lens[lens], k)
         if not base:
             out[_lens_key(lens)] = 1.0
             continue
-        retained = sum(1 for aid, sc in base.items() if present.get(aid) == sc)
+        retained = sum(
+            1
+            for aid, (base_score, base_rank) in base.items()
+            if aid in present and present[aid][0] >= base_score and present[aid][1] <= base_rank
+        )
         out[_lens_key(lens)] = round(retained / len(base), 4)
     return out
 
 
 def _unknown_downranked_count(
-    recs_by_lens: dict[float, list[Recommendation]], *, base_lens: float = 0.0
+    recs_by_lens: dict[float, list[Recommendation]], *, k: int, base_lens: float = 0.0
 ) -> int:
-    """Number of (unknown-artist, lens) pairs where the lens dropped it or cut its score."""
-    base = _unknown_scores(recs_by_lens[base_lens])
+    """Count unknown/lens pairs dropped from top-k or losing score/rank."""
+    base = _unknown_state(recs_by_lens[base_lens], k)
     count = 0
     for lens, recs in recs_by_lens.items():
         if lens == base_lens:
             continue
-        present = _unknown_scores(recs)
-        for aid, base_score in base.items():
-            if aid not in present or present[aid] < base_score:
+        present = _unknown_state(recs, k)
+        for aid, (base_score, base_rank) in base.items():
+            if aid not in present or present[aid][0] < base_score or present[aid][1] > base_rank:
                 count += 1
     return count
 
 
 def assert_unknown_retained(
-    recs_by_lens: dict[float, list[Recommendation]], *, base_lens: float = 0.0
+    recs_by_lens: dict[float, list[Recommendation]], *, k: int, base_lens: float = 0.0
 ) -> None:
     """Merge-blocking guarantee, checked on emitted output: unknown is never penalised.
 
     Raises :class:`FairnessAssertionError` if, at any lens strength, an
-    ``unknown``-identity artist surfaced by pure taste is dropped from the output or
-    has its score lowered. Boost-only reranking makes this hold by construction; this
-    verifies it on the *numbers the eval actually emits*.
+    ``unknown``-identity artist surfaced in pure taste's top-k is dropped from the
+    top-k, has its score lowered, or moves to a worse rank.
     """
-    base = _unknown_scores(recs_by_lens[base_lens])
+    base = _unknown_state(recs_by_lens[base_lens], k)
     for lens in sorted(recs_by_lens):
-        present = _unknown_scores(recs_by_lens[lens])
-        for aid, base_score in base.items():
+        present = _unknown_state(recs_by_lens[lens], k)
+        for aid, (base_score, base_rank) in base.items():
             if aid not in present:
                 raise FairnessAssertionError(
-                    f"unknown artist {aid!r} dropped from output at lens {lens}"
+                    f"unknown artist {aid!r} dropped from top-{k} at lens {lens}"
                 )
-            if present[aid] < base_score:
+            score, rank = present[aid]
+            if score < base_score:
                 raise FairnessAssertionError(
-                    f"unknown artist {aid!r} was down-ranked by the lens at {lens}: "
-                    f"score {base_score} -> {present[aid]}"
+                    f"unknown artist {aid!r} lost score at lens {lens}: {base_score} -> {score}"
+                )
+            if rank > base_rank:
+                raise FairnessAssertionError(
+                    f"unknown artist {aid!r} lost rank at lens {lens}: {base_rank} -> {rank}"
                 )
 
 
@@ -195,8 +206,8 @@ def exposure_report(
     The ``guarantees`` sub-block carries the merge-blocking signal the CLI checks.
     """
     lenses = sorted(recs_by_lens)
-    retention = unknown_retention(recs_by_lens, base_lens=base_lens)
-    downranked = _unknown_downranked_count(recs_by_lens, base_lens=base_lens)
+    retention = unknown_retention(recs_by_lens, k=k, base_lens=base_lens)
+    downranked = _unknown_downranked_count(recs_by_lens, k=k, base_lens=base_lens)
     min_retention = min(retention.values()) if retention else 1.0
     return {
         "k": k,
@@ -232,7 +243,7 @@ def observability_panel(
         raise ValueError(f"current_lens {current_lens!r} not present in recs_by_lens")
     base_exposure = exposure_at_k(recs_by_lens[base_lens], k)
     current_exposure = exposure_at_k(recs_by_lens[current_lens], k)
-    retention = unknown_retention(recs_by_lens, base_lens=base_lens)
+    retention = unknown_retention(recs_by_lens, k=k, base_lens=base_lens)
     return {
         "k": k,
         "base_lens": base_lens,

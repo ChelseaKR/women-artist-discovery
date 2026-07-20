@@ -37,6 +37,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           persist-credentials: false
+          # gitleaks-action scans the PR's commit range with plain git; a
+          # shallow (depth-1) clone is missing those objects, so the scan
+          # dies with a git usage error on every multi-commit PR. Full
+          # history is the documented gitleaks-action requirement.
+          fetch-depth: 0
 
       # Installs from uv.lock (CQ-09/SEC-13): `--frozen` never re-resolves, so a
       # pyproject.toml/uv.lock drift fails this step instead of silently installing

@@ -168,7 +168,7 @@ Full citation list and the high-stakes cross-checks are in
 
 #### B1 — Vera, established woman artist (identity-data subject)
 - **Goal.** Be represented correctly, with a basis she'd actually consent to.
-- **Values today.** Her label is **sourced and cited** (Wikidata P21 / MusicBrainz gender / a quoted statement), shown with the *raw value each source asserted* and a fetch date; the system never guesses from her name, voice, or genre; corrections are possible by fixing the source and re-enriching. *(sourced-only identity + provenance — [shipped])*
+- **Values today.** Her label is **sourced and cited** (Wikidata P21 / MusicBrainz gender / a quoted statement), shown with the *raw value each source asserted* and a fetch date; the system never guesses from her name, voice, or genre. A cited local correction is supported, but automatic upstream re-enrichment is not shipped. *(sourced-only identity + provenance — [shipped]; live correction fold-back — [open])*
 - **Gets stuck.** Her Wikidata P21 is stale/wrong, and there's **no path from her side** to flag it — she'd have to know the tool exists and go edit upstream. She can't see how she's being labeled unless she runs it.
 - **Wants next.** An artist-facing "how am I labeled here / request a correction or opt-out" route that routes to the source and the local cache; a way to prefer her own public statement over a third-party claim.
 - **Adopts if.** She can see and correct her basis. **Walks if.** A wrong label persists with no recourse. *(correction mechanism is roadmap §9 + RR-2 — [partial])*
