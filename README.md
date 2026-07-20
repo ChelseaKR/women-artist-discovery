@@ -1,21 +1,22 @@
 # Women-Artist Discovery
 
-**A demo-first music-discovery engine that surfaces new women, nonbinary, and female-fronted artists through an explicit values lens.** It combines collaborative and content signals with a sourced-identity re-ranker. Identity is never inferred, and "unknown" is a normal, first-class answer. The offline demo and pipeline are complete; wiring a real username through live enrichment into the app remains deferred work.
+**A demo-first music-discovery engine that surfaces new women, nonbinary, and female-fronted artists through an explicit values lens.** It combines collaborative and content signals with a sourced-identity re-ranker. Identity is never inferred, and "unknown" is a normal, first-class answer.
 
 **Trans women are women here — explicitly.** The three terms in the tagline are not redundant; they cover three different shapes: *women* (solo artists whose sourced self-identification is woman — cis or trans, with no distinction drawn anywhere in the data model), *nonbinary* artists (represented as nonbinary, never folded into another category), and *female-fronted* (band-composition metadata: an act whose sourced lineup/role data shows a woman — cis or trans — fronting it, which is a fact about the band, never a claim about any individual). A trans woman artist whose self-identification is sourced is surfaced as a woman, full stop.
 
 **Status:** `Beta` · **Track:** Personal (data/ML + small web app) · **License:** MIT · **Data:** personal/local
 
-> **Build:** M0–M6 demo scope implemented. `make verify` runs formatting/lint/SAST,
-> strict typing, 433 tests at 97% coverage, dependency and secret scans, three
-> axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion specs
-> (Playwright, required in CI), offline multiworld evaluation with
-> regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV, Scorecard, release, and CI
-> workflows are present; hosted runs are currently unavailable because of the
-> GitHub account billing limit, so the drained queue was gated locally. Review-gated
-> manual screen-reader and keyboard sign-offs remain pending — see
-> [`docs/audits/`](./docs/audits/). Quickstart: `make install && make dev` (demo mode, no API key)
-> · `make verify`.
+## Quickstart
+
+```sh
+make install && make dev   # offline demo mode — no API key needed
+make verify                # run the full merge gate locally
+```
+
+Demo mode ships a clearly-labeled synthetic world (`pipeline/demo.py`), so you can
+explore recommendations, the fairness/exposure panel, and per-pick explanations
+without an account anywhere. Wiring a real Last.fm username through live
+enrichment is the next milestone (see [Project status](#project-status)).
 
 ## Why it matters
 Your library leans toward women and female-fronted bands by taste, but no recommender helps you lean into that on purpose without either ignoring identity entirely or guessing it crudely. Doing this *well* — sourced, transparent, non-essentialist — is the whole point and the interesting part.
@@ -25,14 +26,37 @@ Your library leans toward women and female-fronted bands by taste, but no recomm
 - **Hybrid recommendations:** collaborative similarity + content/tags, then a values-aware re-rank.
 - **Sourced identity, never inferred:** identity basis is shown and cited; woman means woman, cis or trans, with no distinction drawn; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
 - **Explains every pick:** a shared "Why this artist" view — why (which signals) + identity basis + provenance (the *raw value each source asserted*, never inferred).
-- **Export your picks:** push the current set to a Spotify playlist (env-configured OAuth), or download a portable, account-free track list (plain text / CSV / M3U / JSPF).
-- **Local-first:** your listening history stays yours. Sanctioned egress is limited to explicit Last.fm fetches, opt-in upstream diagnostics, and user-initiated Spotify export (artist names only).
+- **Export your picks:** push the current set to a Spotify playlist (env-configured OAuth), or download a portable, account-free track list (plain text / CSV / M3U / JSPF) that imports into most players and transfer tools. More native platforms (Apple Music, Tidal, Qobuz) are planned — [#54](https://github.com/ChelseaKR/women-artist-discovery/issues/54).
+- **Local-first:** your listening history stays yours. Sanctioned egress is limited to explicit Last.fm fetches, opt-in upstream diagnostics, and user-initiated playlist export (artist/track names only).
 
-## For Claude Code
-- **Build entrypoint:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) → *Implementation Plan*.
-- **Hard guardrails:** **never infer an artist's gender or identity from name, voice, image, genre, or any heuristic** — identity labels come only from cited self-identification sources (artist statement, sourced Wikidata P21 claim, MusicBrainz gender field) and must carry that citation; **woman includes trans women explicitly — sourced self-identification is the only test, and no cis/trans distinction exists anywhere in the vocabulary**; **"unknown" is first-class and must never reduce, down-rank, or drop a recommendation**; "female-fronted" is band-composition metadata (lineup/role), sourced not guessed, and kept distinct from any individual's gender; every recommendation must show why + identity basis + source; do not redistribute a scraped musician-identity dataset (minimize, cite, keep correctable).
-- **Commands:** `make dev` · `make verify` · `make a11y` · `make eval`.
-- **Current definition of done:** demo recommendations are explainable and reproducible, sourced identity is enforced, unknown is retained, and every local gate is green. Live username-to-recommendation orchestration is explicitly deferred in the roadmap ledger.
+## Guardrails
+
+These are hard rules, each enforced by a merge-blocking test (see
+`tests/test_no_inference.py`, the centrepiece):
+
+- **Never infer an artist's gender or identity** from name, voice, image, genre, or any heuristic — identity labels come only from cited self-identification sources (artist statement, sourced Wikidata P21 claim, MusicBrainz gender field) and must carry that citation.
+- **Woman includes trans women explicitly** — sourced self-identification is the only test, and no cis/trans distinction exists anywhere in the vocabulary.
+- **"Unknown" is first-class** and must never reduce, down-rank, or drop a recommendation; the values lens only ever boosts.
+- **"Female-fronted" is band-composition metadata** (lineup/role), sourced not guessed, and kept distinct from any individual's gender.
+- **Every recommendation shows its work:** why + identity basis + source.
+- **No redistribution of a scraped musician-identity dataset** — minimize, cite, keep correctable.
+
+## Project status
+
+The offline demo and full pipeline are implemented and gated: `make verify` runs
+formatting/lint/SAST, strict typing, 433 tests at 97% coverage, dependency and
+secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
+specs (Playwright, required in CI), offline multiworld evaluation with
+regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
+Scorecard, release, and CI workflows all run hosted. Still open: live
+username-to-recommendation orchestration (deferred in the roadmap ledger), and
+review-gated manual screen-reader/keyboard sign-offs — see
+[`docs/audits/`](./docs/audits/).
+
+This project is built in the open: [`docs/RESEARCH-ROADMAP.md`](./docs/RESEARCH-ROADMAP.md),
+[`docs/ideation/`](./docs/ideation/), and [`docs/USER-RESEARCH.md`](./docs/USER-RESEARCH.md)
+are working notes, published deliberately and labeled for what they are (the
+user-research personas are synthetic, and say so at the top).
 
 ## Observability
 **Tier C** — OTel tracing is out of scope for this local tool. The CLI configures
