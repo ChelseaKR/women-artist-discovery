@@ -22,7 +22,6 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
-from typing import TypeVar
 
 from pipeline.ingest import build_profile
 from pipeline.lastfm import FixtureLastfm
@@ -139,10 +138,7 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
     return sorted_values[lo] + (sorted_values[hi] - sorted_values[lo]) * (k - lo)
 
 
-_T = TypeVar("_T")
-
-
-def _time_calls(fn: Callable[[], _T], iterations: int) -> list[float]:
+def _time_calls[T](fn: Callable[[], T], iterations: int) -> list[float]:
     timings: list[float] = []
     for _ in range(iterations):
         start = time.perf_counter()
