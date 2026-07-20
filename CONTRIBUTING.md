@@ -34,7 +34,7 @@ dataset.
 
 ## Getting set up
 
-The project targets **Python 3.10+**. One command installs everything into a local `.venv`:
+The project targets **Python 3.12+**. One command installs everything into a local `.venv`:
 
 ```bash
 make install        # venv + editable install with dev + app extras
@@ -62,7 +62,7 @@ until it is green locally:
 | A11y | `make a11y` | renders the dashboard and runs the axe gate — **0 violations** |
 | Eval | `make eval` | offline eval; fails unless the hybrid **beats the popularity baseline** |
 
-CI re-runs the same `make` targets on Python 3.10–3.13; green locally means green in CI. Useful
+CI re-runs the same `make` targets on Python 3.12–3.13; green locally means green in CI. Useful
 extras: `make format` (auto-format) and `make audit` (regenerate the committed responsible-tech
 artifacts under `docs/audits/`).
 

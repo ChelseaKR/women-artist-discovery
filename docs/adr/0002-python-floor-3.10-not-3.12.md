@@ -4,7 +4,7 @@ Date: 2026-07-05
 
 ## Status
 
-Accepted (short-term; revisit)
+Superseded by ADR 0004 (2026-07-14)
 
 ## Context
 

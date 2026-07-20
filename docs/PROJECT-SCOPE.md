@@ -1,6 +1,6 @@
 # Project Scope
 
-Last verified: 2026-07-17 · Recheck cadence: per docs change. Base branch: `main`.
+Last verified: 2026-07-19 · Recheck cadence: per docs change. Base branch: `main`.
 
 This file is a plain-language map of the project as it exists on `main`. It does not replace the README, roadmap, audit docs, or source comments. It points to them so a reviewer can see the whole shape without reading every file first.
 
@@ -68,7 +68,7 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked the 33 authored Markdown files, 38 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
+This pass checked the 34 authored Markdown files, 38 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
 
 Primary docs checked:
 
@@ -90,6 +90,7 @@ Primary docs checked:
 - `docs/adr/0001-single-maintainer-review-posture.md`
 - `docs/adr/0002-python-floor-3.10-not-3.12.md`
 - `docs/adr/0003-hatchling-build-backend.md`
+- `docs/adr/0004-python-floor-3.12.md`
 - `docs/adr/0005-streamlit-over-react.md`
 - `docs/adr/0006-hybrid-recommender-over-single-method.md`
 - `docs/adr/0007-sourced-only-identity-unknown-first-class.md`

@@ -1759,6 +1759,7 @@ dependencies = [
 [package.optional-dependencies]
 app = [
     { name = "pandas" },
+    { name = "pillow" },
     { name = "streamlit" },
 ]
 
@@ -1779,6 +1780,7 @@ e2e = [
 [package.metadata]
 requires-dist = [
     { name = "pandas", marker = "extra == 'app'", specifier = ">=2.0" },
+    { name = "pillow", marker = "extra == 'app'", specifier = ">=12.3" },
     { name = "requests", specifier = ">=2.33" },
     { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.54" },
 ]

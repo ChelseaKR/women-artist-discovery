@@ -1,6 +1,6 @@
 # Documentation Audit
 
-Last verified: 2026-07-17 · Recheck cadence: per docs change. Base branch: `main`.
+Last verified: 2026-07-19 · Recheck cadence: per docs change. Base branch: `main`.
 
 This audit records the documentation sweep and remediation loop for this repository. It checks the docs as a system: entry points, root-level process and legal files, project scope, setup and validation notes, safety and privacy posture, architecture and planning docs, local links, and the places where code, tests, workflows, and docs meet.
 
@@ -10,7 +10,7 @@ This audit records the documentation sweep and remediation loop for this reposit
 | --- | --- | --- |
 | Entry docs | pass | `README.md` present |
 | Security/process docs | pass | CONTRIBUTING.md, SECURITY.md, CHANGELOG.md |
-| Architecture/planning docs | pass | 10 ADRs (0004 reserved by open PR #42); roadmap, 5 ideation docs, and 2 research docs |
+| Architecture/planning docs | pass | 11 ADRs; roadmap, 5 ideation docs, and 2 research docs |
 | Safety/privacy/audit docs | pass | 11 safety/privacy/accessibility/audit docs |
 | Validation surface | pass | 38 Python test files; 7 workflow files |
 | Local doc links | pass | Authored-doc relative links rechecked; 0 unresolved |
@@ -84,7 +84,7 @@ Workflow files checked:
 
 | Category | Count | Representative files |
 | --- | ---: | --- |
-| architecture and interfaces | 10 | `docs/adr/0000-record-architecture-decisions.md`, `docs/adr/0007-sourced-only-identity-unknown-first-class.md`, `docs/adr/0010-release-producing-repository.md`, plus 7 more under `docs/adr/` (0004 reserved by open PR #42) |
+| architecture and interfaces | 11 | `docs/adr/0000-record-architecture-decisions.md`, `docs/adr/0004-python-floor-3.12.md`, `docs/adr/0007-sourced-only-identity-unknown-first-class.md`, `docs/adr/0010-release-producing-repository.md`, plus 7 more under `docs/adr/` |
 | entry points and repo process | 9 | `.github/PULL_REQUEST_TEMPLATE.md`, `CHANGELOG.md`, `CITATION.cff`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `LICENSE`, `NOTICE`, `README.md`, plus 1 more |
 | other docs | 5 | `CODEOWNERS`, `DEFINITION_OF_DONE.md`, `docs/I18N.md`, `docs/PROJECT-SCOPE.md`, `docs/README.md` |
 | planning and research | 8 | `docs/ROADMAP.md`, `docs/RESEARCH-ROADMAP.md`, `docs/USER-RESEARCH.md`, and `docs/ideation/` |
@@ -116,6 +116,7 @@ Full hand-authored doc inventory checked by this pass:
 - `docs/adr/0001-single-maintainer-review-posture.md`
 - `docs/adr/0002-python-floor-3.10-not-3.12.md`
 - `docs/adr/0003-hatchling-build-backend.md`
+- `docs/adr/0004-python-floor-3.12.md`
 - `docs/adr/0005-streamlit-over-react.md`
 - `docs/adr/0006-hybrid-recommender-over-single-method.md`
 - `docs/adr/0007-sourced-only-identity-unknown-first-class.md`

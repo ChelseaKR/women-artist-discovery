@@ -24,7 +24,7 @@ dependencies = [
 # clearing the former RR-4 app-extra advisory cluster (3.10+-gated fixes).
 # Kept as a real runtime extra (PEP 735 dependency-groups is for dev-only tooling, not
 # installable extras) — `dev` moved to [dependency-groups] below (CQ-27).
-app = ["streamlit>=1.54", "pandas>=2.0"]
+app = ["streamlit>=1.54", "pandas>=2.0", "pillow>=12.3"]
 
 [project.scripts]
 wad = "pipeline.cli:main"

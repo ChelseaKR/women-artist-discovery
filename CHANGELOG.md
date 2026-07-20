@@ -40,6 +40,12 @@ tag, not backfilled to an earlier commit date.
   (BL-8, 56628ee).
 
 ### Changed
+- Recorded the supported Python floor of `>=3.12` in the remaining developer-facing
+  surfaces (ADR 0004, which supersedes ADR 0002 and ADR 0001's four-version matrix
+  provision; `CONTRIBUTING.md`; the committed main-ruleset target now requires only
+  the supported `verify (3.12)`/`verify (3.13)` contexts). The floor itself landed
+  in `pyproject.toml` via #51; this closes out the documentation and ruleset trail
+  from #42.
 - Migrated the Python floor from 3.9 to `>=3.10` (#6). Unblocked every dependency fix gated to
   Python ≥3.10 (see Security, below) and dropped Python 3.9 (EOL 2025-10-31) from the CI matrix.
 
@@ -51,6 +57,9 @@ tag, not backfilled to an earlier commit date.
   it, and the page itself reflows; long citation URLs additionally wrap (`overflow-wrap`).
 
 ### Security
+- Declared `pillow>=12.3` explicitly in the `app` extra (PYSEC-2026-2253 through
+  PYSEC-2026-2257), so the constraint no longer relies on Streamlit's transitive
+  floor; `uv.lock` already resolved Pillow 12.3.0.
 - `persist-credentials: false` on the CI checkout step, so the default `GITHUB_TOKEN` is not
   persisted for later steps (#4).
 - All GitHub Actions `uses:` pinned to 40-character commit SHAs with version comments, closing the

@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Python 3.9 dropped (EOL 2025-10-31). Floor is now >=3.10.
+        # Floor is >=3.12 (ADR 0004); 3.9 (EOL 2025-10-31) and the 3.10/3.11 era are history.
         # Branch protection requires the two current runtimes on PRs. Older
         # supported runtimes are compatibility coverage, not duplicate merge
         # gates, and therefore run on the weekly/manual matrix.
