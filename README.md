@@ -48,7 +48,7 @@ the offline eval must beat the popularity baseline (`make eval`, `docs/audits/ev
 The first LLM SDK import anywhere in this repo flips this status to `APPLIES` in full and activates
 §1–3. See `docs/RESPONSIBLE-TECH-AUDITS.md` for the full AI-governance picture.
 
-## Standards
+## Standards Conformance
 Inherits [`/STANDARDS`](../STANDARDS/). Per-standard declarations (Documentation Standard's
 "a repo must declare Applies/N/A for every standard, not just inherit silently" rule):
 
@@ -57,7 +57,7 @@ Inherits [`/STANDARDS`](../STANDARDS/). Per-standard declarations (Documentation
 | 1 | Quality & Metrics | Applies | ROADMAP §7 metrics ledger; `make verify` enforces the current gates. |
 | 2 | Code Quality | Applies | Ruff, strict mypy, per-module coverage floor, PEP 735 dev group, and complexity checks are active. |
 | 3 | Security & Supply-Chain | Applies — **ASVS 5.0 Level 1** | No auth / no multi-user surface, so L2 controls are N/A (no server); see `docs/RESPONSIBLE-TECH-AUDITS.md` §F |
-| 4 | CI/CD | Applies | CODEOWNERS, workflows, and the live main ruleset are configured; hosted execution is externally blocked by the account billing limit. |
+| 4 | CI/CD | Applies | CODEOWNERS, workflows, and the live main ruleset are configured; hosted execution restored 2026-07-19 (repo made public — free runner minutes). |
 | 5 | Release & Versioning | Applies — **release-producing, unreleased** | No tag/release exists yet; see `CHANGELOG.md` and `SECURITY.md` for the current stance |
 | 6 | Accessibility | Applies | axe gate blocking (0 violations) + Playwright keyboard/reflow/reduced-motion specs (`tests/test_e2e_a11y.py`); Lighthouse not wired; manual screen-reader + keyboard sign-offs pending the first release (`docs/audits/accessibility-2026-07-17.md`) |
 | 7 | Observability | Applies — **Tier C** | See Observability section above |

@@ -22,7 +22,8 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      # Scorecard's private-repo GraphQL checks require these read scopes.
+      id-token: write  # required by publish_results: true (OIDC attestation)
+      # Read scopes for Scorecard's GraphQL checks.
       issues: read
       pull-requests: read
       checks: read
@@ -36,7 +37,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: false  # private repo — do not publish to the public dataset
+          publish_results: true  # public repo (2026-07-19) — publish to the OpenSSF public dataset
 
       - name: Upload SARIF results
         # No GHAS code scanning on a private repo — no-op unless the repo goes public.
