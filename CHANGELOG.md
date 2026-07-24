@@ -12,6 +12,10 @@ tag, not backfilled to an earlier commit date.
 
 ## [Unreleased]
 
+### Security
+- Update the transitive GitPython lock from 3.1.50 to 3.1.55, clearing the
+  high-severity joined-short-option clone bypass fixed after 3.1.50.
+
 ### Added
 - Mutation-testing gate on the safety-critical modules (CQ-47): `make mutation` runs cosmic-ray
   over `pipeline/identity.py` (no-inference) and `recommender/rerank.py` (boost-only), executing
