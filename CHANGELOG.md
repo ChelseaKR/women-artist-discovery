@@ -42,6 +42,14 @@ tag, not backfilled to an earlier commit date.
   disclosed after the prior bump (GHSA-3f7w-8rr8-f37f, GHSA-p538-c434-8v24; fixed upstream in
   3.1.56/3.1.57 respectively). Found via `pip-audit` while verifying an unrelated PR; fixed here
   as a minimal, separately-committed companion change rather than folded into that PR's diff.
+- Update the transitive `pip` lock, 26.1.2 -> 26.2.1, clearing PYSEC-2026-3721 (CVSS 6.5, fixed
+  upstream in 26.2). `pip` is pulled in by `pip-api`, which `pip-audit` depends on — the auditor's
+  own dependency tree is what tripped the auditor. It had the whole merge-blocking gate set red on
+  both Python 3.12 and 3.13 from the 2026-08-24 scheduled run onward: `make security` exits 1, and
+  `verify` runs its stages in order, so a11y, eval and i18n never ran at all while it was broken.
+  Fixed by regenerating the lockfile (`uv lock --upgrade-package pip`), not by waiving —
+  `AUDIT_IGNORES` stays empty and `pip-audit` is back to 0 findings with no `--ignore-vuln` flags,
+  so RR-1's "re-open only if a new pip advisory appears" clause needs no new accepted-risk row.
 
 ### Fixed
 - **A backing vocalist is no longer treated as fronting the band.** `is_fronting_role` matched the
