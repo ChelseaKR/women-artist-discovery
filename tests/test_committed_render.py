@@ -89,3 +89,52 @@ def test_committed_dashboard_cites_only_locatable_records() -> None:
         "the committed render shows citations that do not locate a record:\n  "
         + "\n  ".join(problems)
     )
+
+
+# --- The renderer's own CLI, which `make a11y` is built on -------------------
+#
+# `make a11y` does not call `build()`; it shells out to
+# `python -m app.build_static --scheme light --out ...` and again for dark, and
+# the Makefile's comment claims that makes the gate "scheme-complete on any
+# machine — a Dark-Mode Mac and light-mode CI check the same two palettes".
+# That claim rests entirely on `main()` forwarding `--scheme` to `build()`.
+# `tests/test_contrast.py` proves the *renderer* honours a scheme; nothing
+# proved the CLI passes one along. A `main()` that dropped the argument would
+# write two byte-identical "pinned" renders, pa11y would audit the same palette
+# three times, and every gate would stay green.
+
+
+def test_the_renderer_cli_forwards_the_scheme_it_was_given(tmp_path: Path) -> None:
+    from app.build_static import main as build_main
+
+    light = tmp_path / "light.html"
+    dark = tmp_path / "dark.html"
+    assert build_main(["--scheme", "light", "--out", str(light)]) == 0
+    assert build_main(["--scheme", "dark", "--out", str(dark)]) == 0
+
+    light_html = light.read_text(encoding="utf-8")
+    dark_html = dark.read_text(encoding="utf-8")
+    assert "color-scheme: light" in light_html
+    assert "color-scheme: dark" in dark_html
+    # The two pinned renders must genuinely differ. Byte-equality here would
+    # mean the a11y gate audits one palette while reporting two.
+    assert light_html != dark_html
+
+
+def test_the_renderer_cli_defaults_to_the_responsive_scheme(tmp_path: Path) -> None:
+    from app.build_static import main as build_main
+
+    out = tmp_path / "auto.html"
+    assert build_main(["--out", str(out)]) == 0
+    html = out.read_text(encoding="utf-8")
+    assert "color-scheme: light dark" in html
+    assert "@media (prefers-color-scheme: dark)" in html
+
+
+def test_the_renderer_cli_rejects_an_unknown_scheme(tmp_path: Path) -> None:
+    import pytest
+    from app.build_static import main as build_main
+
+    with pytest.raises(SystemExit) as exc:
+        build_main(["--scheme", "sepia", "--out", str(tmp_path / "x.html")])
+    assert exc.value.code == 2

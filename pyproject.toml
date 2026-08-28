@@ -14,14 +14,17 @@ license = { text = "MIT" }
 authors = [{ name = "Chelsea" }]
 dependencies = [
     # requests>=2.33 / urllib3>=2.7 carry the fixes for the former RR-4 network-path
-    # advisories (GHSA-gc5v-m9x4-r6x2, PYSEC-2026-141/142) — installable now that the
-    # floor is >=3.10. urllib3 is pinned reproducibly via uv.lock.
+    # advisories (GHSA-gc5v-m9x4-r6x2, PYSEC-2026-141/142). Those fixes were gated
+    # to Python >=3.10 and install on this project's floor, which ADR 0004 moved to
+    # >=3.12 (this comment said "now that the floor is >=3.10" long after it wasn't).
+    # urllib3 is pinned reproducibly via uv.lock.
     "requests>=2.33",
 ]
 
 [project.optional-dependencies]
-# streamlit>=1.54 pulls fixed pillow>=12.2 / pyarrow>=23 / msgpack>=1.2.1 / tornado,
-# clearing the former RR-4 app-extra advisory cluster (3.10+-gated fixes).
+# streamlit>=1.54 pulls fixed pillow>=12.3 / pyarrow>=23 / msgpack>=1.2.1 / tornado,
+# clearing the former RR-4 app-extra advisory cluster (fixes gated to Python >=3.10,
+# all installable on the >=3.12 floor ADR 0004 set).
 # Kept as a real runtime extra (PEP 735 dependency-groups is for dev-only tooling, not
 # installable extras) — `dev` moved to [dependency-groups] below (CQ-27).
 app = ["streamlit>=1.54", "pandas>=2.0", "pillow>=12.3"]
@@ -103,26 +106,29 @@ warn_redundant_casts = true
 warn_return_any = true
 files = ["pipeline", "recommender", "app", "export"]
 
-[[tool.mypy.overrides]]
-# streamlit is the only directly-imported third-party UI lib (app/dashboard.py).
-# Its bundled stubs (and the pandas/numpy stubs they pull in) use PEP 695 `type`
-# aliases that require a >=3.12 mypy target; we type-check our own code against
-# py310, so skip following streamlit rather than raise the project's target.
-module = ["streamlit.*"]
-ignore_missing_imports = true
-follow_imports = "skip"
-
 # ---------------------------------------------------------------------------
 # Test + coverage gate (CI stage 3)
-# Coverage is measured on CORE LOGIC (pipeline + recommender), per the
-# standard's "≥85% lines / ≥80% branches on core logic". The Streamlit UI
-# and live-HTTP code paths are integration/manual-verified, not unit-gated.
+# Coverage is measured on pipeline + recommender + export + app, per the
+# standard's "≥85% lines / ≥80% branches on core logic". Only the two entry
+# points named in `[tool.coverage.run] omit` below are excluded; the live-HTTP
+# code paths are integration-verified rather than unit-gated, and are excluded
+# by `pragma: no cover` at the call site rather than wholesale.
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 addopts = [
     "--cov=pipeline",
     "--cov=recommender",
     "--cov=export",
+    # `app` was absent until 2026-08-28, which made the whole package invisible
+    # to the coverage gate — and made `[tool.coverage.run] omit` below dead
+    # configuration, since you cannot omit from a measurement that never ran.
+    # #71 narrowed that omit from "app/*" to the Streamlit entry point alone and
+    # wrote a comment explaining that the other three modules "are ordinary,
+    # testable logic and are in fact well covered"; nothing measured whether
+    # they still were. `app/a11y_check.py` in particular *is* the accessibility
+    # gate on any machine without pa11y, and its `main()` had never been
+    # executed by a test.
+    "--cov=app",
     "--cov-branch",
     "--cov-report=term-missing",
     "--cov-report=xml:docs/audits/coverage.xml",
