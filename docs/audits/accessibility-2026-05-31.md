@@ -5,7 +5,7 @@
 
 ## Automated gate (the mechanical 30–40%)
 
-`make a11y` renders the live recommendation set to `docs/audits/dashboard.html`
+`make a11y` audited a render of the live recommendation set at `docs/audits/dashboard.html` (as of #71 it no longer regenerates that file — `make render` does, and `tests/test_committed_render.py` byte-gates it)
 (`app/build_static.py`, `app/render.py`) and audits it:
 
 - **CI / when available:** `pa11y --runner axe` → **0 violations** required.

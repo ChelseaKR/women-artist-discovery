@@ -19,7 +19,7 @@
 | AIR-5 | Allocational bias: the lens over-favours already-popular sourced women within the boosted set | Bounded boost (`MAX_BOOST`); base taste score never includes popularity as an input | `docs/audits/fairness-identity.md` §3; `recommender/exposure.py` popularity×identity cross-tab | maintainer |
 | AIR-6 | Building or redistributing a scraped musician-identity dataset | No bulk export path exists; identity is resolved on-demand and cached locally only | `tests/test_privacy.py` (egress confinement); `docs/audits/identity-data-ethics.md` "Non-redistribution" | maintainer |
 | AIR-7 | Listening-data privacy: a person's Last.fm history leaking beyond their own machine | Local-first; no telemetry; the only opt-in egress is a user-initiated Spotify export (artist names only) | `tests/test_privacy.py`; `docs/audits/privacy-notes.md` | maintainer |
-| AIR-8 | Cached identity claim goes stale or is later corrected upstream, but the app keeps serving the old label | **Open residual risk:** TTL/diff primitives exist, but `lavender refresh` is fixture-only and no live enricher calls upstream. Citations and fetch dates surface staleness; FIX-01 must close correction fold-back. | `pipeline/ingest.py::refresh_catalog`, `pipeline/cache.py` TTL/expiry, `docs/ideation/02-large-scale-fixes.md` FIX-01/04 | maintainer |
+| AIR-8 | Cached identity claim goes stale or is later corrected upstream, but the app keeps serving the old label | **Partly closed:** `lavender refresh --user` re-asks MusicBrainz and Wikidata about cached artists and reconciles the pending-corrections ledger against what changed (#90, #93). Citations and fetch dates surface staleness. Still open: there is no scheduler, so a re-check is an operator running the command; and a genuine upstream retraction is listed for a human rather than applied, because the enricher cannot distinguish a retraction from an unreachable upstream. | `pipeline/ingest.py::refresh_catalog`, `pipeline/cache.py` TTL/expiry, `docs/ideation/02-large-scale-fixes.md` FIX-01/04 | maintainer |
 | AIR-10 | A filed correction — a person's note that a database has their gender wrong — is deleted by an ordinary refresh | Reconciliation requires an *upstream source to have been queried* and the observed value to be the value that was proposed (compared through the controlled vocabulary). A date-only change reconciles nothing; a change to any other value marks the row superseded and keeps it. Closed 2026-08-14 (#70), where a key-only match plus a date-only diff silently deleted the row and reported success. | `tests/test_pending_corrections.py`, `tests/test_cache_lifecycle.py::test_cli_refresh_does_not_delete_a_pending_correction` | maintainer |
 | AIR-9 | Recommender quality regresses silently release-over-release | Eval gate checks both beats-popularity and regression-vs-committed-baseline | `recommender/eval.py::check_regression`, `docs/audits/eval-baseline.json` | maintainer |
 
@@ -54,8 +54,9 @@ consent to being included in its candidate pool:
   re-verify, not a one-time assertion.
 - **Redress.** An artist (or anyone on their behalf) can report a wrong or outdated identity claim
   via the same channel as a security report (`SECURITY.md`) and record a cited local correction.
-  Automated upstream fold-back is not shipped: `refresh_catalog` has an injectable integration
-  seam, while the CLI is fixture-only pending FIX-01.
+  Upstream fold-back ships and is operator-triggered: `lavender refresh --user` re-enriches cached
+  artists and clears a pending correction the upstream record now agrees with. It is not scheduled,
+  and it never applies a retraction on its own.
 - **Asymmetry of power.** The maintainer controls the resolver and re-rank; affected artists have
   no direct visibility into or control over this specific tool's output about them (though they
   retain full control over the upstream sources — Wikidata, MusicBrainz — this tool reads from).

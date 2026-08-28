@@ -19,9 +19,9 @@
 | Data | Sensitivity | Justification | Storage | Retention |
 |------|-------------|---------------|---------|-----------|
 | Last.fm username | low (personal) | identifies whose history to fetch | in-memory / local cache | until cache cleared |
-| Scrobbles (plays) | personal | the recommendation ground truth | `data/cache.db` (local) | until `make clean` |
-| Enriched artist metadata | public, **incl. Art. 9 special-category** (orientation, trans self-identification — ADR 0011) | identity + tags + similarity | `data/cache.db` (local) | re-fetched past the `--ttl-days` horizon; fixture-rewritten on demand |
-| API responses | public | rate-limit-respecting cache | `data/cache.db` (local) | overwritten on refetch |
+| Scrobbles (plays) | personal | the recommendation ground truth | the local cache DB (see "Local-first" below for the path) | until `make forget` |
+| Enriched artist metadata | public, **incl. Art. 9 special-category** (orientation, trans self-identification — ADR 0011) | identity + tags + similarity | the local cache DB |  re-fetched past the `--ttl-days` horizon; fixture-rewritten on demand |
+| API responses | public | rate-limit-respecting cache | the local cache DB |  overwritten on refetch |
 | Playlist export (opt-in) | personal | user-initiated push of the recommended artist names to Spotify | none (sent, not stored) | n/a — only on click |
 
 **Special-category data, stated plainly (ADR 0011).** This document used to say
@@ -123,10 +123,14 @@ change, or the new client will fail the merge-blocking privacy gate:
 
 ## Handling & commitments
 
-- **Local-first.** Everything lives in a single on-disk SQLite file under `data/`
-  (git-ignored). Nothing about the user's listening leaves the machine *except*
-  when the user explicitly exports a playlist to Spotify, which sends only the
-  recommended artist names (see "Outbound data flows" below).
+- **Local-first.** Everything lives in a single on-disk SQLite file in the
+  platform user-data directory — `~/Library/Application Support/lavender-rotation/cache.db`
+  on macOS, `%APPDATA%\lavender-rotation` on Windows, `$XDG_DATA_HOME/lavender-rotation`
+  elsewhere (`pipeline/paths.py`; `LAVENDER_DATA_DIR` overrides it, and
+  `lavender doctor` prints the resolved path). It is outside the working tree
+  entirely. Nothing about the user's listening leaves the machine *except* when
+  the user explicitly exports a playlist to Spotify or TIDAL, which sends only
+  the recommended artist names (see "Outbound data flows" above).
 - **No telemetry / no third-party analytics.** Enforced by source scan:
   `tests/test_privacy.py` asserts no analytics SDK is imported and that network
   egress exists **only** in the four modules in the "Egress registry /
@@ -138,8 +142,12 @@ change, or the new client will fail the merge-blocking privacy gate:
   provenance cannot silently become a redistributable sidecar.
 - **Data minimisation & lineage.** Only what's needed is stored, each row with a
   `fetched_at` timestamp (`pipeline/cache.py`, `tests/test_cache_serde.py`).
-- **Deletion path.** `make clean` removes the local cache (`data/*.db`); there is
-  no remote copy to chase.
+- **Deletion path.** `make forget` deletes the cache at the path above, after
+  printing it and asking for confirmation; there is no remote copy to chase.
+  This used to read "`make clean` removes the local cache (`data/*.db`)", which
+  stopped being true when the cache moved out of the working tree: on a normal
+  install that rule matched nothing, so the documented way to delete personal
+  data deleted none of it. `make clean` is build artifacts only, and says so.
 - **Secrets.** Any API key is read from the environment (`LAVENDER_LASTFM_API_KEY`),
   never committed; secret scan is merge-blocking (`scripts/secret-scan.sh`, CI
   gitleaks).

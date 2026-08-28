@@ -10,7 +10,7 @@ Lavender Rotation recommends music with an explicit values lens. It uses listeni
 
 Package metadata checked in this pass:
 
-- Python package `lavender-rotation` for Python `>=3.10`.
+- Python package `lavender-rotation` for Python `>=3.12` (ADR 0004).
 
 ## Who It Serves
 
@@ -48,6 +48,7 @@ GitHub workflow files checked:
 
 - `.github/workflows/ci.yml`
 - `.github/workflows/codeql.yml`
+- `.github/workflows/mutation.yml`
 - `.github/workflows/osv-scanner.yml`
 - `.github/workflows/release.yml`
 - `.github/workflows/scorecard.yml`
@@ -68,7 +69,21 @@ GitHub workflow files checked:
 
 ## Docs And Evidence Checked
 
-This pass checked the 34 authored Markdown files, 38 Python files under `tests/`, and 7 workflow files on `main`. The count excludes vendored provider licenses, dependency folders, generated cache files, and generated HTML/JSON artifacts.
+This pass checked every authored Markdown file, every Python file under `tests/`, and every
+workflow file on `main`, excluding vendored provider licenses, dependency folders, generated cache
+files, and generated HTML/JSON artifacts.
+
+The counts used to be written out here as "34 authored Markdown files, 38 Python files under
+`tests/`, and 7 workflow files". They were right on the day the pass ran and wrong within a few
+merges (45 / 51 / 8 as of 2026-08-28), with nothing to notice — the same hand-typed-and-stale
+failure `scripts/check-readme-claims.py` exists to prevent for the README's test count. A number
+nobody regenerates is worse than no number, so recompute rather than read:
+
+```sh
+git ls-files '*.md' | wc -l
+git ls-files 'tests/*.py' | wc -l
+git ls-files '.github/workflows/*' | wc -l
+```
 
 Primary docs checked:
 

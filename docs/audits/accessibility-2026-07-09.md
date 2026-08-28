@@ -39,7 +39,7 @@ Fixed 2026-07-09 (roadmap BUG-1):
 
 ## Automated gate (the mechanical 30–40%)
 
-`make a11y` renders the live recommendation set to `docs/audits/dashboard.html`
+`make a11y` audited a render of the live recommendation set at `docs/audits/dashboard.html` (as of #71 `make a11y` no longer regenerates that file — `make render` does)
 (auto) + `/tmp/wad-dashboard-{light,dark}.html` (pinned gate inputs) and audits
 all three:
 

@@ -59,8 +59,9 @@ until it is green locally:
 | Type | `make typecheck` | `mypy --strict` over `pipeline`, `recommender`, `app`, `export` |
 | Test | `make test` | `pytest` with a **≥ 85%** coverage gate on core logic |
 | Security | `make security` | `pip-audit` (empty waiver list) + the secret scan |
-| A11y | `make a11y` | renders the dashboard and runs the axe gate — **0 violations** |
-| Eval | `make eval` | offline eval; fails unless the hybrid **beats the popularity baseline** |
+| A11y | `make a11y` | audits the committed render plus a light- and a dark-pinned render with the axe gate (regenerating the committed one is `make render`, deliberately not part of `a11y` — #71) — **0 violations** |
+| Eval | `make eval` | offline eval; fails unless the hybrid **beats the popularity baseline**, then checks `docs/writeup/methods.md`'s numbers against the report it just wrote |
+| i18n | `make i18n` | the i18n **N/A declaration** gate — `docs/I18N.md` must carry the status, a reason, a `Declared:` date and a reviewer |
 
 CI re-runs the same `make` targets on Python 3.12–3.13; green locally means green in CI. Useful
 extras: `make format` (auto-format) and `make audit` (regenerate the committed responsible-tech
@@ -100,7 +101,7 @@ project's MIT license, and that it contains no proprietary or client material.
 Open a PR against `main` (the protected, CI-gated branch; no admin bypass). Before requesting
 review:
 
-- [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval).
+- [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval · i18n).
 - [ ] Tests added or updated for the change, including the identity invariants above where a read
       or ranking path is touched.
 - [ ] Every recommendation surface still shows **why + identity basis + source**, with the raw
@@ -130,14 +131,20 @@ source"** link next to it:
 
 Clicking the link opens the upstream site's own edit UI in your browser; nothing in this project
 ever writes to Wikidata or MusicBrainz on your behalf. If you note what you're proposing and why,
-file it locally with `lavender corrections add --artist <id> --source-kind <kind> --citation <url>
---proposed <value> --note <why>` (`pipeline/corrections.py`) — a small JSON file next to the local
-cache, never sent anywhere. `lavender corrections` lists what's pending.
+file it locally with `lavender pending-corrections add --artist <id> --source-kind <kind>
+--citation <url> --proposed <value> --note <why>` (`pipeline/corrections.py`) — a small JSON file
+next to the local cache, never sent anywhere. `lavender pending-corrections` lists what you have
+filed and is still open upstream.
 
-The round-trip closes itself: make the real edit upstream, then run `lavender refresh`. It re-enriches
-the cache, reports any identity-source change it observes (a new `retrieved_at` is the signal an
-edit landed), and reconciles — clearing — any pending correction whose `artist_id` + `source_kind`
-matches.
+That is a different ledger from `lavender corrections`, which lists (and, with `--artist --value
+--citation`, adds) a *local override* applied to your own cache. Filing a pending correction
+proposes a change to the upstream record; adding a correction changes what your copy says now.
+
+The round-trip closes itself: make the real edit upstream, then run `lavender refresh --user <you>`.
+It re-enriches the cache from upstream, reports any identity-source change it observes (a new
+`retrieved_at` is the signal an edit landed), and reconciles — clearing — any pending correction
+whose `artist_id` + `source_kind` matches. Without `--user`, `lavender refresh` rewrites the demo
+fixture cache and reaches no network, so it reconciles nothing and says so.
 
 **TODO (tracked, not yet done):** a real, documented round-trip — a local note filed against a
 genuinely stale Wikidata `P21` claim, the actual edit made on wikidata.org, and a `lavender refresh` run
