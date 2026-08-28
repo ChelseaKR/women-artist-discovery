@@ -121,12 +121,35 @@ def _long_options(parser: argparse.ArgumentParser) -> set[str]:
     return {opt for action in parser._actions for opt in action.option_strings}
 
 
+def _check_top_level(tokens: list[str], root: argparse.ArgumentParser) -> str | None:
+    """Why this bare `lavender --flag` line is wrong, or ``None`` if it is fine.
+
+    A top-level invocation names no subcommand: argparse answers ``lavender
+    --help`` on the root parser alone. :func:`check_invocation` required the
+    first token to be a subcommand, so it reported a correct line as naming a
+    command that does not exist. Found by this gate firing on a documented
+    `lavender --help`, which was right that the shape was unhandled and wrong
+    that the line was broken. That is the more dangerous direction only because
+    it is the one that gets "fixed" by editing the document.
+    """
+    root_options = _long_options(root)
+    for token in tokens:
+        if not token.startswith("--"):
+            continue
+        flag = token.split("=", 1)[0]
+        if flag not in root_options:
+            return f"{flag!r} is not a top-level lavender option"
+    return None
+
+
 def check_invocation(argv: str) -> str | None:
     """Why this documented invocation is wrong, or ``None`` if it is fine."""
     tokens = shlex.split(argv)
     root = build_parser()
     commands = _subparsers(root)
     command = tokens[0]
+    if command.startswith("-"):
+        return _check_top_level(tokens, root)
     if command not in commands:
         return f"{command!r} is not a lavender subcommand (have: {', '.join(sorted(commands))})"
     parser = commands[command]
@@ -182,3 +205,6 @@ def test_the_check_rejects_the_command_that_shipped_in_two_documents() -> None:
     assert check_invocation("recommend --lens 1.0 --hide-sourced-men") is None
     assert check_invocation("pending-corrections add --artist x --source-kind y") is None
     assert check_invocation("ingest --user me") is None
+    # Top-level invocations with no subcommand, both directions.
+    assert check_invocation("--help") is None
+    assert check_invocation("--definitely-not-a-top-level-flag") is not None
