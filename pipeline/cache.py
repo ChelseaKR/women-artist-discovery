@@ -179,6 +179,18 @@ class Cache:
                 f"cache schema v{current} is newer than supported v{CACHE_SCHEMA_VERSION}; "
                 "upgrade lavender-rotation or start from a fresh cache"
             )
+        if current < 0:
+            # Only the *too new* end was guarded. SQLite stores `user_version`
+            # as a signed 32-bit int and accepts negatives, and the migration
+            # loop below starts at `current + 1`, so a stamp of -3 looked up
+            # `_MIGRATIONS[-2]` and came back as a bare `KeyError: -2` from
+            # inside a constructor every command calls. A corrupt stamp is a
+            # corrupt cache; say so.
+            self.conn.close()
+            raise CacheSchemaError(
+                f"cache schema stamp v{current} is not a valid version; the file's "
+                "PRAGMA user_version is corrupt — start from a fresh cache"
+            )
         with closing(self.conn.cursor()) as cur:
             for target in range(current + 1, CACHE_SCHEMA_VERSION + 1):
                 _MIGRATIONS[target](self.conn)

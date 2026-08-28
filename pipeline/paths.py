@@ -34,7 +34,16 @@ import os
 import sys
 from pathlib import Path
 
-log = logging.getLogger("wad.paths")
+log = logging.getLogger("lavender.paths")  # must stay under logconfig._NAMESPACE
+#: This read ``wad.paths`` until 2026-08-28 — a leftover from the rename (ADR
+#: 0012). ``configure_logging`` attaches the project's single stderr handler to
+#: the ``lavender`` logger and sets ``propagate = False`` on it, so a logger
+#: outside that tree was outside the "stderr only, never a network sink"
+#: invariant this project states as a privacy property: its records skipped the
+#: project formatter and fell through to whatever the *root* logger of the
+#: embedding process happened to be configured with.
+#: ``tests/test_log_privacy.py`` now derives every logger name from the source
+#: and asserts it is under the namespace.
 
 _ENV_VAR = "LAVENDER_DATA_DIR"
 #: Pre-rename env var. Read when the current one is unset so an operator's

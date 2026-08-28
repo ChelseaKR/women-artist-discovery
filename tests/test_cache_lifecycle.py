@@ -433,3 +433,81 @@ def test_cli_refresh_does_not_delete_a_pending_correction(tmp_path, capsys) -> N
     assert "no upstream identity source was queried" in out
     assert "1 pending correction(s) still open" in out
     assert "reconciled 1 pending upstream correction(s)" not in out
+
+
+def test_a_negative_schema_stamp_is_a_corrupt_cache_not_a_migration(tmp_path) -> None:
+    """Only the "too new" end of the version check was guarded.
+
+    SQLite stores `PRAGMA user_version` as a signed 32-bit int and accepts
+    negatives. The migration loop starts at `current + 1`, so a stamp of -3
+    looked up `_MIGRATIONS[-2]` and surfaced as a bare `KeyError: -2` out of a
+    constructor that every single command calls.
+    """
+    import sqlite3
+
+    from pipeline.cache import Cache, CacheSchemaError
+
+    db = tmp_path / "corrupt.db"
+    with Cache(db):
+        pass
+    raw = sqlite3.connect(db)
+    raw.execute("PRAGMA user_version = -3")
+    raw.commit()
+    raw.close()
+
+    with pytest.raises(CacheSchemaError, match="not a valid version"):
+        Cache(db)
+
+
+def test_one_unreadable_row_costs_that_artist_not_the_refresh_run(tmp_path) -> None:
+    """`refresh_catalog` promises this in its docstring; the read was outside the try.
+
+    A refresh over a real history walks thousands of artists at roughly one
+    request per second. Aborting the whole walk on the *cache read* — after the
+    rate-limited fetches for every earlier artist had already been paid for —
+    is the failure the docstring says cannot happen.
+    """
+    from unittest.mock import patch
+
+    from pipeline.cache import Cache
+    from pipeline.enrich import FixtureEnricher
+    from pipeline.identity import IdentityEvidence
+    from pipeline.ingest import enrich_artist, refresh_catalog
+    from pipeline.lastfm import FixtureLastfm
+    from pipeline.models import SourceKind
+
+    lastfm = FixtureLastfm(scrobbles={}, tags={"good": (), "bad": ()}, similar={})
+    enricher = FixtureEnricher(
+        gender={
+            aid: [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P21,
+                    value="Q6581072",
+                    citation="https://www.wikidata.org/wiki/Q1",
+                    retrieved_at="2026-08-28",
+                )
+            ]
+            for aid in ("good", "bad")
+        },
+        composition={},
+    )
+    with Cache(":memory:") as cache:
+        for aid in ("bad", "good"):
+            cache.put_artist(
+                enrich_artist(aid, aid.title(), lastfm, enricher), fetched_at="2026-05-31"
+            )
+
+        real_get = cache.get_artist
+
+        def _explode_on_one(artist_id: str):
+            if artist_id == "bad":
+                raise ValueError("truncated payload in this row")
+            return real_get(artist_id)
+
+        with patch.object(cache, "get_artist", side_effect=_explode_on_one):
+            outcome = refresh_catalog(cache, lastfm, enricher, fetched_at="2026-08-28")
+
+        assert outcome.failed == ("bad",)
+        assert outcome.verified == ("good",)
+        assert outcome.attempted == 1
+        assert cache.artist_fetched_at("good") == "2026-08-28"

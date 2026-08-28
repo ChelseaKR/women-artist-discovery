@@ -93,6 +93,13 @@ def precision_recall_at_k(
 
 
 def average_precision_at_k(ranked_ids: list[str], positives: set[str], k: int) -> float:
+    if k <= 0:
+        # `precision_recall_at_k` already short-circuits on an empty top-k; this
+        # one divided by `min(len(positives), k)` and so raised ZeroDivisionError
+        # at k=0 and returned a silently *negative* MAP at k<0. The CLI validates
+        # `--k`, but `evaluate`, `evaluate_worlds`, `fairness_report` and
+        # `eval_real` are public API and did not.
+        raise ValueError(f"k must be positive, got {k}")
     if not positives:
         return 0.0
     hits = 0
