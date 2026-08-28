@@ -27,7 +27,12 @@ from pipeline.models import Recommendation
 from recommender.coverage import IdentityCoverage, identity_coverage
 from recommender.rerank import is_rank_protected
 from recommender.upstream import upstream_edit_url
-from recommender.why import ProvenanceItem, WhyThisArtist, why_this_artist
+from recommender.why import (
+    QUEER_SOURCES_HEADING,
+    ProvenanceItem,
+    WhyThisArtist,
+    why_this_artist,
+)
 
 
 def _identity_line(why: WhyThisArtist) -> str:
@@ -99,6 +104,30 @@ def _provenance_html(why: WhyThisArtist, aid: str) -> str:
     )
 
 
+def _queer_provenance_html(why: WhyThisArtist, aid: str) -> str:
+    """ADR 0011's second axis, under its own heading (#92).
+
+    Absent for almost every artist, and its absence is rendered as nothing at
+    all rather than as a "no queer sources" line: printing an empty state here
+    would turn "nobody sourced this" into a visible negative claim about the
+    artist, which is precisely what the tri-state model refuses to express.
+    """
+    if not why.queer_provenance:
+        return ""
+    items = "".join(
+        f"<li>{escape(p.source_kind)} asserted “{escape(p.asserted_value)}”: "
+        f'<a href="{escape(p.citation)}">{escape(p.citation)}</a> '
+        f'<span class="retrieved">(retrieved {escape(p.retrieved_at)})</span>'
+        + _fix_at_source_link(p)
+        + "</li>"
+        for p in why.queer_provenance
+    )
+    return (
+        f'<p class="sources" id="queer-src-{aid}">{escape(QUEER_SOURCES_HEADING)}:</p>'
+        f"<ul>{items}</ul>"
+    )
+
+
 def _reasons_html(why: WhyThisArtist) -> str:
     items = "".join(f"<li>{escape(r)}</li>" for r in why.reasons)
     return f"<ul>{items}</ul>"
@@ -118,7 +147,7 @@ def _card_html(rec: Recommendation) -> str:
         f'<p class="rank-shift">{_rank_shift_line(why)}</p>'
         f"{_conflict_html(why, aid)}"
         f"<h4>Why this artist</h4>{_reasons_html(why)}"
-        f"{_provenance_html(why, aid)}"
+        f"{_provenance_html(why, aid) + _queer_provenance_html(why, aid)}"
         f'<p class="summary">{escape(rec.explanation.summary)}</p>'
         f"</article>"
     )

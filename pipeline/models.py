@@ -569,6 +569,14 @@ class Explanation:
     identity_basis: IdentityBasis
     identity_sources: tuple[Source, ...]
     summary: str
+    #: Citations behind ADR 0011's *second* axis — the orientation and trans
+    #: claims a permitted source asserted (#92). Deliberately a separate field
+    #: from :attr:`identity_sources` rather than more entries in it, for the
+    #: same reason :class:`QueerIdentity` is a separate object from
+    #: :class:`IdentityLabel`: keeping them apart is what makes "a P91 claim can
+    #: never be read as a gender basis" true by construction. It carries no
+    #: :class:`IdentityBasis` of its own, because it establishes no gender.
+    queer_sources: tuple[Source, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.signals:

@@ -51,7 +51,7 @@ from recommender.exposure import observability_panel
 from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.lens import VALUES_LENS
-from recommender.why import why_this_artist
+from recommender.why import QUEER_SOURCES_HEADING, WhyThisArtist, why_this_artist
 
 from app.render import POSITION_HELD, position_basis
 
@@ -199,6 +199,33 @@ def _render_export(recs: list[Recommendation], username: str) -> None:  # pragma
 
     with st.expander("Connect Spotify and push a playlist"):
         _render_spotify_panel(st, recs, username)
+
+
+def _render_provenance(st: Any, why: WhyThisArtist) -> None:
+    """Both source lists for one card, under headings that keep the axes apart.
+
+    Extracted from ``main`` so that adding ADR 0011's second axis (#92) did not
+    push the entry point past the complexity gate — and so the two lists are
+    written once rather than twice.
+    """
+    if why.provenance:
+        st.markdown("**Sources** (sourced, never inferred)")
+        for item in why.provenance:
+            st.markdown(
+                f"- {item.source_kind} asserted “{item.asserted_value}”: "
+                f"[{item.citation}]({item.citation}) (retrieved {item.retrieved_at})"
+            )
+    else:
+        st.caption("Identity unknown — no sources, surfaced on merit.")
+    if why.queer_provenance:
+        # Rendered only when a source actually asserted something: an empty
+        # state here would read as "not queer", which no absence establishes.
+        st.markdown(f"**{QUEER_SOURCES_HEADING}**")
+        for item in why.queer_provenance:
+            st.markdown(
+                f"- {item.source_kind} asserted “{item.asserted_value}”: "
+                f"[{item.citation}]({item.citation}) (retrieved {item.retrieved_at})"
+            )
 
 
 def main() -> None:  # pragma: no cover - exercised via the live Streamlit runtime
@@ -369,15 +396,7 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
             st.markdown("**Why this artist**")
             for reason in why.reasons:
                 st.markdown(f"- {reason}")
-            if why.provenance:
-                st.markdown("**Sources** (sourced, never inferred)")
-                for p in why.provenance:
-                    st.markdown(
-                        f"- {p.source_kind} asserted “{p.asserted_value}”: "
-                        f"[{p.citation}]({p.citation}) (retrieved {p.retrieved_at})"
-                    )
-            else:
-                st.caption("Identity unknown — no sources, surfaced on merit.")
+            _render_provenance(st, why)
             up_col, down_col = st.columns(2)
             vote: int | None = None
             if up_col.button(f"Thumbs up {rec.artist.name}", key=f"up-{rec.artist.artist_id}"):

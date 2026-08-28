@@ -347,3 +347,158 @@ def test_p91_is_parsed_from_the_entity_document() -> None:
 
 def test_an_entity_with_no_p91_claim_yields_nothing() -> None:
     assert parse_wikidata_p91({"claims": {}}, WIKI, RETRIEVED) is None
+
+
+# --- #92: the evidence behind a queer-lens boost must be visible -------------
+#
+# `resolve_queer_identity` computed the orientation and trans citations at
+# ingest and *nothing downstream read them*. `build_explanation` filled
+# `identity_sources` from the gender label or the band lineup and nothing else,
+# `why_this_artist` built `provenance` from that alone, and every renderer
+# consumed only that. So a woman boosted by `--lens-name queer` because a P91
+# claim sourced her as a lesbian showed exactly what a default-lens run showed
+# for the same woman: the boost signal, and her *gender* citation. The one
+# citation that put her in this lens was the one a reader could not see.
+#
+# ADR 0011 §4 states the opposite as a decision: "the why-card says 'recorded in
+# Wikidata' versus 'stated by the artist', with the raw asserted value shown
+# either way. A reader can always see whether the artist said it." And the ADR's
+# Consequences call sourced-with-a-citation "load-bearing rather than
+# precautionary" — a citation computed and shown to nobody is not load-bearing.
+
+
+def _queer_recommendation(artist: Artist):
+    from pipeline.lastfm import FixtureLastfm
+    from pipeline.models import ListeningProfile
+    from recommender.hybrid import recommend
+    from recommender.lens import QUEER_LENS
+
+    profile = ListeningProfile(
+        username="l",
+        play_counts={"seed": 1.0},
+        artist_names={"seed": "Seed"},
+        tags={"seed": ("folk",)},
+    )
+    source = FixtureLastfm({}, {}, {"seed": [(artist.artist_id, 0.9)]})
+    recs = recommend(
+        profile,
+        {artist.artist_id: artist},
+        source,
+        k=5,
+        lens_strength=1.0,
+        lens=QUEER_LENS,
+    )
+    assert recs, "the fixture artist must be recommended for the card to exist"
+    return recs[0]
+
+
+def _sourced_queer_woman() -> Artist:
+    """A sourced lesbian, sourced trans woman. Invented, per the module docstring."""
+    evidence = [
+        ev(SourceKind.WIKIDATA_P21, "Q1052281", "https://www.wikidata.org/wiki/Q000000003"),
+        ev(SourceKind.WIKIDATA_P91, "Q6649", "https://www.wikidata.org/wiki/Q000000003"),
+    ]
+    return Artist(
+        artist_id="violet-meridian",
+        name="Violet Meridian",
+        tags=("folk",),
+        identity=resolve_identity(evidence),
+        queer=resolve_queer_identity(evidence),
+    )
+
+
+def test_the_why_card_shows_the_orientation_citation_that_earned_the_boost() -> None:
+    from recommender.why import why_this_artist
+
+    rec = _queer_recommendation(_sourced_queer_woman())
+    assert rec.rerank_delta > 0.0, "the queer lens must actually be boosting this pick"
+
+    why = why_this_artist(rec)
+    kinds = {p.source_kind for p in why.queer_provenance}
+    assert "wikidata-p91" in kinds, "the orientation citation is missing from the card"
+    p91 = next(p for p in why.queer_provenance if p.source_kind == "wikidata-p91")
+    # The *raw asserted value*, not the resolved label: ADR 0011 §4's exact ask.
+    assert p91.asserted_value == "Q6649"
+    assert p91.citation.startswith("https://www.wikidata.org/wiki/")
+    assert p91.retrieved_at == RETRIEVED
+
+
+def test_the_why_card_shows_the_trans_self_identification_citation() -> None:
+    from recommender.why import why_this_artist
+
+    why = why_this_artist(_queer_recommendation(_sourced_queer_woman()))
+    p21 = [p for p in why.queer_provenance if p.source_kind == "wikidata-p21"]
+    assert p21, "the trans self-identification citation is missing from the card"
+    # Listed under the queer heading *as well as* the gender heading: one
+    # document, two claims. Hiding the second reading is the defect.
+    assert p21[0].asserted_value == "Q1052281"
+    assert any(p.source_kind == "wikidata-p21" for p in why.provenance)
+
+
+def test_an_orientation_citation_is_never_offered_as_a_gender_basis() -> None:
+    """The two axes must stay separated in the *rendered* object too.
+
+    `IdentityBasis.SELF_IDENTIFIED` on this card means "her gender is sourced".
+    A P91 claim says nothing about anyone's gender, so it must not appear in the
+    list the basis describes.
+    """
+    from recommender.why import why_this_artist
+
+    why = why_this_artist(_queer_recommendation(_sourced_queer_woman()))
+    assert "wikidata-p91" not in {p.source_kind for p in why.provenance}
+
+
+def test_a_card_with_no_sourced_queer_claim_renders_no_empty_state() -> None:
+    """Silence is the normal answer and must never be printed as a negative.
+
+    "No orientation sources" on a card would turn "nobody sourced this" into a
+    visible claim about the artist — the readable-as-"not queer" failure ADR
+    0011's tri-state model exists to refuse.
+    """
+    from recommender.why import QUEER_SOURCES_HEADING, why_this_artist
+
+    plain = Artist(
+        artist_id="plain",
+        name="Plain Artist",
+        tags=("folk",),
+        identity=resolve_identity([ev(SourceKind.WIKIDATA_P21, "Q6581072")]),
+    )
+    why = why_this_artist(_queer_recommendation(plain))
+    assert why.queer_provenance == ()
+    assert QUEER_SOURCES_HEADING not in why.to_text()
+    assert QUEER_SOURCES_HEADING not in why.to_markdown()
+
+
+def test_every_shared_surface_renders_the_orientation_citation() -> None:
+    """The four renderers that consume `why_this_artist`, checked together.
+
+    They each read the shared object rather than re-deriving the wording, so one
+    missing field made all four silent at once. The static HTML render is the
+    one that is committed and publicly browsable.
+    """
+    from app.render import render_cards_html
+    from recommender.why import QUEER_SOURCES_HEADING, why_this_artist
+
+    rec = _queer_recommendation(_sourced_queer_woman())
+    why = why_this_artist(rec)
+
+    assert QUEER_SOURCES_HEADING in why.to_text()
+    assert "Q6649" in why.to_text()
+    assert QUEER_SOURCES_HEADING in why.to_markdown()
+    assert "Q6649" in why.to_markdown()
+
+    html = render_cards_html([rec.with_rank(1)], lens_strength=1.0, username="demo")
+    assert QUEER_SOURCES_HEADING in html
+    assert "Q6649" in html
+    # And the fix-at-source link that only exists now that P91 has an anchor.
+    assert "#P91" in html
+    assert "correct this wikidata-p91 claim upstream" in html
+
+
+def test_the_static_render_stays_accessible_with_the_new_section() -> None:
+    from app.a11y_check import check_html
+    from app.render import render_cards_html
+
+    rec = _queer_recommendation(_sourced_queer_woman())
+    html = render_cards_html([rec.with_rank(1)], lens_strength=1.0, username="demo")
+    assert check_html(html) == []

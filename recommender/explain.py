@@ -85,5 +85,18 @@ def build_explanation(
         signals=tuple(signals),
         identity_basis=basis,
         identity_sources=sources,
+        # ADR 0011's second axis, carried separately (#92). It was computed by
+        # `resolve_queer_identity` at ingest and then read by nothing: the lens
+        # boosted on it while every surface showed only the *gender* citation,
+        # so the one claim that put an artist in the queer lens was the one
+        # claim a reader could not see. ADR 0011 §4 says the why-card shows the
+        # raw asserted value and whether the artist stated it or a registry
+        # recorded it; this is the field that makes that possible.
+        #
+        # Not gated on which lens is running. A citation only visible when a
+        # particular flag is passed is not auditable, and CONTRIBUTING's
+        # fix-at-source flow needs the artist (or the operator) to be able to
+        # see and dispute the claim that is being held about them at all times.
+        queer_sources=artist.queer.sources,
         summary=summary,
     )
