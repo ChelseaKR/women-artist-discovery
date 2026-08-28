@@ -260,3 +260,101 @@ def test_only_the_proposed_value_reconciles(
 
 def test_default_path_sits_alongside_the_given_db() -> None:
     assert corrections.default_path("data/cache.db") == Path("data/pending-corrections.json")
+
+
+# --- The queer axis reconciles too (#93) -------------------------------------
+
+
+def test_an_orientation_proposal_reconciles_through_the_vocabulary(tmp_path: Path) -> None:
+    """The vocabulary leg has to cover the second axis, or these rows never clear.
+
+    An artist's own cited words are the higher-trust orientation source, and they
+    reach the resolver as an ``artist-statement`` through this ledger
+    (``pipeline.enrich.MusicBrainzEnricher.orientation_evidence``). Someone files
+    "this should say bi"; the statement upstream says "bisexual". One claim.
+    Before this, ``_same_claim`` knew only the *gender* vocabulary, so the two
+    fell through to a literal comparison, failed it, and the row was marked
+    superseded by the very value the person proposed.
+    """
+    path = tmp_path / "pending-corrections.json"
+    _file(
+        path,
+        source_kind="artist-statement",
+        citation="https://example.org/interview",
+        current_value="straight",
+        proposed_value="bi",
+    )
+    outcome = corrections.reconcile(
+        path,
+        [_change(source_kind="artist-statement", old_value="straight", new_value="bisexual")],
+        observed_at=_TODAY,
+    )
+    assert len(outcome.reconciled) == 1
+    assert outcome.superseded == ()
+    assert corrections.list_corrections(path) == []
+
+
+def test_a_p91_qid_proposal_reconciles_against_the_same_qid(tmp_path: Path) -> None:
+    """A P91 row proposed as a Q-number, which is the shape P91 actually holds.
+
+    Documented limitation, and it is the same one the gender axis has: a P91
+    proposal typed as the *word* "lesbian" will not reconcile against upstream's
+    ``Q6649``, exactly as a P21 proposal typed as "woman" does not reconcile
+    against ``Q6581072``. ``_map_orientation`` reads Q-numbers for P91 and free
+    text for a statement, mirroring ``_map_value``; making one axis cleverer than
+    the other would be a silent divergence, not a fix.
+    """
+    path = tmp_path / "pending-corrections.json"
+    _file(
+        path,
+        source_kind="wikidata-p91",
+        citation="https://www.wikidata.org/wiki/Q11111111",
+        current_value="Q1035954",
+        proposed_value="Q6649",
+    )
+    outcome = corrections.reconcile(
+        path,
+        [_change(source_kind="wikidata-p91", old_value="Q1035954", new_value="Q6649")],
+        observed_at=_TODAY,
+    )
+    assert len(outcome.reconciled) == 1
+    assert corrections.list_corrections(path) == []
+
+
+def test_a_different_orientation_supersedes_rather_than_reconciling(tmp_path: Path) -> None:
+    """Upstream moving somewhere else is not the proposal landing."""
+    path = tmp_path / "pending-corrections.json"
+    _file(
+        path,
+        source_kind="wikidata-p91",
+        citation="https://www.wikidata.org/wiki/Q11111111",
+        current_value="Q1035954",
+        proposed_value="Q6649",
+    )
+    outcome = corrections.reconcile(
+        path,
+        [_change(source_kind="wikidata-p91", old_value="Q1035954", new_value="Q43200")],
+        observed_at=_TODAY,
+    )
+    assert outcome.reconciled == ()
+    assert len(outcome.superseded) == 1
+    assert outcome.superseded[0].superseded_by_value == "Q43200"
+    assert len(corrections.list_corrections(path)) == 1
+
+
+def test_the_two_vocabularies_are_disjoint() -> None:
+    """``_same_claim`` asks the gender vocabulary, then the orientation one.
+
+    That is only safe while no raw asserted value means something in both. If a
+    term were ever added to both tables, one axis would start answering for the
+    other and this test is the thing that says so.
+    """
+    from pipeline import identity
+
+    gender_terms = set(identity._FREEFORM_VOCAB) | set(identity._WIKIDATA_QID_VOCAB)
+    orientation_terms = set(identity._ORIENTATION_FREEFORM_VOCAB) | set(
+        identity._ORIENTATION_QID_VOCAB
+    )
+    assert gender_terms, "the gender vocabulary is empty — this check would be vacuous"
+    assert orientation_terms, "the orientation vocabulary is empty — this check would be vacuous"
+    assert not (gender_terms & orientation_terms)

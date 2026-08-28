@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Optional
 
 from pipeline.cache import DEFAULT_DB_PATH
-from pipeline.identity import normalise_asserted_value
+from pipeline.identity import normalise_asserted_orientation, normalise_asserted_value
 from pipeline.ingest import IdentityLabelChange
 from pipeline.models import SourceKind
 
@@ -198,9 +198,13 @@ def _same_claim(source_kind: str, proposed: str, observed: str) -> bool:
     """Do two *asserted* values state the same thing for this source kind?
 
     Compared through the controlled vocabulary, so a ``"woman"`` proposal is
-    satisfied by an upstream ``"female"`` and by Wikidata's ``"Q6581072"``.
-    Values the vocabulary does not cover fall back to a literal, case-folded
-    comparison — never to a guess about what they might mean.
+    satisfied by an upstream ``"female"`` and by Wikidata's ``"Q6581072"`` — and,
+    on the second axis (#93), a ``"lesbian"`` proposal is satisfied by P91's
+    ``"Q6649"``. Both vocabularies are consulted because a correction can be
+    filed against either axis; they are disjoint by construction, so asking each
+    in turn cannot make one axis answer for the other. Values neither vocabulary
+    covers fall back to a literal, case-folded comparison — never to a guess
+    about what they might mean.
     """
     try:
         kind = SourceKind(source_kind)
@@ -211,6 +215,10 @@ def _same_claim(source_kind: str, proposed: str, observed: str) -> bool:
         observed_gender = normalise_asserted_value(kind, observed)
         if proposed_gender is not None and observed_gender is not None:
             return proposed_gender is observed_gender
+        proposed_orientation = normalise_asserted_orientation(kind, proposed)
+        observed_orientation = normalise_asserted_orientation(kind, observed)
+        if proposed_orientation is not None and observed_orientation is not None:
+            return proposed_orientation is observed_orientation
     return proposed.strip().casefold() == observed.strip().casefold()
 
 
