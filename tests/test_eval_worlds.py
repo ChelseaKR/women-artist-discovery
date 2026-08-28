@@ -327,3 +327,115 @@ def _tied_world():
         return "u", scrobbles, catalog, source
 
     return build
+
+
+# --- #82: a metric that cannot vary must not be reported as evidence ---------
+#
+# The reporting half of #82 already landed: `EvalResult.recall_discriminates`,
+# the `recall_note`/`recall_caveat` text, `n_worlds_recall_discriminating`, and
+# an aggregate verdict that requires a strict MAP improvement. The fixture half
+# had not. Every non-demo world held exactly four candidates against `k=5`, so
+# the top-k was the whole pool for *any* ordering and `recall_at_k` came out 1.0
+# for the hybrid, the popularity baseline, a random ranker and a reversed one
+# alike. Four of five worlds could not contribute a recall signal and never
+# could have, which is not a property of the ranker but of the fixture.
+#
+# These assertions are the standing guard. Shrinking a world back below `k`
+# fails here rather than quietly re-pinning the metric and reporting it.
+
+EVAL_K = 5  # what `make eval` passes (see the Makefile's `eval` target)
+
+
+def _rankable_pool(build) -> int:
+    """How many candidates a world actually gives a ranker to order."""
+    from pipeline.ingest import build_profile
+    from recommender.hybrid import recommend
+
+    username, scrobbles, catalog, world_source = build()
+    train, _ = temporal_split(scrobbles, 0.7)
+    profile = build_profile(username, train)
+    return len(recommend(profile, catalog, world_source, k=10_000))
+
+
+def test_every_world_gives_the_ranker_more_candidates_than_k() -> None:
+    from pipeline.fixtures import ALL_WORLDS
+
+    too_small = {
+        name: pool
+        for name, build in ALL_WORLDS.items()
+        if (pool := _rankable_pool(build)) <= EVAL_K
+    }
+    assert not too_small, (
+        "recall_at_k cannot discriminate in these worlds — the top-k is the whole "
+        f"rankable pool, so every possible ranking scores the same: {too_small}. "
+        f"Widen the candidate pool past k={EVAL_K} (#82)."
+    )
+
+
+def test_no_world_is_excluded_from_the_recall_aggregate() -> None:
+    """The report's own honesty machinery must now have nothing to report."""
+    aggregate = evaluate_worlds(k=EVAL_K)
+
+    assert aggregate["recall_pinned_worlds"] == []
+    assert aggregate["n_worlds_recall_discriminating"] == aggregate["n_worlds"]
+    assert "recall_caveat" not in aggregate
+    for name, world in aggregate["worlds"].items():
+        assert world["recall_discriminates"] is True, name
+        assert "recall_note" not in world, name
+
+
+def test_the_recall_mean_is_over_every_world_now() -> None:
+    """`mean_recall_delta` was one world's number divided by five."""
+    aggregate = evaluate_worlds(k=EVAL_K)
+    deltas = [w["recall_delta"] for w in aggregate["worlds"].values()]
+
+    assert aggregate["mean_recall_delta"] == pytest.approx(sum(deltas) / len(deltas))
+    assert len(deltas) == aggregate["n_worlds"]
+
+
+def test_the_pinned_worlds_machinery_still_works_when_k_is_too_big() -> None:
+    """The guard above is only meaningful if the detector it guards still fires.
+
+    Run the same worlds at a `k` larger than any pool: every world must be
+    reported as non-discriminating, the caveat must come back, and the recall
+    mean must be `None` rather than a number averaged out of nothing.
+    """
+    aggregate = evaluate_worlds(k=10_000)
+
+    assert set(aggregate["recall_pinned_worlds"]) == set(aggregate["worlds"])
+    assert aggregate["n_worlds_recall_discriminating"] == 0
+    assert aggregate["mean_recall_delta"] is None
+    assert "recall_caveat" in aggregate
+
+
+def test_a_draw_does_not_pass_the_beat_the_baseline_gate() -> None:
+    """README calls this gate "the offline eval must beat the popularity baseline".
+
+    Asserted rather than assumed: an aggregate rule of `mean_map_delta >= 0`
+    would report a dead heat as a win, and the gate would be one that a ranker
+    doing nothing at all could pass.
+    """
+    from recommender.eval import EvalResult, compare
+
+    tie = EvalResult(
+        model="hybrid",
+        k=5,
+        precision_at_k=0.4,
+        recall_at_k=0.5,
+        map_at_k=0.5,
+        n_positives=2,
+        n_ranked=8,
+    )
+    same = EvalResult(
+        model="popularity",
+        k=5,
+        precision_at_k=0.4,
+        recall_at_k=0.5,
+        map_at_k=0.5,
+        n_positives=2,
+        n_ranked=8,
+    )
+    result = compare({"hybrid": tie, "popularity": same})
+
+    assert result.hybrid_beats_popularity is False
+    assert result.verdict == "popularity"
