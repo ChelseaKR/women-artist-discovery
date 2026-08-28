@@ -264,6 +264,17 @@ def _map_value(kind: SourceKind, value: str) -> Optional[Gender]:
     return _FREEFORM_VOCAB.get(raw.lower())
 
 
+def accepted_gender_values() -> tuple[str, ...]:
+    """Every raw value a caller may assert for a gender, sorted, for a help message.
+
+    Exposed so ``lavender corrections`` can *refuse* an unmappable value instead
+    of storing it. The controlled vocabulary lives here; a command that has to
+    reproduce it in a help string will get it wrong the first time the
+    vocabulary changes.
+    """
+    return tuple(sorted(_FREEFORM_VOCAB) + sorted(_WIKIDATA_QID_VOCAB))
+
+
 def normalise_asserted_value(kind: SourceKind, value: str) -> Optional[Gender]:
     """Public name for :func:`_map_value` — what gender a raw asserted value means.
 
@@ -438,11 +449,15 @@ def resolve_composition(
 def assert_permitted_only(evidence: Sequence[IdentityEvidence]) -> None:
     """Raise if any evidence carries a non-permitted kind. **On the running path.**
 
-    Called at the top of :func:`resolve_identity` and :func:`resolve_composition`
-    — the two entry points where untrusted evidence becomes a label — so this is
-    a guard that executes, not one that documents an intention. Until #72 it had
-    no caller outside its own test, which meant its test proved the ``if``
-    worked rather than that anything was being guarded.
+    Called at the top of :func:`resolve_identity`, :func:`resolve_composition`
+    and :func:`resolve_queer_identity` — the three entry points where untrusted
+    evidence becomes a label — so this is a guard that executes, not one that
+    documents an intention. Until #72 it had no caller outside its own test,
+    which meant its test proved the ``if`` worked rather than that anything was
+    being guarded. ADR 0011 added the third caller; this sentence said "the two
+    entry points" for as long as there were three, which is how a next axis
+    gets added without one. ``tests/test_no_inference.py`` now derives the
+    caller set from this module's AST and asserts this docstring names it.
 
     Evidence is *normally* rejected earlier, at :class:`Source` construction, so
     with today's closed :class:`~pipeline.models.SourceKind` enum this cannot
