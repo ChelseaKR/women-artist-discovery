@@ -7,7 +7,7 @@ import logging
 
 from pipeline.cache import Cache
 from pipeline.enrich import FixtureEnricher
-from pipeline.identity import IdentityEvidence
+from pipeline.identity import IdentityEvidence, resolve_identity
 from pipeline.ingest import (
     IdentityLabelChange,
     build_profile,
@@ -17,7 +17,7 @@ from pipeline.ingest import (
     refresh_catalog,
 )
 from pipeline.lastfm import FixtureLastfm, LastfmClient
-from pipeline.models import Gender, Scrobble, SourceKind
+from pipeline.models import FrontPerson, Gender, Orientation, Scrobble, SourceKind
 
 
 def test_build_profile_counts_plays(scrobbles, demo_user) -> None:
@@ -437,13 +437,18 @@ def test_ingest_emits_local_stage_summary(caplog, demo_user, source, enricher) -
 _P91_CITATION = "https://www.wikidata.org/wiki/Q000000001"
 
 
-def _orientation_enricher(retrieved_at: str, value: str = "Q6649") -> FixtureEnricher:
+def _orientation_enricher(
+    retrieved_at: str,
+    value: str = "Q6649",
+    *,
+    artist_ids: tuple[str, ...] = ("unsourced-gender",),
+) -> FixtureEnricher:
     """Upstream holds a P91 orientation claim and no gender claim at all."""
     return FixtureEnricher(
         gender={},
         composition={},
         orientation={
-            "unsourced-gender": [
+            artist_id: [
                 IdentityEvidence(
                     kind=SourceKind.WIKIDATA_P91,
                     value=value,
@@ -451,6 +456,7 @@ def _orientation_enricher(retrieved_at: str, value: str = "Q6649") -> FixtureEnr
                     retrieved_at=retrieved_at,
                 )
             ]
+            for artist_id in artist_ids
         },
     )
 
@@ -618,3 +624,195 @@ def test_one_source_that_answers_two_questions_is_counted_once() -> None:
     assert artist.identity.gender is Gender.WOMAN  # ADR 0011: no cis/trans split
     assert artist.queer.trans_self_identified is True
     assert len(_identity_sources(artist)) == 1
+
+
+def test_a_partial_answer_never_erases_the_axis_it_was_silent_about() -> None:
+    """#90's bug, one axis down — and reachable through an ordinary outage.
+
+    `MusicBrainzEnricher` reads a gender claim straight out of the MusicBrainz
+    payload, but a P91 orientation claim needs a *second* fetch, of the Wikidata
+    entity, and `_json` renders any failure there as `None`. So a Wikidata
+    outage while MusicBrainz is up produces exactly this shape: an artist who
+    comes back carrying a gender citation and nothing on the queer axis.
+
+    Whole-artist protection is not enough for that. `_is_sourced(refreshed)` is
+    true — upstream did answer — so the refreshed artist was written over the
+    cached one, taking the P91 citation with it. And `diff_identity_sources`
+    walks the *new* sources, so an empty axis has nothing to report: erasure,
+    plus a clean bill of health. That is the sentence this branch exists to make
+    true, applied per axis instead of per artist.
+    """
+    lastfm = FixtureLastfm(scrobbles={}, tags={"fixture-artist": ()}, similar={})
+    cache = Cache(":memory:")
+    try:
+        both = enrich_artist(
+            "fixture-artist",
+            "Fixture Artist",
+            lastfm,
+            FixtureEnricher(
+                gender={
+                    "fixture-artist": [
+                        IdentityEvidence(
+                            kind=SourceKind.MUSICBRAINZ_GENDER,
+                            value="female",
+                            citation="https://musicbrainz.org/artist/"
+                            "b7ffd2af-418f-4be2-bdd1-22f8b48613da",
+                            retrieved_at="2026-05-31",
+                        )
+                    ]
+                },
+                composition={},
+                orientation={
+                    "fixture-artist": [
+                        IdentityEvidence(
+                            kind=SourceKind.WIKIDATA_P91,
+                            value="Q6649",
+                            citation="https://www.wikidata.org/wiki/Q11111111",
+                            retrieved_at="2026-05-31",
+                        )
+                    ]
+                },
+            ),
+        )
+        assert both.identity.gender is Gender.WOMAN
+        assert both.queer.orientation is Orientation.LESBIAN
+        cache.put_artist(both, fetched_at="2026-05-31")
+
+        # MusicBrainz answers; Wikidata does not.
+        gender_only = FixtureEnricher(
+            gender={
+                "fixture-artist": [
+                    IdentityEvidence(
+                        kind=SourceKind.MUSICBRAINZ_GENDER,
+                        value="female",
+                        citation="https://musicbrainz.org/artist/"
+                        "b7ffd2af-418f-4be2-bdd1-22f8b48613da",
+                        retrieved_at="2026-07-01",
+                    )
+                ]
+            },
+            composition={},
+        )
+        outcome = refresh_catalog(cache, lastfm, gender_only, fetched_at="2026-07-01")
+
+        stored = cache.get_artist("fixture-artist")
+        assert stored is not None
+        # The axis upstream answered about moves.
+        assert stored.identity.gender is Gender.WOMAN
+        assert stored.identity.sources[0].retrieved_at == "2026-07-01"
+        # The axis it was silent about does not.
+        assert stored.queer.orientation is Orientation.LESBIAN, (
+            "a silent Wikidata erased a citation the operator's ingest paid for"
+        )
+        assert stored.queer.orientation_sources[0].retrieved_at == "2026-05-31", (
+            "the preserved claim's own lineage date must not be moved by a run "
+            "that never re-read it"
+        )
+        # And the run says so rather than reporting a clean pass.
+        assert outcome.verified == ("fixture-artist",)
+        assert outcome.protected == ("fixture-artist",)
+    finally:
+        cache.close()
+
+
+def test_the_same_protection_covers_the_composition_axis() -> None:
+    """All three axes, or the guard only covers the one it was written for."""
+    lastfm = FixtureLastfm(scrobbles={}, tags={"fixture-band": ()}, similar={})
+    front = FrontPerson(
+        name="Fixture Front",
+        role="lead vocals",
+        identity=resolve_identity(
+            [
+                IdentityEvidence(
+                    kind=SourceKind.ARTIST_STATEMENT,
+                    value="woman",
+                    citation="https://example.org/fixture-front",
+                    retrieved_at="2026-05-31",
+                )
+            ]
+        ),
+    )
+    lineup_evidence = [
+        IdentityEvidence(
+            kind=SourceKind.DISCOGS_LINEUP,
+            value="lineup",
+            citation="https://www.discogs.com/artist/1234567-Fixture-Band",
+            retrieved_at="2026-05-31",
+        )
+    ]
+    cache = Cache(":memory:")
+    try:
+        band = enrich_artist(
+            "fixture-band",
+            "Fixture Band",
+            lastfm,
+            FixtureEnricher(
+                gender={},
+                composition={"fixture-band": ([front], lineup_evidence)},
+                orientation={
+                    "fixture-band": [
+                        IdentityEvidence(
+                            kind=SourceKind.WIKIDATA_P91,
+                            value="Q6649",
+                            citation="https://www.wikidata.org/wiki/Q11111111",
+                            retrieved_at="2026-05-31",
+                        )
+                    ]
+                },
+            ),
+        )
+        assert band.composition is not None
+        assert band.sourced_front_genders == frozenset({Gender.WOMAN})
+        cache.put_artist(band, fetched_at="2026-05-31")
+
+        # Discogs goes quiet; the orientation lookup still answers.
+        orientation_only = _orientation_enricher("2026-07-01", artist_ids=("fixture-band",))
+        outcome = refresh_catalog(cache, lastfm, orientation_only, fetched_at="2026-07-01")
+
+        stored = cache.get_artist("fixture-band")
+        assert stored is not None
+        assert stored.composition is not None, "a silent lineup source erased the composition"
+        assert stored.sourced_front_genders == frozenset({Gender.WOMAN})
+        assert stored.composition.sources[0].retrieved_at == "2026-05-31"
+        assert stored.queer.orientation is Orientation.LESBIAN
+        assert outcome.protected == ("fixture-band",)
+    finally:
+        cache.close()
+
+
+def test_an_axis_that_did_answer_is_still_written() -> None:
+    """The over-correction this guard must not become.
+
+    A protection that kept every cached axis would pass every erasure test in
+    this file by never writing anything, which is the same defect in the other
+    direction: a refresh that cannot refresh. An axis that comes back carrying a
+    *different* value has to move.
+    """
+    lastfm = FixtureLastfm(scrobbles={}, tags={"fixture-artist": ()}, similar={})
+    cache = Cache(":memory:")
+    try:
+        was = enrich_artist(
+            "fixture-artist",
+            "Fixture Artist",
+            lastfm,
+            _orientation_enricher("2026-05-31", artist_ids=("fixture-artist",)),
+        )
+        assert was.queer.orientation is Orientation.LESBIAN
+        cache.put_artist(was, fetched_at="2026-05-31")
+
+        outcome = refresh_catalog(
+            cache,
+            lastfm,
+            _orientation_enricher("2026-07-01", value="Q43200", artist_ids=("fixture-artist",)),
+            fetched_at="2026-07-01",
+        )
+
+        stored = cache.get_artist("fixture-artist")
+        assert stored is not None
+        assert stored.queer.orientation is Orientation.BISEXUAL
+        assert outcome.protected == ()
+        assert [(c.source_kind, c.old_value, c.new_value) for c in outcome.changes] == [
+            ("wikidata-p91", "Q6649", "Q43200")
+        ]
+    finally:
+        cache.close()
