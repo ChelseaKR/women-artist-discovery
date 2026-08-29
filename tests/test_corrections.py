@@ -193,6 +193,12 @@ def test_an_unmappable_correction_value_is_refused_and_nothing_is_written(tmp_pa
     # And the accepted vocabulary is shown, taken from the resolver rather than
     # transcribed into a help string that would drift away from it.
     assert "nonbinary" in err
+    # The rejected value itself is not repeated back. It is an asserted gender,
+    # and stderr is redirected into logs and pasted into transcripts; this
+    # project's guarantee is that an identity value never leaves the machine it
+    # was typed on. Without this line the message could start echoing the value
+    # again and every other assertion above would still pass.
+    assert "femalee" not in err
 
     with Cache(db) as cache:
         assert list(cache.list_corrections()) == []

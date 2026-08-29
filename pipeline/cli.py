@@ -539,8 +539,17 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
             # and left a row in the ledger that no refresh could ever act on.
             if normalise_asserted_value(SourceKind.ARTIST_STATEMENT, args.value) is None:
                 accepted = ", ".join(accepted_gender_values())
+                # The rejected value is deliberately not echoed. It is an asserted
+                # gender, and this project's guarantee is that an identity value
+                # never leaves the machine it was typed on. stderr is redirected
+                # into logs and pasted into transcripts often enough that an echo
+                # here would be a plausible first place for one to leak; CodeQL
+                # reports it as py/clear-text-logging-sensitive-data and is right
+                # to. The caller typed the value a moment ago, so naming the
+                # accepted vocabulary is enough to act on. Nothing is lost but the
+                # echo. See PR #95.
                 print(  # noqa: T201
-                    f"error: {args.value!r} is not a value this vocabulary covers, so the "
+                    "error: that is not a value this vocabulary covers, so the "
                     "correction could never take effect. Nothing was written.\n"
                     f"  accepted: {accepted}",
                     file=sys.stderr,
