@@ -164,8 +164,11 @@ def _check_cache() -> list[Check]:
 
 def _check_upstream_reachability(timeout: float = 5.0) -> list[Check]:
     """Opt-in network reachability probe. Only ever runs when explicitly requested."""
-    # Deliberately a local import: this is the only function in pipeline/ that
-    # touches the network, and only when explicitly opted into.
+    # Deliberately a local import: this is the only *diagnostic* that touches the
+    # network, and only when explicitly opted into. It is not the only network path
+    # in pipeline/ — `lastfm.py` and `http.py` are the live API clients that ingest
+    # and refresh use. All three, plus `export/base.py`, are the sanctioned egress
+    # allowlist gated by `NETWORK_ALLOWED` in tests/test_privacy.py.
     import requests
 
     checks: list[Check] = []
