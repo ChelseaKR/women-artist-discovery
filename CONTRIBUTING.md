@@ -97,7 +97,7 @@ project's MIT license, and that it contains no proprietary or client material.
 
 ## Pull requests
 
-Open a PR against `main` (the protected, CI-gated branch; no admin bypass). Before requesting
+Open a PR against `main` (the protected, CI-gated branch). Before requesting
 review:
 
 - [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval).

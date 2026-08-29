@@ -20,6 +20,16 @@ tag, not backfilled to an earlier commit date.
   ~1 req/s upstream, and resumable through the HTTP cache.
 
 ### Fixed
+- **The committed branch ruleset recorded no bypass actors, and ADR 0001 argued that was the
+  stricter posture.** It is not. An agent once applied a ruleset with no bypass and locked the
+  owner out of their own repository, and restoring access took a sweep across eighteen
+  repositories. `docs/audits/branch-ruleset.json` now records what the live ruleset
+  (`18752858`) actually carries: the owner's standing bypass
+  `{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}`, plus a weaker
+  legacy `User` grant to the same account. ADR 0001 carries a dated reversal of its
+  "No bypass actors" bullet, noting that the ADR had already identified the identical lockout
+  hazard for `required_signatures` and stopped one step short of applying it here.
+  `CONTRIBUTING.md` no longer advertises "no admin bypass".
 - A refresh can no longer erase a cited identity when nothing answers. The
   enricher reports an upstream failure as "no evidence", which is byte-identical
   to "upstream holds no claim"; on the refresh path that would have written an
