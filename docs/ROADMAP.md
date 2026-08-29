@@ -1,7 +1,7 @@
 # Lavender Rotation — Implementation Roadmap
 
 > Generic enforcement lives in `/STANDARDS`. This document carries the decisions and project-specific values.
-> **Last verified: 2026-07-05 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change, or per standards-conformance remediation pass.**
+> **Last verified: 2026-08-29 · Recheck cadence: per Last.fm / MusicBrainz / Discogs / Wikidata API change, or per standards-conformance remediation pass.**
 
 ## 1. Snapshot
 A hybrid Last.fm-driven music-discovery engine with a values-aware re-ranking layer and a sourced-not-inferred identity model. Python pipeline + Streamlit dashboard; local-first. The technical novelty is doing identity-aware recommendation responsibly — never guessing, always citing, treating unknown as normal.
@@ -103,7 +103,12 @@ CITATION.cff corrected to an honest "unreleased pre-1.0" stance (`CHANGELOG.md` 
 installs via `uv sync --frozen` against `uv.lock` instead of pip-from-floors (the lockfile is
 finally what CI actually runs on); build backend moved setuptools → hatchling (closes CQ-10) with
 a prepared (not-yet-triggered) tag-release workflow; CODEOWNERS + a target branch-ruleset artifact
-committed (live application is a manual, human-authorized step — see the remediation log);
+committed (live application is a manual, human-authorized step — see the remediation log)
+[**corrected 2026-08-29:** that manual step has since been taken. Ruleset `main-protection`, id
+`18752858`, is applied and `active` on `main`, last updated 2026-08-26, requiring a pull request,
+`verify (3.12)` + `verify (3.13)`, and blocking force-push and deletion. The committed artifact
+also carried `"bypass_actors": []`, which would have locked the owner out on apply; it now carries
+her admin bypass. See ADR 0001, "Correction, 2026-08-29"];
 CodeQL/zizmor/osv-scanner/Scorecard workflows added. Nothing in the identity/fairness safety core
 (`pipeline/identity.py`, `recommender/rerank.py`, `tests/test_no_inference.py`,
 `tests/test_unknown_first_class.py`) was touched.
