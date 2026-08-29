@@ -548,6 +548,16 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                 # to. The caller typed the value a moment ago, so naming the
                 # accepted vocabulary is enough to act on. Nothing is lost but the
                 # echo. See PR #95.
+                #
+                # What is still printed is `accepted`, the controlled vocabulary
+                # itself. CodeQL taints it too, because it reaches this line from
+                # a function whose name carries "gender", but it is the schema
+                # rather than a record: a fixed list of the terms this tool
+                # accepts, identical on every machine, describing nobody. Naming
+                # it is the whole point of the message, and withholding it would
+                # leave a caller unable to act without protecting anyone. This is
+                # the one suppression in the file and it is scoped to this line.
+                # codeql[py/clear-text-logging-sensitive-data]
                 print(  # noqa: T201
                     "error: that is not a value this vocabulary covers, so the "
                     "correction could never take effect. Nothing was written.\n"
