@@ -4,7 +4,8 @@ Date: 2026-07-05
 
 ## Status
 
-Accepted; the Python-version matrix provision is superseded by ADR 0004
+Accepted; the Python-version matrix provision is superseded by ADR 0004, and the
+"No bypass actors" provision is superseded by ADR 0013
 
 ## Context
 

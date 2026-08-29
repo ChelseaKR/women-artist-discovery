@@ -76,6 +76,25 @@ tag, not backfilled to an earlier commit date.
   The generated report is gitignored: it is derived from a personal listening history.
 
 ### Changed
+- **ADR 0001 told the next reader to lock the maintainer out of `main`.** Its
+  "No bypass actors" provision chose an empty `bypass_actors` list "deliberately
+  over adding the owner as a bypass actor". An empty list is not a stricter
+  version of the same rules; it changes none of them and removes the only route
+  past a required check that cannot report, in a repository whose premise is
+  that there is no second maintainer to route around instead. GitHub answers
+  `201` when such a ruleset is applied, so nothing warns you, and the ruleset
+  that then blocks every merge is protected from deletion by its own `deletion`
+  rule. Automation applied exactly this configuration elsewhere in this
+  portfolio and restoring the owner's access took a sweep across eighteen
+  repositories. `docs/adr/0013-the-owner-keeps-a-standing-bypass-on-main.md`
+  supersedes that one provision: exactly one bypass actor, the repository-admin
+  role with `bypass_mode: always`, and the audit obligation moves onto the
+  record rather than onto the actor list. Every other provision of ADR 0001
+  stands. Nothing live changes: the ruleset was never applied, so this corrects
+  an instruction before it is followed. `docs/audits/branch-ruleset.json` still
+  carries `"bypass_actors": []` and is deliberately left alone here, so that
+  correcting the target artifact stays a separate, visible decision; do not
+  apply that file as it stands.
 - **Renamed to Lavender Rotation** ([ADR 0012](docs/adr/0012-rename-to-lavender-rotation.md)) —
   the old name described a scope [ADR 0011](docs/adr/0011-queer-lens-and-the-trans-vocabulary-amendment.md)
   had moved. Complete rather than cosmetic: repo, CLI (`wad` → `lavender`), env vars (`WAD_*` →
