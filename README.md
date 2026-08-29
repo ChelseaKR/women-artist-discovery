@@ -28,14 +28,19 @@ lavender recommend --user <your-lastfm-username>
 lavender recommend --user <you> --lens 1.0 --hide-sourced-men   # strongest lens, plus the filter
 ```
 
-`lavender ingest` is the **only** command that reaches upstream: it syncs your scrobbles
-from Last.fm (incrementally — a second run fetches only what is new), resolves
+`lavender ingest` is the only command that fetches your listening history: it syncs your
+scrobbles from Last.fm (incrementally — a second run fetches only what is new), resolves
 identity for the artists it caches against MusicBrainz and Wikidata, and enriches
-the candidates it can reach from your taste. Expect the first run to take a few
-minutes; it paces itself to one request per second and caches every response, so
-later runs are fast and cost the registries nothing. Everything it learns stays in
-your local cache. Artists it cannot resolve to exactly one upstream record stay
-`unknown`, which costs them nothing in the ranking.
+the candidates it can reach from your taste. Two other commands can reach upstream, each
+only when you ask: `lavender refresh --user` re-asks MusicBrainz and Wikidata about artists
+already in your cache (see below), and `lavender doctor --check-upstream` pings the four
+external APIs for reachability and reads nothing else. Every other `lavender` command is
+offline, and the sanctioned egress list is gated in `tests/test_privacy.py`.
+
+Expect the first ingest to take a few minutes; it paces itself to one request per
+second and caches every response, so later runs are fast and cost the registries
+nothing. Everything it learns stays in your local cache. Artists it cannot resolve to
+exactly one upstream record stay `unknown`, which costs them nothing in the ranking.
 
 ## Why it matters
 Your library leans toward women and female-fronted bands by taste, but no recommender helps you lean into that on purpose without either ignoring identity entirely or guessing it crudely. Doing this *well* — sourced, transparent, non-essentialist — is the whole point and the interesting part.
@@ -46,7 +51,7 @@ Your library leans toward women and female-fronted bands by taste, but no recomm
 - **Two declared lenses,** chosen per run with `--lens-name`: `women-nonbinary` (the default) and `queer` — sourced queer women plus sourced nonbinary artists ([ADR 0011](./docs/adr/0011-queer-lens-and-the-trans-vocabulary-amendment.md)). Each is a `LensSpec` manifest carrying its own aligned set, boost bound, rationale, and honest harms note. Sourced queerness is sparse and skews toward the already-famous, Anglophone, living and out, so the queer lens boosts rather than filters and `unknown` never reads as "not queer".
 - **Sourced identity, never inferred:** identity basis is shown and cited; woman means woman, cis or trans, with no distinction drawn; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
 - **Explains every pick:** a shared "Why this artist" view — why (which signals) + identity basis + provenance (the *raw value each source asserted*, never inferred).
-- **Export your picks:** push the current set to a **Spotify** or **TIDAL** playlist (env-configured OAuth, PKCE, user-initiated), or download a portable, account-free track list (plain text / CSV / M3U / JSPF). The portable file is the today-path for *any* platform without a native adapter: it imports directly into most players and into transfer tools such as Soundiiz or TuneMyMusic, and it needs no account and no credentials from you. Apple Music (paid Developer Program membership) and Qobuz (partner approval) are externally gated — [#54](https://github.com/ChelseaKR/lavender-rotation/issues/54). Every exporter sends artist and track names only; nothing from your listening profile goes with them.
+- **Export your picks:** `lavender export` writes a portable, account-free track list (plain text / CSV / M3U / JSPF), and that is the whole of what the CLI exports — it takes no destination flag. Pushing the current set to a **Spotify** playlist (env-configured OAuth, PKCE, user-initiated) ships in the Streamlit dashboard only. A **TIDAL** adapter is implemented and unit-tested (`export/tidal.py`, `tests/test_export_tidal.py`), but no shipped surface imports it yet, so it cannot be reached from either the CLI or the dashboard. The portable file is the today-path for *any* platform without a native adapter: it imports directly into most players and into transfer tools such as Soundiiz or TuneMyMusic, and it needs no account and no credentials from you. Apple Music (paid Developer Program membership) and Qobuz (partner approval) are externally gated — [#54](https://github.com/ChelseaKR/lavender-rotation/issues/54). Every exporter sends artist and track names only; nothing from your listening profile goes with them.
 - **Local-first:** your listening history stays yours. Sanctioned egress is limited to explicit Last.fm fetches, per-artist identity lookups against MusicBrainz/Wikidata (which receive an artist name or MBID and learn nothing about who asked or what they played), opt-in upstream diagnostics, and user-initiated playlist export (artist/track names only).
 
 ## Guardrails
@@ -64,7 +69,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 769 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 773 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
