@@ -12,7 +12,7 @@ A11Y_HTML_LIGHT := /tmp/lavender-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/lavender-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-real i18n bench mutation audit clean forget
+.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation audit clean forget
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -35,7 +35,7 @@ dev: install ## Run the Streamlit dashboard (demo mode; no API key needed)
 	$(PYTHON) -m streamlit run app/dashboard.py
 
 # --- The verify pipeline (each stage is merge-blocking) ----------------------
-verify: lint typecheck test security a11y eval i18n ## Run every checkable gate (CI parity)
+verify: lint typecheck test security a11y eval-check i18n ## Run every checkable gate (CI parity)
 	@echo "✓ all checkable gates green"
 
 format: ## Auto-format the code
@@ -144,6 +144,53 @@ eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baselin
 	@# for as long as nobody ran `audit` — the same "hand-typed and stale"
 	@# failure `scripts/check-readme-claims.py` exists to prevent for the README.
 	$(PYTHON) scripts/writeup-check.py
+
+# Stage 7 as `verify` runs it. `eval` above writes the report straight into the
+# working tree, which is why it could not be the gate: it regenerates the right
+# numbers, throws the comparison away, and replaces the committed bytes.
+#
+# Measured on 2026-08-29 against this branch's parent. One metric in
+# docs/audits/eval-report.json was edited to 0.0001. `git status` showed the
+# file modified. `make eval` exited 0. `git status` came back empty with the
+# file restored, and nothing was said. A stale committed report therefore could
+# not fail anywhere, CI included, because CI runs `make verify` on a clean
+# checkout and this same writing target overwrote the evidence before anything
+# looked at it.
+#
+# scripts/writeup-check.py runs here rather than only in `audit`. It reads
+# docs/audits/eval-report.json at a fixed path, so running it after `eval` only
+# ever compared methods.md against a file written seconds earlier, which says
+# nothing about the artifact the repository publishes. Running it after the diff
+# compares methods.md against the committed report, which the diff has just
+# proved is what the pipeline produces. `audit` still runs it too.
+#
+# `diff` exits 0 identical, 1 different, above 1 when it could not look. The
+# three are kept apart, because a gate that reports success for having failed to
+# run is the failure this target exists to fix.
+eval-check: ## Stage 7 — offline eval, compared against the committed report
+	@set -u; \
+	tmp=$$(mktemp -d) || { echo "eval-check: could not make a temp dir" >&2; exit 1; }; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	$(PYTHON) -m pipeline.cli eval --k 5 \
+	  --out "$$tmp/eval-report.json" \
+	  --baseline docs/audits/eval-baseline.json || exit 1; \
+	test -s "$$tmp/eval-report.json" || { \
+	  echo "eval-check: the eval wrote no report" >&2; exit 1; }; \
+	test -f docs/audits/eval-report.json || { \
+	  echo "eval-check: docs/audits/eval-report.json is missing; run 'make eval'" >&2; exit 1; }; \
+	diff -u docs/audits/eval-report.json "$$tmp/eval-report.json"; \
+	d=$$?; \
+	if [ $$d -eq 1 ]; then \
+	  echo "eval-check: docs/audits/eval-report.json is not what the pipeline produces now." >&2; \
+	  echo "Run 'make eval' and commit the regenerated report." >&2; \
+	  exit 1; \
+	elif [ $$d -gt 1 ]; then \
+	  echo "eval-check: diff could not compare the reports (exit $$d)." >&2; \
+	  echo "Refusing to report success for a check that did not happen." >&2; \
+	  exit $$d; \
+	fi; \
+	echo "eval-check: the committed eval report is what the pipeline produces."
+	@$(PYTHON) scripts/writeup-check.py
 
 # NOT part of verify/audit, and must NEVER run in CI (FIX-06's human-gated
 # real-data leg — see recommender/eval.py::eval_real). Run locally only, on
