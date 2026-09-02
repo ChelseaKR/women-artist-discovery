@@ -288,6 +288,23 @@ def normalise_asserted_value(kind: SourceKind, value: str) -> Optional[Gender]:
     return _map_value(kind, value)
 
 
+def normalise_asserted_orientation(kind: SourceKind, value: str) -> Optional[Orientation]:
+    """The orientation sibling of :func:`normalise_asserted_value`.
+
+    Same job on the second axis (ADR 0011): decide whether two *asserted* values
+    state the same thing without re-implementing the vocabulary. ``"lesbian"``
+    and Wikidata's ``"Q6649"`` are one claim, and the corrections ledger has to
+    know that to reconcile a filed P91 correction against what upstream now
+    says. Returns ``None`` for anything the controlled vocabulary does not cover
+    — never a guess, and never a widening of one orientation into another.
+
+    Defined here rather than beside :func:`_map_orientation` below because the
+    public normalisers belong together; the private mapper it delegates to is
+    declared later in the module and resolved at call time.
+    """
+    return _map_orientation(kind, value)
+
+
 def resolve_identity(evidence: Sequence[IdentityEvidence]) -> IdentityLabel:
     """Resolve an individual's identity from permitted evidence only.
 

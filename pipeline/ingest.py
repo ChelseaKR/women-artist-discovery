@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional, overload
 
 from pipeline.cache import Cache
@@ -478,6 +478,96 @@ def _is_sourced(artist: Artist) -> bool:
     return bool(_identity_sources(artist))
 
 
+def _preserve_unanswered_axes(cached: Artist, refreshed: Artist) -> tuple[Artist, tuple[str, ...]]:
+    """Keep any sourced axis this refresh came back **silent** about.
+
+    :class:`RefreshOutcome` protects an artist upstream said nothing about at
+    all. It did not protect an artist upstream answered *partly* about, and that
+    gap is reachable through an ordinary outage rather than a contrived one:
+    :class:`~pipeline.enrich.MusicBrainzEnricher` reads a gender claim straight
+    out of the MusicBrainz payload, while a P91 orientation claim needs a second
+    fetch of the Wikidata entity, and ``_json`` renders any failure there as
+    ``None``. Wikidata down while MusicBrainz is up therefore produces an artist
+    carrying a fresh gender citation and nothing on the queer axis — which
+    ``_is_sourced`` reads as "upstream answered", writes, and thereby erases the
+    P91 citation the operator's ingest paid for. ``diff_identity_sources`` walks
+    the *new* sources, so an emptied axis has nothing to report: the erasure
+    would be silent, which is the exact pairing this module exists to refuse.
+
+    So the protection is per axis. An axis that came back with citations is
+    written; an axis that came back empty keeps what the cache already held.
+
+    ``fetched_at`` still advances, and that is deliberate rather than an
+    oversight: it is an artist-level claim that this artist was checked today,
+    and this artist genuinely was. The finer truth stays exact because a
+    preserved claim keeps its own :attr:`~pipeline.models.Source.retrieved_at`,
+    which is the date that claim was last actually read.
+    """
+    kept: list[str] = []
+
+    identity = refreshed.identity
+    if not identity.sources and cached.identity.sources:
+        identity = cached.identity
+        kept.append("identity")
+
+    queer = refreshed.queer
+    if not queer.sources and cached.queer.sources:
+        queer = cached.queer
+        kept.append("queer")
+
+    composition = refreshed.composition
+    refreshed_composition_sources = composition.sources if composition is not None else ()
+    cached_composition_sources = (
+        cached.composition.sources if cached.composition is not None else ()
+    )
+    if not refreshed_composition_sources and cached_composition_sources:
+        composition = cached.composition
+        kept.append("composition")
+
+    if not kept:
+        return refreshed, ()
+    return (
+        replace(refreshed, identity=identity, queer=queer, composition=composition),
+        tuple(kept),
+    )
+
+
+def _record_refresh(
+    cache: Cache,
+    cached: Artist,
+    refreshed: Artist,
+    *,
+    fetched_at: str,
+    changes: list[IdentityLabelChange],
+    verified: list[str],
+    unverified: list[str],
+    protected: list[str],
+) -> None:
+    """Decide what one re-enriched artist means, and write it if it means anything.
+
+    Split out of :func:`refresh_catalog` so the loop stays a loop and this stays
+    the decision. The two outcomes are not symmetric and the asymmetry is the
+    point — see :class:`RefreshOutcome`.
+    """
+    artist_id = cached.artist_id
+    if _is_sourced(refreshed):
+        verified.append(artist_id)
+        # Upstream answered about this artist — but not necessarily about every
+        # axis. Whatever it was silent about keeps what the cache already held.
+        to_write, kept_axes = _preserve_unanswered_axes(cached, refreshed)
+        if kept_axes:
+            protected.append(artist_id)
+        changes.extend(diff_identity_sources(cached, to_write))
+        cache.put_artist(to_write, fetched_at=fetched_at)
+        return
+    # Nothing came back at all. Do not write, and do not advance the lineage
+    # date: ``fetched_at`` is a claim that this artist was checked on that day,
+    # and an empty answer is not evidence that anyone answered.
+    unverified.append(artist_id)
+    if _is_sourced(cached):
+        protected.append(artist_id)
+
+
 @dataclass(frozen=True)
 class RefreshOutcome:
     """What a live re-enrichment actually established — and what it could not.
@@ -505,11 +595,23 @@ class RefreshOutcome:
     in ``protected`` for a human to act on via the corrections ledger, which is
     the direction this project already errs in: a label is sourced or absent,
     never inferred, and never dropped on ambiguous evidence.
+
+    The same reasoning runs **per axis**, not only per artist: an artist can
+    come back carrying a fresh gender citation and nothing on the queer axis,
+    and writing that whole object would erase a P91 claim on the strength of a
+    signal that cannot distinguish "Wikidata retracted it" from "we never
+    reached Wikidata". See :func:`_preserve_unanswered_axes`.
     """
 
     attempted: int
     verified: tuple[str, ...]
     unverified: tuple[str, ...]
+    #: Artists for which at least one *existing* citation was kept because
+    #: upstream said nothing about it on this run. Not disjoint from
+    #: :attr:`verified`: an artist upstream answered about on one axis and was
+    #: silent about on another appears in both, which is the honest reading —
+    #: something was re-sourced, and something was held. See
+    #: :func:`_preserve_unanswered_axes`.
     protected: tuple[str, ...]
     failed: tuple[str, ...]
     changes: tuple[IdentityLabelChange, ...]
@@ -535,7 +637,7 @@ class RefreshOutcome:
             )
         bits = [f"{len(self.verified)} of {self.attempted} artist(s) re-sourced from upstream"]
         if self.protected:
-            bits.append(f"{len(self.protected)} kept their existing citation after an empty answer")
+            bits.append(f"{len(self.protected)} kept a citation upstream did not answer for")
         if self.unverified:
             bits.append(f"{len(self.unverified)} unconfirmed")
         if self.failed:
@@ -667,17 +769,16 @@ def _refresh_from_upstream(
             )
             failed.append(artist_id)
             continue
-        if _is_sourced(refreshed):
-            verified.append(artist_id)
-            changes.extend(diff_identity_sources(cached, refreshed))
-            cache.put_artist(refreshed, fetched_at=fetched_at)
-            continue
-        # Nothing came back. Do not write, and do not advance the lineage date:
-        # ``fetched_at`` is a claim that this artist was checked on that day, and
-        # an empty answer is not evidence that anyone answered.
-        unverified.append(artist_id)
-        if _is_sourced(cached):
-            protected.append(artist_id)
+        _record_refresh(
+            cache,
+            cached,
+            refreshed,
+            fetched_at=fetched_at,
+            changes=changes,
+            verified=verified,
+            unverified=unverified,
+            protected=protected,
+        )
     outcome = RefreshOutcome(
         attempted=attempted,
         verified=tuple(verified),
