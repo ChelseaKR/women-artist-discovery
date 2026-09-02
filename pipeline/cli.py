@@ -538,42 +538,30 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
             # that printed success for an action that could never take effect,
             # and left a row in the ledger that no refresh could ever act on.
             if normalise_asserted_value(SourceKind.ARTIST_STATEMENT, args.value) is None:
-                accepted = ", ".join(accepted_gender_values())
                 # The rejected value is deliberately not echoed. It is an asserted
                 # gender, and this project's guarantee is that an identity value
                 # never leaves the machine it was typed on. stderr is redirected
                 # into logs and pasted into transcripts often enough that an echo
                 # here would be a plausible first place for one to leak; CodeQL
                 # reports it as py/clear-text-logging-sensitive-data and is right
-                # to. The caller typed the value a moment ago, so naming the
-                # accepted vocabulary is enough to act on. Nothing is lost but the
-                # echo. See PR #95.
+                # to. The caller typed the value a moment ago, so pointing at the
+                # accepted vocabulary is enough to act on.
                 #
-                # What is still printed is `accepted`, the controlled vocabulary
-                # itself. CodeQL taints it too, because it reaches this line from
-                # a function whose name carries "gender", but it is the schema
-                # rather than a record: a fixed list of the terms this tool
-                # accepts, identical on every machine, describing nobody. Naming
-                # it is the whole point of the message, and withholding it would
-                # leave a caller unable to act without protecting anyone. This is
-                # the one suppression in the file and it is scoped to this line.
-                #
-                # The message is built first and printed on one line on purpose.
-                # CodeQL reports this alert at its *sink* — the expression handed
-                # to `print` — and an in-source suppression covers the line
-                # immediately after the comment. With the message spelled out
-                # inside the call, that sink began on the third line of the call
-                # and the comment landed two lines short of it: the gate reported
-                # "1 blocking, 0 suppressed in source" through two attempts to
-                # silence it. Naming the argument puts the sink where the
-                # suppression can reach it.
-                message = (
+                # The vocabulary itself is not interpolated here either, and that
+                # is a design point rather than only an analyser's preference: it
+                # is carried in `--value`'s own `help=` (see `_build_parser`),
+                # still derived from `accepted_gender_values()` rather than
+                # transcribed, so a caller can read the accepted terms *before*
+                # spending a run on a value that could never take effect. Naming
+                # the schema on the failure path only was the strictly worse half
+                # of that.
+                print(  # noqa: T201
                     "error: that is not a value this vocabulary covers, so the "
                     "correction could never take effect. Nothing was written.\n"
-                    f"  accepted: {accepted}"
+                    "  the accepted values are listed under --value in "
+                    "`lavender corrections --help`",
+                    file=sys.stderr,
                 )
-                # codeql[py/clear-text-logging-sensitive-data]
-                print(message, file=sys.stderr)  # noqa: T201
                 return 1
             retrieved_at = args.retrieved_at or today
             # An unparseable date silently makes the row permanently "stale"
@@ -1019,7 +1007,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_corr.add_argument("--db", default=str(DEFAULT_DB_PATH))
     p_corr.add_argument("--artist", default=None, help="artist_id to correct")
-    p_corr.add_argument("--value", default=None, help="asserted gender value, e.g. 'woman'")
+    # Derived from the resolver, never transcribed: a help string that repeats the
+    # vocabulary by hand goes stale the first time the vocabulary changes, and this
+    # is the one place a caller can read the accepted terms before spending a run
+    # on a value `normalise_asserted_value` would refuse.
+    p_corr.add_argument(
+        "--value",
+        default=None,
+        help=(
+            "asserted gender value, e.g. 'woman'. Accepted: " + ", ".join(accepted_gender_values())
+        ),
+    )
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
     p_corr.set_defaults(func=_cmd_corrections)
