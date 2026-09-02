@@ -20,6 +20,19 @@ tag, not backfilled to an earlier commit date.
   ~1 req/s upstream, and resumable through the HTTP cache.
 
 ### Fixed
+- **The committed branch ruleset carried no bypass actors, and ADR 0001 argued that
+  emptiness was the stricter posture.** It is the lockout. GitHub rulesets do not
+  implicitly exempt admins, so applying `docs/audits/branch-ruleset.json` as committed
+  would have left `main` with no break-glass path — no merge, no push, and no way to
+  edit the ruleset doing the blocking without the access it had just removed — and
+  GitHub answers such an apply with a `201`. The file now carries the owner's standing
+  admin bypass `{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}`,
+  `tests/test_branch_ruleset.py` fails on the empty list and on the four neighbouring
+  ways to lose it (including the subtler `bypass_mode: "pull_request"`), and ADR 0001
+  carries a dated correction rather than a silent edit. Four documents that called the
+  ruleset "proposed — not yet applied live" are corrected against the live API read;
+  `CONTRIBUTING.md` no longer advertises "no admin bypass".
+
 - A refresh can no longer erase a cited identity when nothing answers. The
   enricher reports an upstream failure as "no evidence", which is byte-identical
   to "upstream holds no claim"; on the refresh path that would have written an
