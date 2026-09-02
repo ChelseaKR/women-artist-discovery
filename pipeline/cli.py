@@ -557,13 +557,23 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                 # it is the whole point of the message, and withholding it would
                 # leave a caller unable to act without protecting anyone. This is
                 # the one suppression in the file and it is scoped to this line.
-                # codeql[py/clear-text-logging-sensitive-data]
-                print(  # noqa: T201
+                #
+                # The message is built first and printed on one line on purpose.
+                # CodeQL reports this alert at its *sink* — the expression handed
+                # to `print` — and an in-source suppression covers the line
+                # immediately after the comment. With the message spelled out
+                # inside the call, that sink began on the third line of the call
+                # and the comment landed two lines short of it: the gate reported
+                # "1 blocking, 0 suppressed in source" through two attempts to
+                # silence it. Naming the argument puts the sink where the
+                # suppression can reach it.
+                message = (
                     "error: that is not a value this vocabulary covers, so the "
                     "correction could never take effect. Nothing was written.\n"
-                    f"  accepted: {accepted}",
-                    file=sys.stderr,
+                    f"  accepted: {accepted}"
                 )
+                # codeql[py/clear-text-logging-sensitive-data]
+                print(message, file=sys.stderr)  # noqa: T201
                 return 1
             retrieved_at = args.retrieved_at or today
             # An unparseable date silently makes the row permanently "stale"
