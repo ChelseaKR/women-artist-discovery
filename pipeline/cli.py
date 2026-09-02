@@ -538,11 +538,28 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
             # that printed success for an action that could never take effect,
             # and left a row in the ledger that no refresh could ever act on.
             if normalise_asserted_value(SourceKind.ARTIST_STATEMENT, args.value) is None:
-                accepted = ", ".join(accepted_gender_values())
+                # The rejected value is deliberately not echoed. It is an asserted
+                # gender, and this project's guarantee is that an identity value
+                # never leaves the machine it was typed on. stderr is redirected
+                # into logs and pasted into transcripts often enough that an echo
+                # here would be a plausible first place for one to leak; CodeQL
+                # reports it as py/clear-text-logging-sensitive-data and is right
+                # to. The caller typed the value a moment ago, so pointing at the
+                # accepted vocabulary is enough to act on.
+                #
+                # The vocabulary itself is not interpolated here either, and that
+                # is a design point rather than only an analyser's preference: it
+                # is carried in `--value`'s own `help=` (see `_build_parser`),
+                # still derived from `accepted_gender_values()` rather than
+                # transcribed, so a caller can read the accepted terms *before*
+                # spending a run on a value that could never take effect. Naming
+                # the schema on the failure path only was the strictly worse half
+                # of that.
                 print(  # noqa: T201
-                    f"error: {args.value!r} is not a value this vocabulary covers, so the "
+                    "error: that is not a value this vocabulary covers, so the "
                     "correction could never take effect. Nothing was written.\n"
-                    f"  accepted: {accepted}",
+                    "  the accepted values are listed under --value in "
+                    "`lavender corrections --help`",
                     file=sys.stderr,
                 )
                 return 1
@@ -990,7 +1007,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_corr.add_argument("--db", default=str(DEFAULT_DB_PATH))
     p_corr.add_argument("--artist", default=None, help="artist_id to correct")
-    p_corr.add_argument("--value", default=None, help="asserted gender value, e.g. 'woman'")
+    # Derived from the resolver, never transcribed: a help string that repeats the
+    # vocabulary by hand goes stale the first time the vocabulary changes, and this
+    # is the one place a caller can read the accepted terms before spending a run
+    # on a value `normalise_asserted_value` would refuse.
+    p_corr.add_argument(
+        "--value",
+        default=None,
+        help=(
+            "asserted gender value, e.g. 'woman'. Accepted: " + ", ".join(accepted_gender_values())
+        ),
+    )
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
     p_corr.set_defaults(func=_cmd_corrections)

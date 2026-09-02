@@ -98,8 +98,13 @@ project's MIT license, and that it contains no proprietary or client material.
 
 ## Pull requests
 
-Open a PR against `main` (the protected, CI-gated branch; no admin bypass). Before requesting
-review:
+Open a PR against `main` (the protected, CI-gated branch — ruleset `main-protection`, applied and
+active, requiring a PR plus green `verify (3.12)` and `verify (3.13)`). This line said "no admin
+bypass" until 2026-08-29. **Corrected:** the applied ruleset carries the maintainer's admin
+bypass (`RepositoryRole:5:always`), and that is deliberate — a ruleset with no break-glass path
+locks its owner out of her own repository, which is exactly the lockout ADR 0001 originally
+argued for. See ADR 0001, "Correction, 2026-08-29". What the bypass is not for is skipping a
+red check instead of fixing it. Before requesting review:
 
 - [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval · i18n).
 - [ ] Tests added or updated for the change, including the identity invariants above where a read
