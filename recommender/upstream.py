@@ -43,6 +43,16 @@ _MUSICBRAINZ_ARTIST = re.compile(r"musicbrainz\.org/artist/([^/?#\s]+)")
 #: kind of citation URL, so they share the same edit-link shape.
 _MUSICBRAINZ_KINDS = frozenset({"musicbrainz-gender", "musicbrainz-relationship"})
 
+#: Wikidata source kinds, mapped to the statement anchor on the entity page.
+#: A dict rather than a chain of ``if``s so that adding a property means adding
+#: a row: the P91 case (#92) was missing for as long as the P21 case was a
+#: hand-written branch, and ``tests/test_upstream.py`` now asserts this covers
+#: every ``SourceKind`` whose value starts with ``wikidata-``.
+_WIKIDATA_ANCHORS: dict[str, str] = {
+    "wikidata-p21": "#P21",
+    "wikidata-p91": "#P91",
+}
+
 
 def upstream_edit_url(source_kind: str, citation: str) -> str | None:
     """Return the upstream *edit-UI* URL for one sourced citation, or ``None``.
@@ -52,17 +62,26 @@ def upstream_edit_url(source_kind: str, citation: str) -> str | None:
       the safe choice: Wikidata does not honour a query-string that opens an
       edit form pre-filled for a specific claim, so this anchors the reader at
       the right statement on the entity page instead of fabricating one.
+    * ``wikidata-p91`` — the same entity page, anchored at the P91 ("sexual
+      orientation") statement (#92). ADR 0011 admits P91 for coverage while
+      noting it is more often a biographer's characterisation than the artist's
+      own words, which makes it the citation here most likely to *need*
+      correcting — and it was the one kind with no edit link at all, so the
+      fix-at-source affordance existed for every claim except the one most
+      likely to be wrong.
     * ``musicbrainz-gender`` / ``musicbrainz-relationship`` — the artist's
       ``/edit`` page: ``https://musicbrainz.org/artist/{id}/edit``.
-    * Anything else (an unknown kind, a Discogs-lineup-only citation, or a
-      citation that does not parse as one of the two shapes above) —
-      ``None``. No link is offered rather than a guessed one.
+    * Anything else (an unknown kind, a Discogs-lineup-only citation, an
+      ``artist-statement`` whose citation is somebody's own website, or a
+      citation that does not parse as one of the shapes above) — ``None``. No
+      link is offered rather than a guessed one.
     """
-    if source_kind == "wikidata-p21":
+    anchor = _WIKIDATA_ANCHORS.get(source_kind)
+    if anchor is not None:
         match = _WIKIDATA_QID.search(citation)
         if match is None:
             return None
-        return f"https://www.wikidata.org/wiki/{match.group(1)}#P21"
+        return f"https://www.wikidata.org/wiki/{match.group(1)}{anchor}"
     if source_kind in _MUSICBRAINZ_KINDS:
         match = _MUSICBRAINZ_ARTIST.search(citation)
         if match is None:

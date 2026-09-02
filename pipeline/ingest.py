@@ -391,10 +391,35 @@ class IdentityLabelChange:
 
 
 def _identity_sources(artist: Artist) -> tuple[Source, ...]:
+    """Every citation this artist carries, on every sourced axis (#93).
+
+    The gender axis, the band-composition axis, **and** ADR 0011's queer axis.
+    That last one was missing while this function's callers already described
+    themselves as covering "either identity axis": a refresh that came back with
+    a freshly-sourced P91 orientation claim and nothing else scored as "nothing
+    came back", so the citation was discarded, ``fetched_at`` was not advanced,
+    and the operator was told the artist was unconfirmed. On the axis the
+    project's own ethics note calls the highest-stakes one, silence and evidence
+    were being read as the same thing — the exact conflation
+    :class:`RefreshOutcome` exists to refuse.
+
+    Deduplicated, order-preserving: the same :class:`~pipeline.models.Source`
+    legitimately appears twice when a P21 claim of ``Q1052281`` is both the
+    gender citation and the trans self-identification citation
+    (:func:`pipeline.identity.resolve_queer_identity` reads the raw value of the
+    former to produce the latter), and one document should be counted once.
+    """
     sources = artist.identity.sources
     if artist.composition is not None:
         sources += artist.composition.sources
-    return sources
+    sources += artist.queer.sources
+    seen: set[Source] = set()
+    unique: list[Source] = []
+    for source in sources:
+        if source not in seen:
+            seen.add(source)
+            unique.append(source)
+    return tuple(unique)
 
 
 def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]:
@@ -405,10 +430,20 @@ def diff_identity_sources(old: Artist, new: Artist) -> list[IdentityLabelChange]
 def _diff_sources(
     artist_id: str, old_sources: tuple[Source, ...], new_sources: tuple[Source, ...]
 ) -> list[IdentityLabelChange]:
+    # Matched on (kind, citation) first, falling back to kind alone. Kind alone
+    # stopped being a unique key once a single kind could carry claims about two
+    # different questions: an ``artist-statement`` may be the citation for a
+    # gender *and*, from a different document, for an orientation. Matching
+    # those two against each other would manufacture a change out of two claims
+    # that never disagreed. The kind-only fallback preserves the previous
+    # behaviour for the ordinary case where a source's citation URL is stable.
+    old_by_citation = {(source.kind, source.citation): source for source in old_sources}
     old_by_kind = {source.kind: source for source in old_sources}
     changes: list[IdentityLabelChange] = []
     for new_source in new_sources:
-        old_source = old_by_kind.get(new_source.kind)
+        old_source = old_by_citation.get((new_source.kind, new_source.citation))
+        if old_source is None:
+            old_source = old_by_kind.get(new_source.kind)
         if old_source is None:
             continue
         if (
@@ -435,7 +470,11 @@ def diff_identity_labels(
 
 
 def _is_sourced(artist: Artist) -> bool:
-    """Whether this artist carries at least one citation on either identity axis."""
+    """Whether this artist carries at least one citation on *any* sourced axis.
+
+    Gender, band composition, or the queer axis. The docstring said "either
+    identity axis" while the implementation looked at two of three (#93).
+    """
     return bool(_identity_sources(artist))
 
 
@@ -543,16 +582,58 @@ def refresh_catalog(
     nine minutes in must not discard the nine minutes.
     """
     if isinstance(catalog_or_source, dict):
-        label_changes: list[LabelChange] = []
-        for artist_id, artist in catalog_or_source.items():
-            cached = cache.get_artist(artist_id)
-            if cached is not None and cached.identity != artist.identity:
-                label_changes.append(LabelChange(artist_id, cached.identity, artist.identity))
-            cache.put_artist(artist, fetched_at=fetched_at)
-        return label_changes
-
+        return _refresh_from_catalog(cache, catalog_or_source, fetched_at=fetched_at)
     if enricher is None:
         raise TypeError("source refresh requires an EnrichmentSource")
+    return _refresh_from_upstream(
+        cache,
+        catalog_or_source,
+        enricher,
+        fetched_at=fetched_at,
+        artist_ids=artist_ids,
+    )
+
+
+def _refresh_from_catalog(
+    cache: Cache, catalog: dict[str, Artist], *, fetched_at: str
+) -> list[LabelChange]:
+    """The offline branch: re-persist already-enriched objects, reporting changes."""
+    label_changes: list[LabelChange] = []
+    for artist_id, artist in catalog.items():
+        cached = cache.get_artist(artist_id)
+        if cached is not None and cached.identity != artist.identity:
+            label_changes.append(LabelChange(artist_id, cached.identity, artist.identity))
+        cache.put_artist(artist, fetched_at=fetched_at)
+    return label_changes
+
+
+def _read_cached_artist(cache: Cache, artist_id: str) -> Artist | Exception | None:
+    """The cached row, ``None`` if absent, or the exception that reading it raised.
+
+    Split out so the read is inside the per-artist failure boundary. It used to
+    sit outside it, which made :func:`refresh_catalog`'s promise that "a lookup
+    that raises costs that artist, not the run" true of the upstream fetch and
+    false of the cache read one line above it: a single row whose stored JSON is
+    truncated, or carries an enum value this build does not know, aborted a walk
+    over thousands of artists that had already paid for their rate-limited
+    fetches.
+    """
+    try:
+        return cache.get_artist(artist_id)
+    except Exception as exc:  # any read failure costs one artist, never the run
+        log.exception("stage=refresh event=unreadable_cache_row artist_id=%s", artist_id)
+        return exc
+
+
+def _refresh_from_upstream(
+    cache: Cache,
+    source: ScrobbleSource,
+    enricher: EnrichmentSource,
+    *,
+    fetched_at: str,
+    artist_ids: Optional[Sequence[str]] = None,
+) -> RefreshOutcome:
+    """The live branch: re-ask upstream, and never read silence as agreement."""
     targets = list(artist_ids) if artist_ids is not None else cache.list_artist_ids()
     changes: list[IdentityLabelChange] = []
     verified: list[str] = []
@@ -561,7 +642,10 @@ def refresh_catalog(
     failed: list[str] = []
     attempted = 0
     for artist_id in targets:
-        cached = cache.get_artist(artist_id)
+        cached = _read_cached_artist(cache, artist_id)
+        if isinstance(cached, Exception):
+            failed.append(artist_id)
+            continue
         if cached is None:
             continue
         attempted += 1
@@ -569,7 +653,7 @@ def refresh_catalog(
             refreshed = enrich_artist(
                 artist_id,
                 cached.name,
-                catalog_or_source,
+                source,
                 enricher,
                 listeners=cached.listeners,
                 playcount=cached.playcount,

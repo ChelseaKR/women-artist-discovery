@@ -54,7 +54,7 @@ wants something new it lives under *Wants next*.
   reviewer, a privacy/security reviewer); and the person who **operates** it (the
   owner/maintainer).
 - **Protocol.** For each persona: a goal, a walkthrough of the surfaces they'd
-  actually touch (the Streamlit dashboard, the `wad` CLI, the "Why this artist" view,
+  actually touch (the Streamlit dashboard, the `lavender` CLI, the "Why this artist" view,
   the export path, the audit docs), what worked, where they stalled, and an open
   "what would make this a 10/10" prompt.
 - **Synthesis.** Frictions → **R**emediations; wishes → **E**xpansions, triaged with

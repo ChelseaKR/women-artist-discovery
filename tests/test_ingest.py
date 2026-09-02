@@ -418,3 +418,203 @@ def test_ingest_emits_local_stage_summary(caplog, demo_user, source, enricher) -
     messages = [record.getMessage() for record in caplog.records]
     assert any("stage=ingest event=start" in message for message in messages)
     assert any("stage=ingest event=end" in message for message in messages)
+
+
+# --- #93: the queer axis is an identity axis, on the refresh path too ---------
+#
+# `_identity_sources` looked at gender and band composition, and `_is_sourced`
+# and `diff_identity_sources` both delegate to it. So an artist who came back
+# from upstream carrying *only* a queer citation scored as "nothing came back":
+# the citation was thrown away, `fetched_at` was not advanced, and the operator
+# was told the artist was unconfirmed. That is exactly the conflation of silence
+# with evidence that `RefreshOutcome`'s docstring says the type exists to
+# refuse — inverted, on the axis `docs/audits/identity-data-ethics.md` calls the
+# most dangerous one to get wrong.
+#
+# Artist names below are invented, for the reason tests/test_live_enrichment.py
+# gives: a fixture is not a place to assert an orientation about a real person.
+
+_P91_CITATION = "https://www.wikidata.org/wiki/Q000000001"
+
+
+def _orientation_enricher(retrieved_at: str, value: str = "Q6649") -> FixtureEnricher:
+    """Upstream holds a P91 orientation claim and no gender claim at all."""
+    return FixtureEnricher(
+        gender={},
+        composition={},
+        orientation={
+            "unsourced-gender": [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P91,
+                    value=value,
+                    citation=_P91_CITATION,
+                    retrieved_at=retrieved_at,
+                )
+            ]
+        },
+    )
+
+
+def _queer_lastfm() -> FixtureLastfm:
+    return FixtureLastfm(scrobbles={}, tags={"unsourced-gender": ()}, similar={})
+
+
+def test_a_newly_sourced_orientation_is_written_not_discarded() -> None:
+    """#93 case 1: upstream answered, so the run must not report silence."""
+    lastfm = _queer_lastfm()
+    cache = Cache(":memory:")
+    try:
+        # Cached with nothing sourced on any axis — the ordinary starting state
+        # for an artist Wikidata had no P21 for at ingest time.
+        blank = enrich_artist(
+            "unsourced-gender",
+            "Violet Meridian",
+            lastfm,
+            FixtureEnricher(gender={}, composition={}),
+        )
+        assert blank.identity.sources == ()
+        assert blank.queer.sources == ()
+        cache.put_artist(blank, fetched_at="2026-05-31")
+
+        outcome = refresh_catalog(
+            cache, lastfm, _orientation_enricher("2026-07-01"), fetched_at="2026-07-01"
+        )
+
+        assert outcome.verified == ("unsourced-gender",)
+        assert outcome.unverified == ()
+        assert outcome.upstream_answered, (
+            "a citation came back over the wire; this run reached upstream"
+        )
+        stored = cache.get_artist("unsourced-gender")
+        assert stored is not None
+        assert stored.queer.orientation_sources, "the new citation must be persisted"
+        assert cache.artist_fetched_at("unsourced-gender") == "2026-07-01"
+    finally:
+        cache.close()
+
+
+def test_an_orientation_that_changed_upstream_reaches_the_change_log() -> None:
+    """#93 case 2: the diff drives corrections reconciliation, so it must see it."""
+    lastfm = _queer_lastfm()
+    old = enrich_artist(
+        "unsourced-gender", "Violet Meridian", lastfm, _orientation_enricher("2026-05-31")
+    )
+    new = enrich_artist(
+        "unsourced-gender",
+        "Violet Meridian",
+        lastfm,
+        _orientation_enricher("2026-07-01", value="Q43200"),  # bisexual
+    )
+
+    changes = diff_identity_sources(old, new)
+
+    assert changes == [
+        IdentityLabelChange(
+            artist_id="unsourced-gender",
+            source_kind="wikidata-p91",
+            old_value="Q6649",
+            new_value="Q43200",
+            retrieved_at="2026-07-01",
+        )
+    ]
+
+
+def test_a_queer_axis_change_can_reconcile_a_filed_correction(tmp_path) -> None:
+    """The whole point of the diff: a pending row on this axis can now close.
+
+    `pipeline.corrections.reconcile` keys on ``(artist_id, source_kind)`` taken
+    from the change list, so before #93 a person could file a `wikidata-p91`
+    correction, watch upstream adopt it, and run `lavender refresh` forever
+    without the row ever leaving `still_open`.
+    """
+    from pipeline.corrections import add_correction, reconcile
+
+    ledger = tmp_path / "pending-corrections.json"
+    add_correction(
+        ledger,
+        artist_id="unsourced-gender",
+        source_kind="wikidata-p91",
+        current_value="Q6649",
+        proposed_value="Q43200",
+        citation=_P91_CITATION,
+        note="upstream records the wrong orientation",
+        filed_at="2026-06-01",
+    )
+    lastfm = _queer_lastfm()
+    old = enrich_artist(
+        "unsourced-gender", "Violet Meridian", lastfm, _orientation_enricher("2026-05-31")
+    )
+    new = enrich_artist(
+        "unsourced-gender",
+        "Violet Meridian",
+        lastfm,
+        _orientation_enricher("2026-07-01", value="Q43200"),
+    )
+
+    outcome = reconcile(ledger, diff_identity_sources(old, new), observed_at="2026-07-01")
+
+    assert [row.source_kind for row in outcome.reconciled] == ["wikidata-p91"]
+    assert outcome.still_open == ()
+
+
+def test_a_gender_statement_and_an_orientation_statement_are_not_the_same_claim() -> None:
+    """Two `artist-statement` citations answer two different questions.
+
+    Matching sources by kind alone made them each other's "old value", so a
+    stable gender statement and a stable orientation statement diffed as a
+    change in both directions. They are matched on (kind, citation) now.
+    """
+    lastfm = _queer_lastfm()
+    enricher = FixtureEnricher(
+        gender={
+            "unsourced-gender": [
+                IdentityEvidence(
+                    kind=SourceKind.ARTIST_STATEMENT,
+                    value="woman",
+                    citation="https://example.invalid/gender-interview",
+                    retrieved_at="2026-05-31",
+                )
+            ]
+        },
+        composition={},
+        orientation={
+            "unsourced-gender": [
+                IdentityEvidence(
+                    kind=SourceKind.ARTIST_STATEMENT,
+                    value="lesbian",
+                    citation="https://example.invalid/orientation-interview",
+                    retrieved_at="2026-05-31",
+                )
+            ]
+        },
+    )
+    artist = enrich_artist("unsourced-gender", "Violet Meridian", lastfm, enricher)
+    assert artist.identity.gender is Gender.WOMAN
+    assert artist.queer.orientation.value == "lesbian"
+
+    assert diff_identity_sources(artist, artist) == []
+
+
+def test_one_source_that_answers_two_questions_is_counted_once() -> None:
+    """A P21 claim of "trans woman" is both the gender and the trans citation."""
+    from pipeline.ingest import _identity_sources
+
+    lastfm = _queer_lastfm()
+    enricher = FixtureEnricher(
+        gender={
+            "unsourced-gender": [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P21,
+                    value="Q1052281",  # trans woman
+                    citation="https://www.wikidata.org/wiki/Q000000002",
+                    retrieved_at="2026-05-31",
+                )
+            ]
+        },
+        composition={},
+    )
+    artist = enrich_artist("unsourced-gender", "Violet Meridian", lastfm, enricher)
+
+    assert artist.identity.gender is Gender.WOMAN  # ADR 0011: no cis/trans split
+    assert artist.queer.trans_self_identified is True
+    assert len(_identity_sources(artist)) == 1

@@ -60,7 +60,7 @@ Per the Documentation Standard ("keep docs live"), decisions the plan didn't ant
 - **Measured p95 was approximately 140 ms** end-to-end on the implementation machine, below the two-second target. Content scoring was the largest component, but the evidence did not justify candidate pruning or a more complex representation.
 
 ### Build log addendum (2026-07-11) — per-artist thumbs feedback
-- Added local, per-listener thumbs votes in cache schema v4, exposed in the dashboard and `wad feedback`. A re-vote replaces the current opinion for that listener/artist pair.
+- Added local, per-listener thumbs votes in cache schema v4, exposed in the dashboard and `lavender feedback`. A re-vote replaces the current opinion for that listener/artist pair.
 - Feedback is a bounded adjustment to the taste-side base score. It is keyed only by listener and artist ID, never identity, so the values lens remains independently boost-only and its rank-shift counterfactual remains inspectable.
 
 ### Build log addendum (2026-07-02) — FIX-07: runtime egress guard across all packages
@@ -139,7 +139,7 @@ CodeQL/zizmor/osv-scanner/Scorecard workflows added. Nothing in the identity/fai
 | Recommendations down-ranked solely for unknown identity | 0 | re-rank test | merge-blocking |
 | "Why recommended" present | 100% of recs | explanation test | merge-blocking |
 | Recommendation reproducibility (seeded) | deterministic | snapshot test | merge-blocking |
-| axe violations (dashboard) | 0 | pa11y-ci | merge-blocking |
+| axe violations (dashboard) | 0 | pa11y (axe runner) | merge-blocking |
 | External API rate-limit compliance | within limits, cached | integration test | merge-blocking |
 | Coverage | ≥ 85% / ≥ 80% | coverage | merge-blocking |
 | Release stage | unreleased pre-1.0 (declared, not silent) | `SECURITY.md`, `CHANGELOG.md` | review-gated |

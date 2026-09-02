@@ -8,6 +8,7 @@ semantics fail fast in the unit suite too.
 from __future__ import annotations
 
 from app.a11y_check import check_html
+from app.a11y_check import main as a11y_main
 from app.render import render_cards_html
 from pipeline.models import Explanation, IdentityBasis, Recommendation, Signal
 from recommender.exposure import observability_panel
@@ -142,3 +143,68 @@ def test_checker_flags_bad_html() -> None:
     assert any("scope" in v for v in violations)
     assert any("caption" in v for v in violations)
     assert any("jumps" in v for v in violations)
+
+
+# --- The fallback gate's own entry point ------------------------------------
+#
+# `make a11y` prefers pa11y and falls back to `python -m app.a11y_check FILE`
+# when it is not installed, which is the ordinary case on a fresh machine. That
+# fallback *is* the accessibility gate there, and until this block nothing
+# executed its `main()`: not one test called it, and `app/` was outside the
+# coverage measurement entirely (`addopts` had no `--cov=app`), so the absence
+# did not show up as a gap either. A `main()` that returned 0 unconditionally
+# would have made `make a11y` green on every page forever, and the suite would
+# have agreed. Three of the checker's own violation detectors — empty `href`,
+# missing `alt`, empty link text — and the h1-count check were unexercised for
+# the same reason.
+
+
+def test_checker_flags_a_missing_alt_attribute() -> None:
+    assert "img without alt attribute" in check_html('<img src="x.png">')
+    # An explicitly empty alt is the correct markup for a decorative image and
+    # must not be reported; asserting this is what stops the detector being
+    # "flag every img", which would fail the real render and get deleted.
+    assert "img without alt attribute" not in check_html('<img src="x.png" alt="">')
+    assert "img without alt attribute" not in check_html('<img src="x.png" alt="a chart">')
+
+
+def test_checker_flags_an_anchor_with_no_href_and_no_text() -> None:
+    violations = check_html("<a></a>")
+    assert "anchor with empty href" in violations
+    assert "link with no accessible text" in violations
+    assert "link with no accessible text" not in check_html('<a href="/x">Read more</a>')
+    assert "anchor with empty href" not in check_html('<a href="/x">Read more</a>')
+
+
+def test_checker_flags_the_wrong_number_of_h1s() -> None:
+    assert any("found 0" in v for v in check_html("<p>no heading at all</p>"))
+    assert any("found 2" in v for v in check_html("<h1>a</h1><h1>b</h1>"))
+
+
+def test_checker_flags_a_missing_main_landmark() -> None:
+    assert "no <main> landmark" in check_html("<h1>a</h1>")
+    assert "no <main> landmark" not in check_html("<main><h1>a</h1></main>")
+    assert "no <main> landmark" not in check_html('<div role="main"><h1>a</h1></div>')
+
+
+def test_the_fallback_gate_entry_point_exits_non_zero_on_a_violation(tmp_path) -> None:
+    """The check that `make a11y` actually runs when pa11y is absent.
+
+    Asserted in both directions on purpose: a gate only ever shown passing is
+    indistinguishable from one that cannot fail.
+    """
+    bad = tmp_path / "bad.html"
+    bad.write_text("<html><body><h1>a</h1></body></html>", encoding="utf-8")
+    assert a11y_main([str(bad)]) == 1
+
+
+def test_the_fallback_gate_entry_point_exits_zero_on_the_real_render(
+    tmp_path, profile, catalog, source
+) -> None:
+    page = tmp_path / "dashboard.html"
+    page.write_text(_html(profile, catalog, source), encoding="utf-8")
+    assert a11y_main([str(page)]) == 0
+
+
+def test_the_fallback_gate_entry_point_reports_usage_with_no_argument() -> None:
+    assert a11y_main([]) == 2

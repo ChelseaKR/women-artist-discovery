@@ -17,8 +17,14 @@ Checks:
   informational — it's the one signal `lavender doctor` gives an operator for
   *when* to reach for `lavender refresh --ttl-days`, since nothing else in the
   CLI reports cache footprint.
-* **upstream** — opt-in only (``--check-upstream``); pings the four external
-  APIs this project talks to. Never runs by default, and its own failures are
+* **upstream** — opt-in only (``--check-upstream``); pings the three external
+  APIs this project actually talks to. It listed four and probed Discogs, which
+  no client here has ever fetched from: ``SourceKind.DISCOGS_LINEUP`` and
+  ``parse_discogs_lineup`` exist for a lineup payload somebody supplies, and
+  ``pipeline/enrich.py`` says in its own words that "MusicBrainz has no
+  orientation field and neither does Discogs". A reachability probe against a
+  host this tool never uses tells an operator nothing and sends a request the
+  privacy notes do not account for. Never runs by default, and its own failures are
   never hard (a bad network shouldn't make ``lavender doctor`` non-zero on a
   perfectly healthy local install).
 """
@@ -54,7 +60,6 @@ UPSTREAM_APIS: tuple[tuple[str, str], ...] = (
     ("Last.fm", "https://ws.audioscrobbler.com/2.0/"),
     ("MusicBrainz", "https://musicbrainz.org/ws/2/"),
     ("Wikidata", "https://www.wikidata.org/wiki/Special:EntityData"),
-    ("Discogs", "https://api.discogs.com/"),
 )
 
 

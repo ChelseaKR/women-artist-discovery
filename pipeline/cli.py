@@ -1,8 +1,8 @@
 """Command-line entry point: ``lavender ingest|eval|recommend|export|refresh``.
 
 Argparse glue over the library; omitted from coverage accounting, but the gate
-behaviour of ``lavender eval`` (exit codes, regression/fairness blocks) and ``wad
-refresh`` is exercised directly by ``tests/test_eval.py`` and
+behaviour of ``lavender eval`` (exit codes, regression/fairness blocks) and
+``lavender refresh`` is exercised directly by ``tests/test_eval.py`` and
 ``tests/test_cache_lifecycle.py``.
 
 Every product command still defaults to the offline demo world, and everything
@@ -19,7 +19,7 @@ import json
 import math
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
@@ -40,7 +40,7 @@ from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.lens import LENSES
 from recommender.upstream import upstream_edit_url
-from recommender.why import why_this_artist
+from recommender.why import QUEER_SOURCES_HEADING, why_this_artist
 
 from pipeline import corrections as pending_corrections
 from pipeline.cache import DEFAULT_DB_PATH, DEFAULT_HTTP_TTL_DAYS, Cache
@@ -48,7 +48,11 @@ from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles,
 from pipeline.doctor import run_diagnostics
 from pipeline.enrich import MusicBrainzEnricher
 from pipeline.http import CachedHttpFetcher, build_user_agent
-from pipeline.identity import IdentityEvidence
+from pipeline.identity import (
+    IdentityEvidence,
+    accepted_gender_values,
+    normalise_asserted_value,
+)
 from pipeline.ingest import (
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_PER_SEED,
@@ -138,6 +142,37 @@ def _positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("must be an integer") from exc
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _iso_date_problem(value: str) -> str | None:
+    """Why ``value`` is not an ISO ``YYYY-MM-DD`` date, or ``None`` if it is."""
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return f"{value!r} is not an ISO date (YYYY-MM-DD)"
+    return None
+
+
+def _unit_interval(value: str) -> float:
+    """A float in [0, 1] — the only shape a lens or explore strength may take.
+
+    ``--lens`` was the one unvalidated numeric argument on this CLI: ``--k`` goes
+    through :func:`_positive_int`, ``--ttl-days`` through
+    :func:`_nonnegative_int`, and ``--explore`` is range-checked downstream in
+    ``recommender.diversify``. ``--lens 5``, ``--lens -1``, ``--lens nan`` and
+    ``--lens inf`` all parsed, then surfaced as a bare ``ValueError`` traceback
+    from inside the ranker (and, for ``report``, from inside a dict
+    comprehension) instead of argparse's clean usage error.
+    """
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not math.isfinite(parsed):
+        raise argparse.ArgumentTypeError("must be a finite number")
+    if not (0.0 <= parsed <= 1.0):
+        raise argparse.ArgumentTypeError("must be between 0 and 1")
     return parsed
 
 
@@ -457,7 +492,7 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
                 #
                 # * The sink is ``print`` to **stdout** — this command's report to
                 #   the operator who ran it, not a diagnostic log. The
-                #   no-identity-in-logs invariant (OBS-11) governs the ``wad.*``
+                #   no-identity-in-logs invariant (OBS-11) governs the ``lavender.*``
                 #   logger stream and is enforced by ``tests/test_log_privacy.py``;
                 #   no logger call site is involved here, so that gate is untouched.
                 # * ``IdentityLabel.gender`` is not a secret. A non-UNKNOWN value is
@@ -497,11 +532,53 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                 )
                 return 1
             today = datetime.now(UTC).date().isoformat()
+            # A correction whose value the controlled vocabulary does not cover
+            # resolves to nothing, for ever. It used to be written anyway and
+            # reported as "recorded correction for X: 'femalee'" — a command
+            # that printed success for an action that could never take effect,
+            # and left a row in the ledger that no refresh could ever act on.
+            if normalise_asserted_value(SourceKind.ARTIST_STATEMENT, args.value) is None:
+                # The rejected value is deliberately not echoed. It is an asserted
+                # gender, and this project's guarantee is that an identity value
+                # never leaves the machine it was typed on. stderr is redirected
+                # into logs and pasted into transcripts often enough that an echo
+                # here would be a plausible first place for one to leak; CodeQL
+                # reports it as py/clear-text-logging-sensitive-data and is right
+                # to. The caller typed the value a moment ago, so pointing at the
+                # accepted vocabulary is enough to act on.
+                #
+                # The vocabulary itself is not interpolated here either, and that
+                # is a design point rather than only an analyser's preference: it
+                # is carried in `--value`'s own `help=` (see `_build_parser`),
+                # still derived from `accepted_gender_values()` rather than
+                # transcribed, so a caller can read the accepted terms *before*
+                # spending a run on a value that could never take effect. Naming
+                # the schema on the failure path only was the strictly worse half
+                # of that.
+                print(  # noqa: T201
+                    "error: that is not a value this vocabulary covers, so the "
+                    "correction could never take effect. Nothing was written.\n"
+                    "  the accepted values are listed under --value in "
+                    "`lavender corrections --help`",
+                    file=sys.stderr,
+                )
+                return 1
+            retrieved_at = args.retrieved_at or today
+            # An unparseable date silently makes the row permanently "stale"
+            # (`_parse_iso_date` returns None and every TTL comparison then
+            # treats it as never fetched), which is a slow, invisible failure.
+            if _iso_date_problem(retrieved_at) is not None:
+                print(  # noqa: T201
+                    f"error: --retrieved-at {retrieved_at!r} is not an ISO date "
+                    "(YYYY-MM-DD). Nothing was written.",
+                    file=sys.stderr,
+                )
+                return 1
             evidence = IdentityEvidence(
                 kind=SourceKind.ARTIST_STATEMENT,
                 value=args.value,
                 citation=args.citation,
-                retrieved_at=args.retrieved_at or today,
+                retrieved_at=retrieved_at,
             )
             try:
                 cache.put_correction(args.artist, evidence, entered_at=today)
@@ -644,6 +721,14 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         print(f"    why: {why.headline}")  # noqa: T201
         print(f"    identity: {why.identity_statement}")  # noqa: T201
         print(f"    rank shift: {why.rank_shift}")  # noqa: T201
+        # ADR 0011's second axis (#92). Printed only when something was actually
+        # sourced: silence here is the normal answer and never a claim.
+        for item in why.queer_provenance:
+            print(  # noqa: T201
+                f"    {QUEER_SOURCES_HEADING}: {item.source_kind} asserted "
+                f"'{item.asserted_value}' ({item.citation}, "
+                f"retrieved {item.retrieved_at})"
+            )
     return 0
 
 
@@ -741,7 +826,17 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The whole CLI surface, as an inspectable object.
+
+    Split out of :func:`main` so the command and flag set is a *value* something
+    can check documentation against, rather than a shape that only exists while
+    an invocation is being parsed. ``tests/test_documented_commands.py`` walks
+    it: every ``lavender ...`` invocation written in the repo's Markdown has to
+    parse against this parser. Both `README.md` and `CONTRIBUTING.md` documented
+    a `lavender corrections add` subcommand that has never existed, and nothing
+    could have noticed.
+    """
     parser = argparse.ArgumentParser(prog="lavender", description=__doc__)
     parser.add_argument(
         "--log-format",
@@ -822,10 +917,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_rec = sub.add_parser("recommend", help="print recommendations (demo world unless --user)")
     p_rec.add_argument("--k", type=_positive_int, default=10)
-    p_rec.add_argument("--lens", type=float, default=0.5)
+    p_rec.add_argument("--lens", type=_unit_interval, default=0.5)
     p_rec.add_argument(
         "--explore",
-        type=float,
+        type=_unit_interval,
         default=0.0,
         help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
     )
@@ -837,10 +932,10 @@ def main(argv: list[str] | None = None) -> int:
         "--format", choices=[str(f) for f in ExportFormat], default=str(ExportFormat.TEXT)
     )
     p_exp.add_argument("--k", type=_positive_int, default=10)
-    p_exp.add_argument("--lens", type=float, default=0.5)
+    p_exp.add_argument("--lens", type=_unit_interval, default=0.5)
     p_exp.add_argument(
         "--explore",
-        type=float,
+        type=_unit_interval,
         default=0.0,
         help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
     )
@@ -861,7 +956,7 @@ def main(argv: list[str] | None = None) -> int:
         "report", help="write a self-contained, accessible HTML discovery report"
     )
     p_report.add_argument("--k", type=_positive_int, default=10)
-    p_report.add_argument("--lens", type=float, default=0.5)
+    p_report.add_argument("--lens", type=_unit_interval, default=0.5)
     p_report.add_argument("--out", default="my-discoveries.html")
     _add_world_args(p_report)
     p_report.set_defaults(func=_cmd_report)
@@ -912,7 +1007,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_corr.add_argument("--db", default=str(DEFAULT_DB_PATH))
     p_corr.add_argument("--artist", default=None, help="artist_id to correct")
-    p_corr.add_argument("--value", default=None, help="asserted gender value, e.g. 'woman'")
+    # Derived from the resolver, never transcribed: a help string that repeats the
+    # vocabulary by hand goes stale the first time the vocabulary changes, and this
+    # is the one place a caller can read the accepted terms before spending a run
+    # on a value `normalise_asserted_value` would refuse.
+    p_corr.add_argument(
+        "--value",
+        default=None,
+        help=(
+            "asserted gender value, e.g. 'woman'. Accepted: " + ", ".join(accepted_gender_values())
+        ),
+    )
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
     p_corr.set_defaults(func=_cmd_corrections)
@@ -932,7 +1037,11 @@ def main(argv: list[str] | None = None) -> int:
     p_pending_add.add_argument("--note", default="")
     p_pending.set_defaults(func=_cmd_pending_corrections)
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     configure_logging(log_format=args.log_format)
     return int(args.func(args))
 

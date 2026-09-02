@@ -36,6 +36,14 @@ from pipeline.models import (
     SourceKind,
 )
 
+#: The one place ADR 0011's second axis is named in a rendered surface. Written
+#: once, like every other identity phrase in this module, so the wording cannot
+#: drift between the CLI, the static render, the dashboard and the report. It
+#: says "orientation / trans" rather than "queer" because those are the two
+#: questions the citations answer; "queer" is the *lens's* word for a policy set
+#: (:data:`recommender.lens.QUEER_ORIENTATIONS`), not a claim any source made.
+QUEER_SOURCES_HEADING = "Orientation / trans sources (sourced, never inferred)"
+
 
 @dataclass(frozen=True)
 class ProvenanceItem:
@@ -79,6 +87,13 @@ class WhyThisArtist:
     * ``inferred`` — always ``False``; identity in this system is never guessed.
     * ``conflict_note`` — non-empty, neutral wording of a source disagreement
       (FIX-10); empty string when sources agree (or identity is unknown).
+    * ``queer_provenance`` — the citations behind ADR 0011's second axis
+      (orientation, trans self-identification), kept in their own tuple rather
+      than merged into ``provenance``. They are evidence about a different
+      question from a different source with different failure modes, and a
+      reader must be able to tell which claim rests on which citation. Empty for
+      almost every artist, which is the normal, first-class answer and never
+      means "not queer".
     """
 
     artist_name: str
@@ -90,6 +105,7 @@ class WhyThisArtist:
     inferred: bool = False
     conflict_note: str = ""
     rank_shift: str = "the values lens did not change this pick's position"
+    queer_provenance: tuple[ProvenanceItem, ...] = ()
 
     @property
     def identity_is_known(self) -> bool:
@@ -116,6 +132,13 @@ class WhyThisArtist:
             )
         else:
             lines.append("  Sources: none — identity unknown, surfaced on merit.")
+        if self.queer_provenance:
+            lines.append(f"  {QUEER_SOURCES_HEADING}:")
+            lines.extend(
+                f"    - {p.source_kind} asserted {p.asserted_value!r} "
+                f"({p.citation}, retrieved {p.retrieved_at})"
+                for p in self.queer_provenance
+            )
         return "\n".join(lines)
 
     def to_markdown(self) -> str:
@@ -144,6 +167,14 @@ class WhyThisArtist:
         else:
             parts.append("")
             parts.append("_Sources: none — identity unknown, surfaced on merit._")
+        if self.queer_provenance:
+            parts.append("")
+            parts.append(f"**{QUEER_SOURCES_HEADING}**")
+            parts.extend(
+                f"- {p.source_kind} asserted `{p.asserted_value}` — "
+                f"[{p.citation}]({p.citation}) (retrieved {p.retrieved_at})"
+                for p in self.queer_provenance
+            )
         return "\n".join(parts)
 
 
@@ -295,6 +326,19 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
     )
     headline = expl.signals[0].detail if expl.signals else "in your discovery catalog"
     provenance = tuple(ProvenanceItem.from_source(s) for s in expl.identity_sources)
+    # Kept out of `provenance` on purpose: an orientation citation is not a
+    # gender citation, and merging them would let a P91 claim be read as the
+    # basis for a gender label — the exact leak ADR 0011 keeps the two axes
+    # apart to prevent.
+    #
+    # Not deduplicated against the gender list either. One document can answer
+    # both questions: a Wikidata P21 claim of `Q1052281` is the citation for
+    # `Gender.WOMAN` *and* the citation for a trans self-identification, and it
+    # is listed under both headings because it is evidence for both claims. The
+    # heading is what tells a reader which question a citation was read for;
+    # showing the document once, under the gender heading only, would hide the
+    # second reading — which is the whole defect this closes.
+    queer_provenance = tuple(ProvenanceItem.from_source(s) for s in expl.queer_sources)
     return WhyThisArtist(
         artist_name=rec.artist.name,
         headline=headline,
@@ -305,4 +349,5 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         inferred=False,
         conflict_note=conflict_note(rec.artist),
         rank_shift=rank_shift_statement(rec.rank, rec.base_rank),
+        queer_provenance=queer_provenance,
     )

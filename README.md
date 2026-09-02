@@ -23,10 +23,24 @@ recommendation surface at your username:
 ```sh
 export LAVENDER_LASTFM_API_KEY=...     # https://www.last.fm/api/account/create
 export LAVENDER_CONTACT=you@example.org  # sent in the User-Agent MusicBrainz asks for
+# Playlist export is separate and optional: LAVENDER_SPOTIFY_CLIENT_ID / _CLIENT_SECRET /
+# _REDIRECT_URI, and the same three under LAVENDER_TIDAL_. `lavender doctor` lists them all.
 lavender ingest --user <your-lastfm-username>
 lavender recommend --user <your-lastfm-username>
 lavender recommend --user <you> --lens 1.0 --hide-sourced-men   # strongest lens, plus the filter
 ```
+
+Other commands, all offline unless you pass `--user`: `lavender report` writes a
+self-contained accessible HTML page of the current picks, `lavender export` writes a
+portable playlist file (and takes no destination flag — see "Export your picks" below),
+`lavender feedback` records a per-artist thumbs vote that nudges later rankings,
+`lavender doctor` reports local configuration and cache health,
+`lavender corrections` / `lavender pending-corrections`
+are the two correction ledgers (a local override, and a change you are proposing
+upstream), and `lavender eval` / `lavender eval-real` run the offline evaluation. Every
+recommendation surface also takes `--explore` (0 to 1), an identity-blind serendipity
+slider that trades relevance for tag-space diversity among the movable picks; it is 0 by
+default, and it never moves a rank-protected one.
 
 `lavender ingest` is the only command that fetches your listening history: it syncs your
 scrobbles from Last.fm (incrementally — a second run fetches only what is new), resolves
@@ -69,7 +83,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 773 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 929 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
@@ -99,8 +113,10 @@ back *carrying sources* is written; anything else keeps its existing label **and
 original `fetched_at`, because that date is a claim the artist was checked that day.
 A run where nothing came back exits non-zero, says the upstream was unreachable, and
 reconciles no corrections. A genuine upstream retraction is therefore not applied
-automatically — it is listed for you to act on with `lavender corrections add`, which
-is the direction this project errs in everywhere else too.
+automatically — it is listed for you to act on with `lavender corrections --artist <id>
+--value <value> --citation <url>`, which is the direction this project errs in everywhere
+else too. (The neighbouring `lavender pending-corrections add` ledger is the other
+direction: a change you are proposing *upstream*, waiting for a refresh to observe.)
 
 Bounded on purpose: upstream is ~1 req/s and a real catalog runs to thousands of
 artists, so `--limit` (default 100) caps a run and `--artist` targets one. Re-running

@@ -177,9 +177,26 @@ That primary table is the deliberately hand-tuned demo world, so the audit also
 runs four independent synthetic fixture families. Across all five worlds, the
 hybrid wins 5 `[docs/audits/eval-report.json → multiworld.worlds_hybrid_wins]`
 of 5 `[docs/audits/eval-report.json → multiworld.n_worlds]`, with mean
-MAP@5 delta 0.5375 `[docs/audits/eval-report.json →
+MAP@5 delta 0.6358 `[docs/audits/eval-report.json →
 multiworld.mean_map_delta]`. These remain synthetic tests, but they keep the
 claim from resting on the one fixture designed alongside the recommender.
+
+**Recall@5 used to be evidence in one world only, and was reported as if it were
+evidence in five** (issue #82). The four non-demo fixtures held exactly four
+rankable candidates against `k = 5`, so the top-k was the entire pool and
+`recall_at_k` came out 1.0 for every model in all four — for a perfect ranker, a
+random one and a reversed one alike. The headline `mean_recall_delta` was
+therefore the demo world's 0.5 divided by five. Two changes close that: the
+report now records, per world, whether `k` was smaller than the rankable pool
+(`recall_discriminates`) and averages only over the worlds where recall could
+vary, naming the denominator next to the mean; and the fixtures grew past `k`, so
+today every world contributes: 5
+`[docs/audits/eval-report.json → multiworld.n_worlds_recall_discriminating]` of 5
+`[docs/audits/eval-report.json → multiworld.n_worlds]`, and mean recall@5 delta
+is 0.5 `[docs/audits/eval-report.json → multiworld.mean_recall_delta]` measured
+across all of them. The aggregate verdict also requires a *strict* MAP
+improvement now: a dead heat used to satisfy the condition the README describes
+as "the offline eval must beat the popularity baseline".
 
 Read narrowly: this shows the *hybrid engine* recovers genuine future discoveries
 better than "just recommend what's already popular" — it is not, on its own, a

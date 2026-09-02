@@ -11,8 +11,8 @@ read/ranking path was touched — that's the one non-negotiable part.
 
 ## Definition-of-done checklist
 
-- [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval, incl. the
-      eval-baseline regression check).
+- [ ] `make verify` is green locally (lint · type · test ≥85% · security · a11y · eval · i18n,
+      incl. the eval-baseline regression check and the methods.md writeup check).
 - [ ] Tests added/updated for the change, including the identity invariants (sourced-not-inferred,
       unknown-never-penalised, female-fronted-distinct-from-gender) if a read or ranking path was
       touched.

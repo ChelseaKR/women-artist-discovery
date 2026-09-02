@@ -32,7 +32,7 @@ if ! git diff --quiet -- "${TARGETS[@]}"; then
   exit 1
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/wad-mutation.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/lavender-mutation.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 for cfg in scripts/mutation/identity.toml scripts/mutation/rerank.toml; do

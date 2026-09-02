@@ -90,6 +90,17 @@ DANGEROUS_READS = frozenset(
 
 #: Callables that turn values into identity claims. Nothing derived from a
 #: forbidden read may appear in an argument to any of these.
+#:
+#: ADR 0011 added a second axis and this set was not extended with it, which
+#: made two of this module's guarantees narrower than they read. The blanket
+#: scan was unaffected (it fires on the forbidden *read*, whatever the value is
+#: later fed to), but the two checks defined in terms of this set were not:
+#: :func:`tainted_identity_constructions` could not see a content tag reaching
+#: the orientation resolver from an exempt function, and
+#: ``test_no_identity_object_is_constructed_outside_the_pipeline`` asserted only
+#: that ``recommender``/``app``/``export`` build no *gender* object — an
+#: orientation or trans claim constructed there passed. Both now cover the axis
+#: ADR 0011 itself calls the higher-stakes one.
 IDENTITY_CONSTRUCTORS = frozenset(
     {
         "resolve_identity",
@@ -100,6 +111,10 @@ IDENTITY_CONSTRUCTORS = frozenset(
         "FrontPerson",
         "Source",
         "_map_value",
+        # --- ADR 0011's second axis ------------------------------------------
+        "resolve_queer_identity",
+        "QueerIdentity",
+        "_map_orientation",
     }
 )
 
@@ -417,6 +432,49 @@ def test_no_identity_object_is_constructed_outside_the_pipeline(package: str) ->
     )
 
 
+def _constructions_in(source: str) -> list[str]:
+    """The same detection the package scan uses, over a synthetic module."""
+    return [
+        _call_name(node)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and _call_name(node) in IDENTITY_CONSTRUCTORS
+    ]
+
+
+def test_the_package_scan_catches_a_queer_axis_construction() -> None:
+    """The scan is shown *failing* on the axis it used to be blind to.
+
+    Before ``IDENTITY_CONSTRUCTORS`` grew ADR 0011's entries this module
+    returned no offender for either of these, so "recommender/app/export
+    construct no identity objects at all" was only ever asserted of the gender
+    axis. A scan never shown failing is not evidence.
+    """
+    orientation_path = (
+        "def boost(artist):\n    return QueerIdentity(orientation=Orientation.LESBIAN)\n"
+    )
+    resolver_path = "def boost(artist):\n    return resolve_queer_identity(artist.tags)\n"
+    assert _constructions_in(orientation_path) == ["QueerIdentity"]
+    assert _constructions_in(resolver_path) == ["resolve_queer_identity"]
+
+
+def test_an_exempt_function_fails_if_a_tag_reaches_the_queer_resolver() -> None:
+    """The stricter exempt-function check now covers the second axis too.
+
+    ``pipeline.ingest.enrich_artist`` is exempt (it reads content tags) *and*
+    calls ``resolve_queer_identity``. Until this edit the taint walk did not
+    treat that call as an identity construction, so a tag reaching it was
+    invisible to the one check exempt functions are held to.
+    """
+    module = (
+        "def enrich_artist(source, artist_id):\n"
+        "    tags = source.artist_tags(artist_id)\n"
+        "    return resolve_queer_identity(tags)\n"
+    )
+    problems = scan_source(module, "m", exemptions={"m.enrich_artist": "content tags"})
+    assert problems, "a tainted value reached resolve_queer_identity() and the scan allowed it"
+    assert any("resolve_queer_identity()" in p for p in problems), problems
+
+
 def test_name_and_genre_do_not_influence_resolution() -> None:
     """An artist coded feminine by name + tags still resolves to UNKNOWN.
 
@@ -495,11 +553,42 @@ def test_the_permitted_guard_runs_on_the_resolver_path() -> None:
     with (
         patch("pipeline.identity.INDIVIDUAL_IDENTITY_SOURCES", frozenset()),
         patch("pipeline.identity.BAND_COMPOSITION_SOURCES", frozenset()),
+        patch("pipeline.identity.ORIENTATION_SOURCES", frozenset()),
     ):
         with pytest.raises(identity.InferenceForbiddenError):
             resolve_identity(evidence)
         with pytest.raises(identity.InferenceForbiddenError):
             resolve_composition([FrontPerson("Singer", "lead vocals")], lineup)
+        # The third entry point, added by ADR 0011 and previously unasserted:
+        # `resolve_queer_identity` calls the same guard, and a non-permitted
+        # kind must fail loudly there too rather than resolve to the
+        # first-class unknown and look like an ordinary absence of evidence.
+        with pytest.raises(identity.InferenceForbiddenError):
+            identity.resolve_queer_identity(evidence)
+
+
+def test_the_permitted_guard_names_every_resolver_that_calls_it() -> None:
+    """The guard's own docstring must not undercount its callers.
+
+    It said "the two entry points where untrusted evidence becomes a label"
+    while three resolvers called it. A guard described as narrower than it is
+    invites the next axis to be added without one.
+    """
+    tree = ast.parse(Path(identity.__file__).read_text(encoding="utf-8"))
+    callers = {
+        qualname.rsplit(".", 1)[-1]
+        for qualname, fn in iter_functions(tree, "pipeline.identity")
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call) and _call_name(node) == "assert_permitted_only"
+    }
+    assert callers == {
+        "resolve_identity",
+        "resolve_composition",
+        "resolve_queer_identity",
+    }, callers
+    doc = identity.assert_permitted_only.__doc__ or ""
+    for name in sorted(callers):
+        assert name in doc, f"assert_permitted_only's docstring does not name {name}"
 
 
 @pytest.mark.parametrize("token", sorted(FORBIDDEN_TOKENS))

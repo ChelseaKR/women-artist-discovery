@@ -47,8 +47,11 @@ source kind for a name, voice, image, or genre. Code: `pipeline/identity.py`.
 - **Trans inclusion.** Trans women are women; trans men are men (Wikidata QID map
   in `pipeline/identity.py`). Intersex/third-gender are represented, not flattened.
 - **Correctability.** Labels are cache rows keyed to a citation, and a cited local
-  correction can override a stale claim. Automated re-reading of a corrected
-  upstream source is not shipped because the CLI has no live enricher; corrupt
+  correction can override a stale claim. Re-reading a corrected upstream source
+  ships: `lavender refresh --user` re-asks MusicBrainz and Wikidata and
+  reconciles the pending-corrections ledger against what came back. It is
+  operator-triggered, not scheduled, and it refuses to treat an empty answer as
+  agreement, so a retraction is listed for a human rather than applied. Corrupt
   rows that violate a guardrail still fail closed (`tests/test_cache_serde.py`).
   A *pending* correction — a person's filed note that a source has them wrong — is
   never removed without evidence: reconciliation requires an upstream source to
@@ -126,7 +129,7 @@ This is a deliberate, documented decision, not an oversight:
 
 This repo ships **no** bulk musician-identity dataset. Identity — on both axes —
 is resolved on-demand from upstream sources and cached locally only
-(`data/cache.db`, git-ignored). The second axis does not change the shape of
+(one SQLite file in the platform user-data directory; `lavender doctor` prints the path). The second axis does not change the shape of
 this commitment, but it raises the stakes: a local cache of who is queer or
 trans is exactly the artifact that must never be published, shared, or exported,
 and nothing in the codebase provides a path to do so. MusicBrainz/Wikidata content is CC0 (attribution given); Discogs is used

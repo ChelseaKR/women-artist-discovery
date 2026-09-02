@@ -1,4 +1,4 @@
-# Women-Artist Discovery — single source of truth for the local + CI gates.
+# Lavender Rotation — single source of truth for the local + CI gates.
 # `make verify` runs the same checkable gates CI enforces (QUALITY-AND-METRICS
 # STANDARD §"enforcement pipeline"), in order.
 
@@ -8,11 +8,11 @@ A11Y_HTML := docs/audits/dashboard.html
 # Scheme-pinned renders (gate inputs only, not committed artifacts): auditing a
 # light-pinned AND a dark-pinned render makes the a11y gate scheme-complete on
 # any machine — a Dark-Mode Mac and light-mode CI check the same two palettes.
-A11Y_HTML_LIGHT := /tmp/wad-dashboard-light.html
-A11Y_HTML_DARK  := /tmp/wad-dashboard-dark.html
+A11Y_HTML_LIGHT := /tmp/lavender-dashboard-light.html
+A11Y_HTML_DARK  := /tmp/lavender-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation audit clean
+.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation audit clean forget
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -78,10 +78,13 @@ test: ## Stage 3 — unit + integration tests with coverage gates (>=85%; identi
 # As of the Python 3.10+ migration (2026-06-30) the waiver list is EMPTY:
 #   * RR-4 — the 19-advisory Python-3.9-EOL cluster (requests, urllib3, streamlit,
 #     pillow, pyarrow, msgpack, filelock, pytest, pip) had fixes gated to
-#     Python >=3.10; with the floor now >=3.10 every fix installs (see
-#     pyproject floors + uv.lock), so all 19 IDs are dropped.
+#     Python >=3.10; every fix installs on this project's floor (see pyproject
+#     floors + uv.lock), so all 19 IDs are dropped.
 #   * RR-1 — GHSA-4xh5-x5gv-qwph (pip fallback tar extraction) is cleared by
-#     pip>=25.3 / PEP 706 tar filter on the >=3.10 floor; no longer reported.
+#     pip>=25.3 / PEP 706 tar filter; no longer reported.
+# (The floor was >=3.10 when this note was written and is >=3.12 today, per ADR
+# 0004. Both statements above hold a fortiori on the higher floor; the "now
+# >=3.10" wording did not, and is corrected.)
 # `pip-audit` is therefore driven to 0 with NO --ignore-vuln flags. Re-introduce a
 # justified entry here (byte-identical in ci.yml + docs/audits/vex.json) only if a
 # genuinely-unfixable advisory ever appears. History: docs/audits/residual-risk.md.
@@ -135,6 +138,12 @@ a11y-e2e: ## Stage 5b — browser-driven keyboard/reflow/reduced-motion specs (P
 
 eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baseline on aggregate (FIX-06)
 	$(PYTHON) -m pipeline.cli eval --k 5 --out docs/audits/eval-report.json
+	@# EXP-10: every quantitative claim in docs/writeup/methods.md must match the
+	@# report the line above just regenerated. This used to run only in `make
+	@# audit`, which is not the merge gate, so the writeup could drift on `main`
+	@# for as long as nobody ran `audit` — the same "hand-typed and stale"
+	@# failure `scripts/check-readme-claims.py` exists to prevent for the README.
+	$(PYTHON) scripts/writeup-check.py
 
 # Stage 7 as `verify` runs it. `eval` above writes the report straight into the
 # working tree, which is why it could not be the gate: it regenerates the right
@@ -210,7 +219,20 @@ audit: render a11y eval ## Regenerate all committed responsible-tech artifacts
 	@$(PYTHON) scripts/writeup-check.py
 	@echo "✓ audit artifacts regenerated under docs/audits/"
 
-clean: ## Remove caches and generated local data
+clean: ## Remove build/tool caches (NOT your listening data — see `make forget`)
 	rm -rf .mypy_cache .ruff_cache .pytest_cache htmlcov .coverage
+	@# `data/*.db` is a legacy location: the cache moved to the platform
+	@# user-data directory (pipeline/paths.py) and this line stopped matching it.
+	@# It is kept so an old checkout is still tidied, and it is no longer
+	@# advertised as the deletion path — `make clean` deleting a person's real
+	@# listening history would also be the wrong behaviour for a target whose
+	@# job is build artifacts.
 	rm -f data/*.db
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+
+# The deletion path privacy-notes.md points at. Separate from `clean` on
+# purpose: this removes personal data, so it must be asked for by name.
+forget: ## Delete the local cache (listening history + resolved identity). Irreversible.
+	@$(PYTHON) -c "from pipeline.paths import default_db_path; print(default_db_path())"
+	@printf 'Delete the cache above? [y/N] ' && read ans && [ "$$ans" = "y" ] || { echo "aborted"; exit 1; }
+	@$(PYTHON) -c "from pathlib import Path; from pipeline.paths import default_db_path; p = Path(default_db_path()); p.unlink() if p.exists() else None; print('removed', p) if not p.exists() else None"

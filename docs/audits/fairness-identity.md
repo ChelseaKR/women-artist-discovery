@@ -7,7 +7,11 @@
 
 Artists are segmented by **identity basis** (self-identified / band-composition /
 unknown), by **gender** within the self-identified set (woman / man / nonbinary /
-other), and by **popularity tier** (listener count).
+other), by **sourced fronting lineup** (female-fronted / nonbinary-fronted — the
+two band-composition segments this prose omitted while `recommender/exposure.py`
+reported them), and by **popularity tier** (listener count). The exact segment
+tuple is `recommender.exposure.SEGMENTS`: woman, nonbinary, female-fronted,
+nonbinary-fronted, man, other, unknown.
 
 ## Risks & findings
 

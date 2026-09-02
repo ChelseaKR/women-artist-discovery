@@ -89,6 +89,16 @@ class LastfmRequestError(RuntimeError):
 #: here is to absorb a single blip, not to keep trying until something answers.
 MAX_ATTEMPTS = 2
 
+#: Hard cap on pages one ``scrobbles_since`` call will walk. ``totalPages`` is an
+#: integer supplied by the far end, and the loop's only stop condition was
+#: reaching it: a glitched or hostile ``"totalPages": "999999999"`` walked
+#: essentially forever at the rate limiter's one-request-per-second pace, with no
+#: way to tell it apart from a genuinely long history. 2000 pages at the default
+#: 200 scrobbles a page is 400,000 plays, comfortably past any real listening
+#: history, and hitting it is logged rather than passed off as a complete sync.
+#: A run that caps still resumes: the next call starts from the new watermark.
+MAX_PAGES = 2_000
+
 #: ``requests`` exception classes that mean "the request never got an answer".
 _TRANSIENT_EXCEPTIONS = frozenset(
     {"ConnectionError", "Timeout", "ReadTimeout", "ConnectTimeout", "ChunkedEncodingError"}
@@ -266,6 +276,18 @@ class CachedLastfm:
             payload: object = json.loads(body)
         except json.JSONDecodeError:
             return None
+        problem = api_error(payload)
+        if problem is not None:
+            # A row written before `_get` learned to reject these. Replayed as
+            # data it would read as an empty answer, which is what this class
+            # returns for a miss anyway — but silently, so it is logged. Not
+            # raised: this is the offline read path, whose whole contract is
+            # that a missing response costs signal rather than the run.
+            log.warning(
+                "stage=lastfm event=cached_error_envelope method=%s",
+                params.get("method", "?"),
+            )
+            return None
         return payload
 
     def recent_scrobbles(self, username: str, limit: int = 200) -> list[Scrobble]:
@@ -314,6 +336,19 @@ class LastfmClient:  # pragma: no cover - live network path, verified via integr
         if cached is not None:
             return cached
         body = self._request(params)
+        # Checked *before* the write. Last.fm signals some failures with HTTP 200
+        # and an error envelope, and caching that body pins the failure into the
+        # local cache permanently — every later replay serves the error document
+        # as though it were an answer, which reads downstream as "this artist has
+        # no tags" or "this user has no plays".
+        import json as _json
+
+        try:
+            problem = api_error(_json.loads(body))
+        except _json.JSONDecodeError:
+            problem = None  # not JSON at all: leave it to the parser's ValueError
+        if problem is not None:
+            raise LastfmRequestError(problem)
         self.cache.put_cached_response(key, body, self._now())
         return body
 
@@ -370,7 +405,7 @@ class LastfmClient:  # pragma: no cover - live network path, verified via integr
         out: list[Scrobble] = []
         page = 1
         total_pages = 1
-        while page <= total_pages:
+        while page <= min(total_pages, MAX_PAGES):
             body = self._get(
                 {
                     "method": "user.getrecenttracks",
@@ -389,6 +424,12 @@ class LastfmClient:  # pragma: no cover - live network path, verified via integr
             except (TypeError, ValueError):
                 total_pages = 1
             page += 1
+        if total_pages > MAX_PAGES:
+            log.warning(
+                "stage=lastfm event=pagination_capped pages=%d cap=%d",
+                total_pages,
+                MAX_PAGES,
+            )
         out.sort(key=lambda s: s.ts)
         return [s for s in out if s.ts > since_ts]
 
@@ -411,14 +452,59 @@ class LastfmClient:  # pragma: no cover - live network path, verified via integr
 # --- Pure parsers with input validation (security: untrusted external data) ---
 
 
+def _as_list(container: object, key: str) -> list[object]:
+    """The list under ``container[key]``, for every shape Last.fm actually sends.
+
+    ``container.get(key, [])`` is not enough, and the difference is a crash. A
+    key that is *present and null* — which Last.fm sends for an empty
+    collection — makes ``.get`` return ``None``, not the default, and the caller
+    then iterates ``None``. A scalar (a stray number or string) iterates as
+    characters or raises. Both arrive as ``TypeError`` from inside a parser
+    documented as raising ``ValueError`` for a bad payload, out of a call stack
+    (``CachedLastfm.similar_artists`` -> ``collaborative_scores``) that nothing
+    guards — so one shape change upstream, or one such response already sitting
+    in a local cache, takes down ``lavender recommend --user`` with a traceback.
+
+    A single object is wrapped (Last.fm collapses a one-element collection to a
+    bare object); anything else that is not a list becomes empty, which is the
+    same first-class "no data" every other absence produces here.
+    """
+    if not isinstance(container, dict):
+        return []
+    value = container.get(key)
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):  # Last.fm returns a bare object for a single item
+        return [value]
+    return []
+
+
+def api_error(payload: object) -> Optional[str]:
+    """Last.fm's application-level error envelope, if this payload is one.
+
+    Last.fm answers some failures with **HTTP 200** and a body of
+    ``{"error": N, "message": "..."}`` — error 29 is "rate limit exceeded". Read
+    as data, that body has no ``recenttracks`` key, so the parsers return an
+    empty list and the caller cannot tell "your rate limit is exhausted" from
+    "this user has no plays". Worse, the raw body was written to the HTTP cache
+    before anything looked at it, so the error document was replayed forever.
+
+    Returns a redacted message (never the raw upstream text, which is untrusted
+    and could carry anything) or ``None`` when the payload is ordinary data.
+    """
+    if not isinstance(payload, dict):
+        return None
+    code = payload.get("error")
+    if code is None:
+        return None
+    return f"Last.fm returned an application error (code {code!r}) with HTTP 200"
+
+
 def parse_recent_tracks(payload: object) -> list[Scrobble]:
     """Parse user.getrecenttracks JSON, validating shape and skipping 'now playing'."""
     if not isinstance(payload, dict):
         raise ValueError("recent-tracks payload must be an object")
-    container = payload.get("recenttracks", {})
-    tracks = container.get("track", []) if isinstance(container, dict) else []
-    if isinstance(tracks, dict):  # Last.fm returns a bare object for a single track
-        tracks = [tracks]
+    tracks = _as_list(payload.get("recenttracks", {}), "track")
     out: list[Scrobble] = []
     for t in tracks:
         if not isinstance(t, dict):
@@ -455,10 +541,7 @@ def parse_recent_tracks(payload: object) -> list[Scrobble]:
 def parse_top_tags(payload: object, max_tags: int = 10) -> tuple[str, ...]:
     if not isinstance(payload, dict):
         raise ValueError("top-tags payload must be an object")
-    container = payload.get("toptags", {})
-    tags = container.get("tag", []) if isinstance(container, dict) else []
-    if isinstance(tags, dict):
-        tags = [tags]
+    tags = _as_list(payload.get("toptags", {}), "tag")
     names: list[str] = []
     for tag in tags:
         if isinstance(tag, dict) and tag.get("name"):
@@ -482,10 +565,7 @@ def parse_similar_named(payload: object) -> list[SimilarArtist]:
     """
     if not isinstance(payload, dict):
         raise ValueError("similar payload must be an object")
-    container = payload.get("similarartists", {})
-    artists = container.get("artist", []) if isinstance(container, dict) else []
-    if isinstance(artists, dict):
-        artists = [artists]
+    artists = _as_list(payload.get("similarartists", {}), "artist")
     out: list[SimilarArtist] = []
     for a in artists:
         if not isinstance(a, dict):

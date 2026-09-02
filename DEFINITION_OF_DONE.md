@@ -2,7 +2,7 @@
 
 CODEOWNERS-protected (see `CODEOWNERS`) — changing what "done" means here should get the same
 review attention as the safety-core files. This is the checked-in version of the checklist that
-also lives, informally, in `README.md`'s "Definition of done" line and `CONTRIBUTING.md`'s PR
+also lives, informally, in `CLAUDE.md`'s "Definition of done" line and `CONTRIBUTING.md`'s PR
 checklist; this file is the source of truth if the three ever drift.
 
 A change (feature, fix, or refactor) is done when:
