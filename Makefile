@@ -12,11 +12,23 @@ A11Y_HTML_LIGHT := /tmp/lavender-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/lavender-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation stamp audit clean forget
+.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation stamp refresh schedule audit clean forget
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
 EVAL_REAL_DB ?=
+
+# Periodic re-enrichment (ADR 0013) — LOCAL ONLY, never CI. The cache being
+# refreshed is your listening history on your machine; a hosted runner has no
+# such cache, and giving it one would mean uploading a personal listening
+# profile to CI. `make schedule` prints the launchd/cron entry that runs
+# `make refresh` on the recorded cadence.
+LAVENDER_USER ?=
+SCHEDULER ?=
+# Extra flags for a scheduled or hand-run refresh, e.g. REFRESH_ARGS="--limit 50".
+# Deliberately empty: the bounds live in the CLI's own defaults, so restating
+# them here would be a second place for them to drift.
+REFRESH_ARGS ?=
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -203,6 +215,24 @@ eval-real: ## LOCAL-ONLY — real-data eval leg against your own cached scrobble
 	@test -n "$(EVAL_REAL_USER)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
 	@test -n "$(EVAL_REAL_DB)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
 	$(PYTHON) -m pipeline.cli eval-real --user "$(EVAL_REAL_USER)" --scrobbles "$(EVAL_REAL_DB)"
+
+# Periodic re-enrichment, the operator-facing half (ADR 0013). LOCAL ONLY, never
+# CI: this reads your own cache and reaches MusicBrainz/Wikidata. One run is
+# bounded by the CLI's own `--limit` default and rotates stalest-first, so a
+# whole catalog is several runs and each resumes where the last stopped. It
+# exits non-zero when the upstream answered nothing — a silent source is
+# reported as unreachable, never as agreement, so a red scheduled run is real.
+refresh: ## LOCAL-ONLY — re-ask upstream about the stalest cached artists (needs LAVENDER_USER)
+	@test -n "$(LAVENDER_USER)" || { echo "usage: make refresh LAVENDER_USER=<lastfm-username> [REFRESH_ARGS=\"--limit 50\"]"; exit 1; }
+	$(PYTHON) -m pipeline.cli refresh --user "$(LAVENDER_USER)" $(REFRESH_ARGS)
+
+# The schedule itself. Prints; installs nothing. A job that runs on your behalf
+# should be something you read and paste, not something a `make` target wrote
+# into your login session. Credentials are never rendered into the entry — it
+# sources a mode-600 env file the script's output tells you how to create.
+schedule: ## Print the launchd/cron entry that runs `make refresh` on the ADR 0013 cadence
+	@test -n "$(LAVENDER_USER)" || { echo "usage: make schedule LAVENDER_USER=<lastfm-username> [SCHEDULER=launchd|cron]"; exit 1; }
+	@$(PYTHON) scripts/refresh_schedule.py --user "$(LAVENDER_USER)" $(if $(SCHEDULER),--scheduler $(SCHEDULER))
 
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh

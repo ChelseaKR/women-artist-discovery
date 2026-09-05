@@ -263,6 +263,21 @@ def mutation_kill_threshold() -> str:
     return str(100 - survival.pop())
 
 
+def refresh_cadence_days() -> str:
+    """The periodic re-enrichment cadence (ADR 0013), from the constant both
+    scheduler renderers express.
+
+    A cadence stated in prose and expressed in a rendered launchd/cron entry is
+    two copies of one decision. This is the row that makes the documented
+    schedule and the installed one the same schedule.
+    """
+    source = (REPO_ROOT / "scripts" / "refresh_schedule.py").read_text(encoding="utf-8")
+    match = re.search(r"^CADENCE_DAYS = (?P<value>\d+)$", source, re.MULTILINE)
+    if not match:
+        raise FigureError("scripts/refresh_schedule.py no longer defines CADENCE_DAYS as a literal")
+    return match.group("value")
+
+
 # --- the manifest ----------------------------------------------------------
 
 FIGURES: tuple[Figure, ...] = (
@@ -289,6 +304,22 @@ FIGURES: tuple[Figure, ...] = (
         pattern=re.compile(r"`--limit` \(default (?P<value>\d+)\)"),
         derive=refresh_limit_default,
         source="pipeline/cli.py::DEFAULT_REFRESH_LIMIT",
+    ),
+    Figure(
+        name="readme-refresh-cadence-days",
+        document="README.md",
+        section="## Project status",
+        pattern=re.compile(r"runs `make refresh` every (?P<value>\d+) days"),
+        derive=refresh_cadence_days,
+        source="scripts/refresh_schedule.py::CADENCE_DAYS (ADR 0013)",
+    ),
+    Figure(
+        name="roadmap-refresh-cadence-days",
+        document="docs/ROADMAP.md",
+        section="## 11. Operations & sustainability",
+        pattern=re.compile(r"executes it every (?P<value>\d+) days"),
+        derive=refresh_cadence_days,
+        source="scripts/refresh_schedule.py::CADENCE_DAYS (ADR 0013)",
     ),
     Figure(
         name="readme-mutation-kill-threshold",

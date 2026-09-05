@@ -47,7 +47,8 @@ scrobbles from Last.fm (incrementally — a second run fetches only what is new)
 identity for the artists it caches against MusicBrainz and Wikidata, and enriches
 the candidates it can reach from your taste. Two other commands can reach upstream, each
 only when you ask: `lavender refresh --user` re-asks MusicBrainz and Wikidata about artists
-already in your cache (see below), and `lavender doctor --check-upstream` pings the four
+already in your cache (see below — including on a weekly schedule, if you install the one
+`make schedule` prints), and `lavender doctor --check-upstream` pings the four
 external APIs for reachability and reads nothing else. Every other `lavender` command is
 offline, and the sanctioned egress list is gated in `tests/test_privacy.py`.
 
@@ -83,7 +84,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 987 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 1016 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
@@ -121,7 +122,19 @@ direction: a change you are proposing *upstream*, waiting for a refresh to obser
 Bounded on purpose: upstream is ~1 req/s and a real catalog runs to thousands of
 artists, so `--limit` (default 100) caps a run and `--artist` targets one. Re-running
 resumes — everything already fetched is served from the HTTP cache until `--ttl-days`
-ages it out. There is still no scheduler; a re-check is you running the command again.
+ages it out, and runs go stalest-first, so consecutive runs sweep the catalog rather
+than re-walking its head.
+
+Scheduling that sweep is `make schedule LAVENDER_USER=<you>`, which prints the launchd
+agent (macOS) or crontab line to install; it runs `make refresh` every 7 days on your
+own machine, logs it, and carries no credential — the entry sources a mode-600 env file
+you create once. Deliberately **not** a GitHub Actions cron: the cache being refreshed
+is your listening history in your own user-data directory, so a hosted runner would have
+nothing to refresh unless that history were uploaded to CI — a green weekly checkmark
+for work that did not happen.
+[ADR 0013](./docs/adr/0013-local-refresh-schedule-not-hosted-cron.md) records the
+cadence, what a weekly sweep actually buys against the 30-day HTTP cache, and why daily
+was rejected.
 
 The second live-mode limit is coverage of *your* upstream data, not of this code:
 Last.fm supplies an MBID for only some artists, and a name that matches two

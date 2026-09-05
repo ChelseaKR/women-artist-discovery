@@ -50,8 +50,9 @@ source kind for a name, voice, image, or genre. Code: `pipeline/identity.py`.
   correction can override a stale claim. Re-reading a corrected upstream source
   ships: `lavender refresh --user` re-asks MusicBrainz and Wikidata and
   reconciles the pending-corrections ledger against what came back. It is
-  operator-triggered, not scheduled, and it refuses to treat an empty answer as
-  agreement, so a retraction is listed for a human rather than applied. Corrupt
+  operator-triggered and, since ADR 0013, also runs on a weekly schedule the operator
+  installs on their own machine (`make schedule`); it refuses to treat an empty answer
+  as agreement, so a retraction is listed for a human rather than applied. Corrupt
   rows that violate a guardrail still fail closed (`tests/test_cache_serde.py`).
   A *pending* correction — a person's filed note that a source has them wrong — is
   never removed without evidence: reconciliation requires an upstream source to
