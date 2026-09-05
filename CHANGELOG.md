@@ -13,13 +13,29 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- Docs-figures gate + auto-stamp (`scripts/docs_figures.py`, `make stamp`): one manifest pairs
+  each figure the docs state about this repo with the callable that re-derives it, so gating a
+  new claim is a manifest row instead of another bespoke script. Nine rows ship across
+  `README.md`, `CONTRIBUTING.md`, `DEFINITION_OF_DONE.md`, and `docs/ROADMAP.md` §7, covering the
+  test count, coverage total, coverage floor and measured scope, `lavender refresh --limit`'s
+  default, and the mutation kill threshold. `--write` stamps the derived value in rather than
+  asking a human to retype it. This is the "auto-stamp backlog item" the 2026-08-04 docs-currency
+  guard recorded as the systemic fix and left open.
 - `lavender refresh --user <name>` re-asks MusicBrainz/Wikidata about artists
   already in the cache, closing the upstream-correction round-trip: a filed
   pending correction can now be reconciled against an observation, which the
   demo-only refresh could never do. Bounded by `--limit`/`--artist` against a
   ~1 req/s upstream, and resumable through the HTTP cache.
 
+### Removed
+- `scripts/check-readme-claims.py`, superseded by `scripts/docs_figures.py`. Its two claims are
+  the first two rows of the new manifest and are checked identically; its pure-logic unit tests
+  moved to `tests/test_doc_figures.py`. No gate was weakened or dropped.
+
 ### Fixed
+- **`DEFINITION_OF_DONE.md` said coverage is measured on `pipeline`/`recommender`/`export`.**
+  `app` joined the coverage addopts on 2026-08-28 and the sentence did not follow. Found by the
+  new docs-figures gate on its first run against `main`, and stamped from the addopts.
 - **The committed branch ruleset carried no bypass actors, and ADR 0001 argued that
   emptiness was the stricter posture.** It is the lockout. GitHub rulesets do not
   implicitly exempt admins, so applying `docs/audits/branch-ruleset.json` as committed

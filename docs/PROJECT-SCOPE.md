@@ -76,7 +76,7 @@ files, and generated HTML/JSON artifacts.
 The counts used to be written out here as "34 authored Markdown files, 38 Python files under
 `tests/`, and 7 workflow files". They were right on the day the pass ran and wrong within a few
 merges (45 / 51 / 8 as of 2026-08-28), with nothing to notice — the same hand-typed-and-stale
-failure `scripts/check-readme-claims.py` exists to prevent for the README's test count. A number
+failure `scripts/docs_figures.py` exists to prevent for the README's test count. A number
 nobody regenerates is worse than no number, so recompute rather than read:
 
 ```sh
