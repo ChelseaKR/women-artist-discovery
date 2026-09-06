@@ -15,11 +15,25 @@ At ``lens_strength = 0`` and ``explore = 0`` (both defaults) the output is the
 pure-taste hybrid ranking — which is what the offline eval compares against
 the popularity baseline.
 
-Every recommendation also carries a ``base_rank``: its counterfactual position
-in that pure-taste ordering (``lens_strength = 0``), computed *before* the lens
-is applied. This lets every why-card say, in plain language, how the lens moved
-a pick — see :mod:`recommender.why`. Serendipity reordering happens after this
-counterfactual is recorded, so it cannot be misattributed to the values lens.
+Every recommendation carries three ranks, and the difference between them is
+load-bearing (#113):
+
+* ``base_rank`` — its counterfactual position in the pure-taste ordering
+  (``lens_strength = 0``), recorded *before* the lens is applied.
+* ``lens_rank`` — its position immediately after :func:`recommender.rerank.rerank`
+  and before anything else runs. This is the only rank that reflects the values
+  lens and nothing else.
+* ``rank`` — its displayed position, after the identity-blind serendipity pass
+  and after the listener's ``hide_sourced_men`` subtraction.
+
+The why-card's rank-shift sentence names the lens, so it is computed from
+``base_rank -> lens_rank`` (:mod:`recommender.why`). It used to be computed from
+``base_rank -> rank``, which absorbed all three mechanisms and attributed every
+one of them to the lens — including at ``lens_strength = 0``, where the lens
+provably did nothing. Serendipity running *after* the counterfactual is recorded
+is exactly why its movement lands in ``rank - base_rank``; recording the
+counterfactual earlier does not separate the causes, stamping a rank between the
+stages does.
 """
 
 from __future__ import annotations
@@ -125,6 +139,12 @@ def recommend(
     recs = [rec.with_base_rank(base_rank_of[rec.artist.artist_id]) for rec in recs]
 
     ranked = rerank(recs, lens_strength, lens)
+    # `rerank` has just numbered the lens-applied ordering, and nothing else has
+    # touched it yet. Stamp that number before the serendipity pass and the
+    # output filter renumber everything: it is what makes the why-card's
+    # "the values lens moved this pick from #A to #B" a claim about the lens
+    # rather than about all three mechanisms at once (#113).
+    ranked = [rec.with_lens_rank(rec.rank) for rec in ranked]
 
     # Serendipity remains identity-blind inside diversify(). At this orchestration
     # boundary, pass it only the movable candidates, then reconstruct the full list
@@ -138,10 +158,12 @@ def recommend(
     ]
 
     # The listener's own opt-in subtraction, applied last — after ranking, after
-    # rank protection, and after `base_rank` was recorded. Doing it here rather
-    # than by dropping candidates earlier keeps every remaining pick's "the lens
-    # moved this from #19 to #7" true of the real pure-taste ordering, instead
-    # of a counterfactual computed over a pre-filtered world. See
+    # rank protection, and after both `base_rank` and `lens_rank` were recorded.
+    # Doing it here rather than by dropping candidates earlier keeps both of
+    # those ranks positions in the real, unfiltered ordering, instead of a
+    # counterfactual computed over a pre-filtered world. It does renumber
+    # `rank`, which is why the rank-shift sentence is not computed from `rank`:
+    # removing a pick above you is not the lens moving you (#113). See
     # `recommender.filters` for why this removes only a positive sourced claim.
     if hide_sourced_men:
         protected = [rec for rec in protected if not is_sourced_man_only(rec.artist)]

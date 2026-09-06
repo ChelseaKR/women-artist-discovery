@@ -595,6 +595,15 @@ class Recommendation:
     explanation: Explanation
     rank: int = 0
     base_rank: int = 0  # counterfactual rank at lens_strength=0 (pure taste)
+    #: Position in the lens-applied ordering, stamped by
+    #: :func:`recommender.hybrid.recommend` immediately after
+    #: :func:`recommender.rerank.rerank` and before the identity-blind
+    #: serendipity pass or the listener's `hide_sourced_men` subtraction. It is
+    #: the only rank in the pipeline that reflects the values lens and nothing
+    #: else, which is what makes ``base_rank -> lens_rank`` a statement about
+    #: the lens (#113). ``rank`` is the displayed position and absorbs all
+    #: three mechanisms; the two coincide when both other knobs are off.
+    lens_rank: int = 0
 
     @property
     def score(self) -> float:
@@ -605,3 +614,6 @@ class Recommendation:
 
     def with_base_rank(self, base_rank: int) -> Recommendation:
         return replace(self, base_rank=base_rank)
+
+    def with_lens_rank(self, lens_rank: int) -> Recommendation:
+        return replace(self, lens_rank=lens_rank)
