@@ -65,6 +65,14 @@ tag, not backfilled to an earlier commit date.
   object immediately before creating the release.
 
 ### Security
+- Update the transitive GitPython lock, 3.1.58 -> 3.1.61, clearing PYSEC-2026-3785/3786/3787/3788
+  (fixed upstream in 3.1.59). GitPython arrives through `streamlit` in the `app` extra. The four
+  advisories had `make security` — and therefore the whole ordered `verify` pipeline, so a11y, eval
+  and i18n never ran at all — red on `main` and on every branch cut from it. Fixed by regenerating
+  the lockfile (`uv lock --upgrade-package gitpython`), not by waiving: `AUDIT_IGNORES` stays empty
+  and `pip-audit` is back to "No known vulnerabilities found" with no `--ignore-vuln` flags.
+  Separately committed rather than folded into the PR that surfaced it, same as the 3.1.50 -> 3.1.55
+  and 3.1.55 -> 3.1.58 bumps below.
 - Update the transitive GitPython lock from 3.1.50 to 3.1.55, clearing the
   high-severity joined-short-option clone bypass fixed after 3.1.50.
 - Update the transitive GitPython lock again, 3.1.55 -> 3.1.58, clearing two advisories
