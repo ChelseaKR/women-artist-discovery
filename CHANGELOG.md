@@ -41,6 +41,21 @@ tag, not backfilled to an earlier commit date.
   moved to `tests/test_doc_figures.py`. No gate was weakened or dropped.
 
 ### Fixed
+- **The why-card's rank-shift sentence attributed serendipity and the `--hide-sourced-men`
+  subtraction to the values lens, including at `--lens 0` where every `rerank_delta` in the run is
+  `0.0`.** `base_rank` was recorded before the lens and `rank` was not assigned until after two
+  further mechanisms had run, so `rank - base_rank` absorbed all three causes while the sentence
+  named only the first. A listener who raised the identity-blind Serendipity slider was told the
+  identity lens had promoted a sourced man four places and demoted a woman-fronted band and a
+  nonbinary artist; with the filter on, an unknown-identity pick rendered a lens-caused improvement
+  it had not received, which `docs/ROADMAP.md` states is test-asserted never to happen. The false
+  sentence reached the CLI, the dashboard, the committed render, and every exported playlist
+  annotation. `Recommendation` now carries `lens_rank`, stamped between `rerank` and the
+  serendipity pass, and `rank_shift_statement` reads `base_rank -> lens_rank` — the lens and
+  nothing else. `tests/test_why.py`'s two guards are parametrised over `explore` and
+  `hide_sourced_men` rather than testing only the defaults, which is why they could not see this.
+  `recommender/hybrid.py`'s module docstring and the filter comment, both of which asserted the
+  invariant being violated, are corrected.
 - **A locally filed correction counted as upstream speaking, so a dead upstream erased the
   citation it never re-read.** `enrich_artist` is called with the cache on the refresh path, so
   `Cache.get_corrections` merges the operator's ledger into the evidence and the resolvers turn it
