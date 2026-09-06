@@ -309,11 +309,29 @@ def _reason_line(kind: str, detail: str) -> str:
     return f"{kind}: {detail}"
 
 
-def rank_shift_statement(rank: int, base_rank: int) -> str:
-    """Explain lens movement against the pure-taste counterfactual."""
-    if base_rank == 0 or rank == base_rank:
+def rank_shift_statement(lens_rank: int, base_rank: int) -> str:
+    """Explain **lens** movement against the pure-taste counterfactual.
+
+    Both arguments are positions in the same, unfiltered ordering: *base_rank*
+    before the lens, *lens_rank* immediately after it. The difference is
+    therefore the lens and nothing else.
+
+    It used to take the *displayed* rank, which is assigned after the
+    identity-blind serendipity pass and after the listener's
+    ``hide_sourced_men`` subtraction. ``rank - base_rank`` absorbed all three
+    causes while this sentence named only the first, so raising the Serendipity
+    slider produced cards telling a listener that the identity lens had promoted
+    a sourced man and demoted a nonbinary artist — at ``--lens 0``, where every
+    ``rerank_delta`` in the run is ``0.0`` (#113).
+
+    A zero *base_rank* or *lens_rank* means the rank was never recorded, which
+    is not the same as "the lens did not move it" but renders the same way:
+    claiming a movement from an unrecorded position would be the same
+    manufactured attribution in another direction.
+    """
+    if base_rank == 0 or lens_rank == 0 or lens_rank == base_rank:
         return "the values lens did not change this pick's position"
-    return f"the values lens moved this pick from #{base_rank} to #{rank}"
+    return f"the values lens moved this pick from #{base_rank} to #{lens_rank}"
 
 
 def why_this_artist(rec: Recommendation) -> WhyThisArtist:
@@ -348,6 +366,11 @@ def why_this_artist(rec: Recommendation) -> WhyThisArtist:
         provenance=provenance,
         inferred=False,
         conflict_note=conflict_note(rec.artist),
-        rank_shift=rank_shift_statement(rec.rank, rec.base_rank),
+        # `lens_rank` for the lens sentence, never `rank` (#113).
+        # `recommend()` stamps it on everything it emits; a hand-built
+        # `Recommendation` that carries only `rank` has had no serendipity pass
+        # and no output filter run over it, so there `rank` *is* the lens-only
+        # position and there is nothing to misattribute.
+        rank_shift=rank_shift_statement(rec.lens_rank or rec.rank, rec.base_rank),
         queer_provenance=queer_provenance,
     )

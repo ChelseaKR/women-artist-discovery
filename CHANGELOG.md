@@ -57,6 +57,35 @@ tag, not backfilled to an earlier commit date.
   changes which segment holds a top-3 slot. `docs/ideation/03-expansions.md` now records that as an
   aspiration with the measurement, and a test pins the fact so the claim cannot be quietly
   restored. Identity-*blindness* is unaffected and still proved by AST.
+- **The why-card's rank-shift sentence attributed serendipity and the `--hide-sourced-men`
+  subtraction to the values lens, including at `--lens 0` where every `rerank_delta` in the run is
+  `0.0`.** `base_rank` was recorded before the lens and `rank` was not assigned until after two
+  further mechanisms had run, so `rank - base_rank` absorbed all three causes while the sentence
+  named only the first. A listener who raised the identity-blind Serendipity slider was told the
+  identity lens had promoted a sourced man four places and demoted a woman-fronted band and a
+  nonbinary artist; with the filter on, an unknown-identity pick rendered a lens-caused improvement
+  it had not received, which `docs/ROADMAP.md` states is test-asserted never to happen. The false
+  sentence reached the CLI, the dashboard, the committed render, and every exported playlist
+  annotation. `Recommendation` now carries `lens_rank`, stamped between `rerank` and the
+  serendipity pass, and `rank_shift_statement` reads `base_rank -> lens_rank` — the lens and
+  nothing else. `tests/test_why.py`'s two guards are parametrised over `explore` and
+  `hide_sourced_men` rather than testing only the defaults, which is why they could not see this.
+  `recommender/hybrid.py`'s module docstring and the filter comment, both of which asserted the
+  invariant being violated, are corrected.
+- **A locally filed correction counted as upstream speaking, so a dead upstream erased the
+  citation it never re-read.** `enrich_artist` is called with the cache on the refresh path, so
+  `Cache.get_corrections` merges the operator's ledger into the evidence and the resolvers turn it
+  into ordinary `Source` rows. `_is_sourced` asked only whether *any* source existed, so a
+  corrected artist scored as "upstream answered" on a run where every lookup timed out: the cached
+  MusicBrainz/Wikidata citations were written over, `fetched_at` advanced, `diff_identity_sources`
+  walked the new sources and had nothing to report, `RefreshOutcome.upstream_answered` was `True`
+  against its own docstring, and `lavender refresh --user` exited `0` and reconciled pending
+  corrections against an upstream nobody read. The per-axis guard added for #96 was defeated the
+  same way — a correction is on its axis on every run, so that axis was never "empty". The refresh
+  path now reads the discriminator the model already carried
+  (`Source.is_local_correction`): proof of an answer means an *upstream* citation, on `_is_sourced`
+  and on every per-axis guard. Nothing is lost — a correction lives in the ledger, not in the
+  cached row, and is re-applied and still wins on priority at the next enrichment.
 - **`DEFINITION_OF_DONE.md` said coverage is measured on `pipeline`/`recommender`/`export`.**
   `app` joined the coverage addopts on 2026-08-28 and the sentence did not follow. Found by the
   new docs-figures gate on its first run against `main`, and stamped from the addopts.
