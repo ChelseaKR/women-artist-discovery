@@ -249,6 +249,31 @@ def _load_eval_baseline(path: Path) -> tuple[dict[str, float], float]:
     return metrics, tolerance
 
 
+def _warn_unmeasured_guarantees(guarantees: dict[str, object], *, k: int) -> None:
+    """Say loudly when a retention guarantee passed over an empty segment.
+
+    A guarantee whose segment never appeared in pure taste's top-k had nothing to
+    violate, so it reports no violation. That is not a failure and does not fail the
+    run -- whether the eval world *should* contain such an artist is a curation
+    decision about real people's sourced identities, not one this gate can make. But
+    it is emphatically not the check the harms note promises, and until the empty case
+    stopped scoring 1.0 it was indistinguishable from a real pass.
+    """
+
+    for label, measured_key, count_key in (
+        ("unknown-identity", "unknown_retention_measured", "unknown_base_count"),
+        ("sourced-Gender.OTHER", "other_retention_measured", "other_base_count"),
+    ):
+        if not bool(guarantees[measured_key]):
+            print(  # noqa: T201
+                f"UNMEASURED: no {label} artist was in pure taste's top-{k}, so the "
+                f"{label} retention guarantee passed without testing anything "
+                f"({count_key}={guarantees[count_key]}). The eval world needs such an "
+                "artist for this guarantee to mean anything.",
+                file=sys.stderr,
+            )
+
+
 def _cmd_eval(args: argparse.Namespace) -> int:
     scrobbles, catalog, source = demo_scrobbles(), demo_catalog(), demo_source()
     results = evaluate(DEMO_USER, scrobbles, catalog, source, k=args.k)
@@ -293,6 +318,7 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     # both and only the unknown half was ever checked.
     other_retained = bool(guarantees["other_retention_all_lenses"])
     no_score_reduced = bool(guarantees["no_score_reduced_any_artist"])
+    _warn_unmeasured_guarantees(guarantees, k=args.k)
     regressed = bool(regression is not None and regression["regressed"])
     if not beat_baseline:
         print("FAIL: hybrid did not beat the popularity baseline", file=sys.stderr)  # noqa: T201

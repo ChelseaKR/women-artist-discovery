@@ -211,6 +211,20 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
+def _retention_cell(value: float | None) -> str:
+    """One retention cell, or an explicit statement that nothing was measured.
+
+    A segment with no artist in pure taste's top-k has no retention. Rendering
+    that as "100%" -- which this table did until the empty case stopped scoring
+    1.0 -- told a reader the strongest possible version of a claim nobody had
+    checked, on the panel whose whole purpose is to make the claim checkable.
+    """
+
+    if value is None:
+        return '<td class="unmeasured">not measured \u2014 no artist in this segment</td>'
+    return f"<td>{value:.0%}</td>"
+
+
 def _exposure_panel_html(panel: dict[str, object] | None) -> str:
     if panel is None:
         return ""
@@ -225,12 +239,13 @@ def _exposure_panel_html(panel: dict[str, object] | None) -> str:
         for row in rows
     )
     retention_rows = cast("list[dict[str, object]]", panel["retention_rows"])
-    first_by_lens = cast("dict[str, float]", retention_rows[0]["by_lens"])
+    first_by_lens = cast("dict[str, float | None]", retention_rows[0]["by_lens"])
     retention_headers = "".join(f'<th scope="col">Lens {escape(key)}</th>' for key in first_by_lens)
     retention_body = "".join(
         f'<tr><th scope="row">{escape(str(row["segment"]))}</th>'
         + "".join(
-            f"<td>{value:.0%}</td>" for value in cast("dict[str, float]", row["by_lens"]).values()
+            _retention_cell(value)
+            for value in cast("dict[str, float | None]", row["by_lens"]).values()
         )
         + "</tr>"
         for row in retention_rows

@@ -12,6 +12,34 @@ tag, not backfilled to an earlier commit date.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A merge-blocking fairness guarantee was measured over an empty segment, and
+  scored it 1.0.** `segment_retention()` returned `1.0` when the segment it protects
+  had no artist in pure taste's top-k — a perfect retention score for a measurement
+  that never happened. The demo fixture world holds **no** artist sourced as
+  `Gender.OTHER`, so `other_retention_all_lenses` has been passing over an empty set:
+  the guarantee added by #68 *because* the lens shipped a harms note nothing verified
+  was itself verifying nothing, and the dashboard rendered it to a reader as `100%`.
+  `unknown_retention` is unaffected — the demo world does hold an unknown-identity
+  artist, so that number was always real.
+
+  Retention for an absent segment is now `null`, not `1.0`; `rank_shift_by_segment()`
+  likewise reports `null` rather than `0.0`, which read as "measured, and it did not
+  move". The report gained `unknown_retention_measured` / `other_retention_measured`
+  and the `*_base_count` denominators that let a reader tell a real pass from an empty
+  one, `min_*_retention` is `null` when nothing was measured, and `lavender eval`
+  prints an `UNMEASURED:` line naming the guarantee and the empty count. The run is
+  not failed by it: whether the eval world should contain such an artist is a decision
+  about a real person's sourced identity, not one a gate can make.
+
+  `tests/test_exposure.py::test_retention_is_one_when_no_unknown_artists_present`
+  asserted the old behaviour as intended — it pinned the defect — and has been
+  rewritten alongside four tests covering the measured case, the report's
+  measured/unmeasured pairing, and the rank-shift null. The dashboard renders an
+  unmeasured cell as words rather than a percentage. Every change was checked by
+  negative control.
+
 ### Added
 - `lavender ingest --from-file` — build a listening profile from an export the listener already
   has (`pipeline/fileingest.py`): a Last.fm data download (CSV, or the `user.getrecenttracks`
