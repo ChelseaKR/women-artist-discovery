@@ -8,7 +8,7 @@ checklist; this file is the source of truth if the three ever drift.
 A change (feature, fix, or refactor) is done when:
 
 1. **`make verify` is green locally** — lint (`ruff format --check` + `ruff check`), `mypy --strict`,
-   tests (≥85% branch-aware coverage on `pipeline`/`recommender`/`export`), security (`pip-audit` +
+   tests (≥85% branch-aware coverage on `pipeline`/`recommender`/`export`/`app`), security (`pip-audit` +
    secret scan), accessibility (`axe` = 0 violations on the rendered dashboard), the offline eval
    (hybrid beats the popularity baseline *and* does not regress vs `docs/audits/eval-baseline.json`
    by more than its stated tolerance), and the i18n `N/A`-declaration gate.

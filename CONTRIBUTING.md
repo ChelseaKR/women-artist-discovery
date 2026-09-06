@@ -57,15 +57,16 @@ until it is green locally:
 | --- | --- | --- |
 | Lint | `make lint` | `ruff format --check` + `ruff check` (incl. the bandit SAST subset) |
 | Type | `make typecheck` | `mypy --strict` over `pipeline`, `recommender`, `app`, `export` |
-| Test | `make test` | `pytest` with a **≥ 85%** coverage gate on core logic |
+| Test | `make test` | `pytest` with a **≥ 85%** coverage gate on core logic, then the docs-figures gate — every figure the docs state about this repo (`scripts/docs_figures.py`) must match what the repo derives now |
 | Security | `make security` | `pip-audit` (empty waiver list) + the secret scan |
 | A11y | `make a11y` | audits the committed render plus a light- and a dark-pinned render with the axe gate (regenerating the committed one is `make render`, deliberately not part of `a11y` — #71) — **0 violations** |
 | Eval | `make eval` | offline eval; fails unless the hybrid **beats the popularity baseline**, then checks `docs/writeup/methods.md`'s numbers against the report it just wrote |
 | i18n | `make i18n` | the i18n **N/A declaration** gate — `docs/I18N.md` must carry the status, a reason, a `Declared:` date and a reviewer |
 
 CI re-runs the same `make` targets on Python 3.12–3.13; green locally means green in CI. Useful
-extras: `make format` (auto-format) and `make audit` (regenerate the committed responsible-tech
-artifacts under `docs/audits/`).
+extras: `make format` (auto-format), `make stamp` (write the derived value into any docs figure
+the `make test` gate reported as drifted — never retype one by hand), and `make audit` (regenerate
+the committed responsible-tech artifacts under `docs/audits/`).
 
 The **accessibility gate is merge-blocking**: any rendered surface must pass axe with zero
 violations. The manual screen-reader walkthrough is a review-gated sign-off recorded under

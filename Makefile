@@ -12,7 +12,7 @@ A11Y_HTML_LIGHT := /tmp/lavender-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/lavender-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation audit clean forget
+.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation stamp audit clean forget
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
@@ -68,10 +68,13 @@ test: ## Stage 3 — unit + integration tests with coverage gates (>=85%; identi
 	# resolver must hold >=95% branch coverage, above the 85% baseline. Scoped
 	# re-report over the .coverage data the pytest run just wrote.
 	$(PYTHON) -m coverage report --include="pipeline/identity.py" --fail-under=95
-	# Docs-currency guard: README's "NNN tests at NN% coverage" claim must match
-	# this run, not a hand-typed number from whenever it was last edited (the
-	# "M8 auto-stamp backlog item" PR #49 flagged as still open).
-	$(PYTHON) scripts/check-readme-claims.py
+	# Docs-currency gate: every figure the docs state about this repo must match
+	# what the repo derives right now, not a hand-typed number from whenever it
+	# was last edited. One manifest (scripts/docs_figures.py), one row per stated
+	# claim — this is the "M8 auto-stamp backlog item" PR #49 flagged as the
+	# systemic fix, replacing the single-claim scripts/check-readme-claims.py.
+	# `make stamp` writes the derived values in.
+	$(PYTHON) scripts/docs_figures.py
 
 # Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
 # HIGH/CRITICAL waiver — committed, justified waiver JSON").
@@ -142,7 +145,7 @@ eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baselin
 	@# report the line above just regenerated. This used to run only in `make
 	@# audit`, which is not the merge gate, so the writeup could drift on `main`
 	@# for as long as nobody ran `audit` — the same "hand-typed and stale"
-	@# failure `scripts/check-readme-claims.py` exists to prevent for the README.
+	@# failure `scripts/docs_figures.py` exists to prevent for the README.
 	$(PYTHON) scripts/writeup-check.py
 
 # Stage 7 as `verify` runs it. `eval` above writes the report straight into the
@@ -213,6 +216,15 @@ bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble wor
 # cosmic-ray mutates them in place and restores them (guarded in the script).
 mutation: $(PYTHON) ## Mutation-test identity.py + rerank.py (CQ-47; fails under 70% mutants killed; slow)
 	@./scripts/mutation-gate.sh
+
+# The write half of the stage-3 docs-figures gate. Deliberately a separate
+# target: `make test` must never rewrite the documents it is checking, or the
+# gate would pass by editing the evidence (the same failure `eval` had before
+# `eval-check` split it in two). Run it after a `make test` that reported drift —
+# the coverage figure is read from the `.coverage` that run just wrote, so a
+# stamp on a cold checkout says so rather than inventing a number.
+stamp: ## Write the derived value into every docs figure that has drifted (see `make test`)
+	$(PYTHON) scripts/docs_figures.py --write
 
 audit: render a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null
