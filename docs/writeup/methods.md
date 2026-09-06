@@ -150,6 +150,19 @@ top-k check as a number:
 any segment or to the top-k. Both were added by #68, which found the lens
 promising them in text the dashboard renders with nothing checking either.
 
+> **The `OTHER` retention guarantee is currently unmeasured, and the report says
+> so.** The demo fixture world holds no artist sourced as `Gender.OTHER`, so no
+> such artist is in pure taste's top-k and there is nothing that could lose score
+> or rank. Until this was fixed the empty case scored **1.0** and
+> `other_retention_all_lenses` went green over it — the strongest form of a claim
+> nobody had checked, in the guarantee added precisely because #68 found a harms
+> note nothing verified. `other_retention` is now `null` per lens,
+> `other_retention_measured` is `false`, `other_base_count` is `0`, and
+> `lavender eval` prints an `UNMEASURED:` line. Giving this guarantee something to
+> measure needs an artist with a **sourced** `OTHER` self-identification in the
+> eval world, which is an identity claim about a real person and therefore a
+> sourcing decision, not a code change.
+
 This is the same guarantee `docs/audits/fairness-identity.md` names as "metric
 *down-ranked-for-unknown = 0*" (finding 2) — `exposure.py` is what turns that
 narrative claim into a value `make audit` regenerates.

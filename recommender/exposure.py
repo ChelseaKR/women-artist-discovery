@@ -152,18 +152,23 @@ def segment_retention(
     k: int,
     segment: str,
     base_lens: float = 0.0,
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Per-lens fraction of pure-taste top-k ``segment`` artists without score/rank loss.
 
     An artist is retained only if it remains in the emitted top-k, its score is not
     lower, and its one-based rank is no worse than under pure taste.
     """
     base = _segment_state(recs_by_lens[base_lens], k, segment)
-    out: dict[str, float] = {}
+    out: dict[str, float | None] = {}
     for lens in sorted(recs_by_lens):
         present = _segment_state(recs_by_lens[lens], k, segment)
         if not base:
-            out[_lens_key(lens)] = 1.0
+            # No artist of this segment was in pure taste's top-k, so there was
+            # nothing that *could* lose score or rank. This used to report 1.0 --
+            # a perfect retention score for a measurement that never happened,
+            # which is the reading the whole module exists to prevent. `None` is
+            # the honest value; `segment_base_count` says how many there were.
+            out[_lens_key(lens)] = None
             continue
         retained = sum(
             1
@@ -174,16 +179,33 @@ def segment_retention(
     return out
 
 
+def segment_base_count(
+    recs_by_lens: dict[float, list[Recommendation]],
+    *,
+    k: int,
+    segment: str,
+    base_lens: float = 0.0,
+) -> int:
+    """How many ``segment`` artists pure taste put in the top-k: the denominator.
+
+    A retention figure without this number cannot be read. Published so that a
+    reader can tell "every protected artist kept its slot" from "there was no
+    protected artist to keep one".
+    """
+
+    return len(_segment_state(recs_by_lens[base_lens], k, segment))
+
+
 def unknown_retention(
     recs_by_lens: dict[float, list[Recommendation]], *, k: int, base_lens: float = 0.0
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Per-lens fraction of pure-taste top-k unknowns without score/rank loss."""
     return segment_retention(recs_by_lens, k=k, segment=UNKNOWN, base_lens=base_lens)
 
 
 def other_retention(
     recs_by_lens: dict[float, list[Recommendation]], *, k: int, base_lens: float = 0.0
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Same measure for artists sourced as ``Gender.OTHER`` (#68).
 
     They are rank-protected exactly as unknown artists are — see
@@ -288,7 +310,7 @@ def assert_no_score_reduced(
 
 def rank_shift_by_segment(
     base_recs: list[Recommendation], lens_recs: list[Recommendation]
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Mean change in list position per segment, ``lens`` vs pure taste (negative = up)."""
     base_rank = {r.artist.artist_id: i for i, r in enumerate(base_recs, start=1)}
     shifts: dict[str, list[int]] = {seg: [] for seg in SEGMENTS}
@@ -296,7 +318,9 @@ def rank_shift_by_segment(
         aid = rec.artist.artist_id
         if aid in base_rank:
             shifts[identity_segment(rec.artist)].append(i - base_rank[aid])
-    return {seg: round(sum(v) / len(v), 4) if v else 0.0 for seg, v in shifts.items()}
+    # A segment with no artist in either list did not "stay put" -- nothing about
+    # it was observed. 0.0 would read as a measured absence of movement.
+    return {seg: round(sum(v) / len(v), 4) if v else None for seg, v in shifts.items()}
 
 
 def popularity_identity_crosstab(recs: list[Recommendation]) -> dict[str, dict[str, int]]:
@@ -305,6 +329,29 @@ def popularity_identity_crosstab(recs: list[Recommendation]) -> dict[str, dict[s
     for rec in recs:
         table[popularity_tier(rec.artist.listeners)][identity_segment(rec.artist)] += 1
     return table
+
+
+def _min_measured(retention: dict[str, float | None]) -> float | None:
+    """The worst retention actually measured, or ``None`` if none was.
+
+    ``min`` over a dict containing ``None`` would raise; ``min`` over an empty
+    dict used to fall back to ``1.0``, which invented a perfect score out of an
+    empty measurement.
+    """
+
+    measured = [value for value in retention.values() if value is not None]
+    return min(measured) if measured else None
+
+
+def _no_violation(min_retention: float | None, downranked: int) -> bool:
+    """Whether anything was observed to break the promise.
+
+    ``None`` means nothing was measured, so nothing was observed to break -- the
+    honest reading is "no violation", paired with ``*_measured: false`` so that a
+    reader is never left to infer that a real check passed.
+    """
+
+    return downranked == 0 and (min_retention is None or min_retention >= 1.0)
 
 
 def exposure_report(
@@ -318,10 +365,12 @@ def exposure_report(
     lenses = sorted(recs_by_lens)
     retention = unknown_retention(recs_by_lens, k=k, base_lens=base_lens)
     downranked = _downranked_count(recs_by_lens, k=k, segment=UNKNOWN, base_lens=base_lens)
-    min_retention = min(retention.values()) if retention else 1.0
+    unknown_base = segment_base_count(recs_by_lens, k=k, segment=UNKNOWN, base_lens=base_lens)
+    min_retention = _min_measured(retention)
     other = other_retention(recs_by_lens, k=k, base_lens=base_lens)
     other_downranked = _downranked_count(recs_by_lens, k=k, segment=OTHER, base_lens=base_lens)
-    min_other = min(other.values()) if other else 1.0
+    other_base = segment_base_count(recs_by_lens, k=k, segment=OTHER, base_lens=base_lens)
+    min_other = _min_measured(other)
     try:
         assert_no_score_reduced(recs_by_lens, base_lens=base_lens)
     except FairnessAssertionError:
@@ -342,13 +391,23 @@ def exposure_report(
         },
         "popularity_identity_crosstab": popularity_identity_crosstab(recs_by_lens[base_lens]),
         "guarantees": {
-            "unknown_retention_all_lenses": min_retention >= 1.0 and downranked == 0,
+            # These booleans mean "no violation was observed", which is not the
+            # same as "the guarantee was tested". A segment absent from pure
+            # taste's top-k yields nothing to violate, so the companion
+            # `*_measured` flag and `*_base_count` below are what tell a reader
+            # whether the pass means anything. Before those existed, an empty
+            # segment scored a retention of 1.0 and the gate went green over it.
+            "unknown_retention_all_lenses": _no_violation(min_retention, downranked),
+            "unknown_retention_measured": unknown_base > 0,
+            "unknown_base_count": unknown_base,
             "min_unknown_retention": min_retention,
             "unknown_downranked_count": downranked,
             # #68: the same measure for the other rank-protected segment. Its
             # absence is why the lens could ship a harms note the ranking
             # contradicted with every gate green.
-            "other_retention_all_lenses": min_other >= 1.0 and other_downranked == 0,
+            "other_retention_all_lenses": _no_violation(min_other, other_downranked),
+            "other_retention_measured": other_base > 0,
+            "other_base_count": other_base,
             "min_other_retention": min_other,
             "other_downranked_count": other_downranked,
             # The universal half of the promise, verified on emitted output for

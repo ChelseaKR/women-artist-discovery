@@ -349,47 +349,47 @@
       "1.00": 1.0
     },
     "other_retention": {
-      "0.00": 1.0,
-      "0.25": 1.0,
-      "0.50": 1.0,
-      "0.75": 1.0,
-      "1.00": 1.0
+      "0.00": null,
+      "0.25": null,
+      "0.50": null,
+      "0.75": null,
+      "1.00": null
     },
     "mean_rank_shift": {
       "0.25": {
         "woman": -0.2,
         "nonbinary": -1.0,
         "female-fronted": 0.0,
-        "nonbinary-fronted": 0.0,
+        "nonbinary-fronted": null,
         "man": 1.0,
-        "other": 0.0,
+        "other": null,
         "unknown": 0.0
       },
       "0.50": {
         "woman": -0.6,
         "nonbinary": -1.0,
         "female-fronted": 0.0,
-        "nonbinary-fronted": 0.0,
+        "nonbinary-fronted": null,
         "man": 2.0,
-        "other": 0.0,
+        "other": null,
         "unknown": 0.0
       },
       "0.75": {
         "woman": -0.6,
         "nonbinary": -1.0,
         "female-fronted": 0.0,
-        "nonbinary-fronted": 0.0,
+        "nonbinary-fronted": null,
         "man": 2.0,
-        "other": 0.0,
+        "other": null,
         "unknown": 0.0
       },
       "1.00": {
         "woman": -0.6,
         "nonbinary": -1.0,
         "female-fronted": 0.0,
-        "nonbinary-fronted": 0.0,
+        "nonbinary-fronted": null,
         "man": 2.0,
-        "other": 0.0,
+        "other": null,
         "unknown": 0.0
       }
     },
@@ -424,10 +424,14 @@
     },
     "guarantees": {
       "unknown_retention_all_lenses": true,
+      "unknown_retention_measured": true,
+      "unknown_base_count": 1,
       "min_unknown_retention": 1.0,
       "unknown_downranked_count": 0,
       "other_retention_all_lenses": true,
-      "min_other_retention": 1.0,
+      "other_retention_measured": false,
+      "other_base_count": 0,
+      "min_other_retention": null,
       "other_downranked_count": 0,
       "no_score_reduced_any_artist": true
     }
