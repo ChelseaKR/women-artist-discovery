@@ -43,6 +43,7 @@ from pipeline.models import Artist, ListeningProfile, Recommendation
 
 from recommender.collaborative import CollabResult, collaborative_scores
 from recommender.content import ContentResult, content_scores
+from recommender.content_filters import NO_FILTER, ContentFilter
 from recommender.diversify import diversify
 from recommender.explain import build_explanation
 from recommender.feedback import Feedback, feedback_adjustment
@@ -53,6 +54,19 @@ from recommender.rerank import is_rank_protected, rerank, values_boost_for_artis
 
 def _normalise(value: float, peak: float) -> float:
     return value / peak if peak > 0.0 else 0.0
+
+
+def _passes_content_filter(artist: Artist, content_filter: ContentFilter) -> bool:
+    """Apply the tag and era filters to one artist.
+
+    The adapter lives here rather than in :mod:`recommender.content_filters` on purpose: that
+    module is held to a whole-module AST scan for identity-shaped attribute access, and the
+    cleanest way to keep that promise true is for it never to receive an object that has one.
+    It sees two values, both about the music.
+    """
+    return content_filter.keeps_tags(artist.tags) and content_filter.keeps_year(
+        artist.career_start_year
+    )
 
 
 def recommend(
@@ -68,6 +82,7 @@ def recommend(
     feedback_strength: float = 1.0,
     hide_sourced_men: bool = False,
     lens: LensSpec = VALUES_LENS,
+    content_filter: ContentFilter = NO_FILTER,
 ) -> list[Recommendation]:
     """Produce the top-``k`` explained recommendations.
 
@@ -85,6 +100,12 @@ def recommend(
     so the eval and every existing caller are unaffected. It is deliberately not
     the lens: see :mod:`recommender.filters` for why it removes only a positive
     sourced claim and never an unknown artist.
+    ``content_filter`` narrows the *candidate pool* by tag and era before anything
+    is scored (:mod:`recommender.content_filters`), which is why it is applied here
+    and not beside ``hide_sourced_men``: the values lens, rank protection and both
+    counterfactual ranks then run over the surviving pool, so ``base_rank`` and
+    ``lens_rank`` describe the world the listener actually asked to see. The
+    default is inert.
     """
     if not (0.0 <= alpha <= 1.0):
         raise ValueError("alpha must be in [0, 1]")
@@ -103,6 +124,11 @@ def recommend(
         if aid in catalog
         and aid not in known
         and catalog[aid].name.strip().casefold() not in known_names
+        # The listener's identity-blind narrowing, applied here so everything below
+        # operates on the pool they asked for. `_passes_content_filter` reads only
+        # `tags` and `career_start_year`; the filter object is never handed an
+        # artist, which is what lets its module be AST-scanned as a whole.
+        and _passes_content_filter(catalog[aid], content_filter)
     }
     content = content_scores(profile, catalog, candidates)
 

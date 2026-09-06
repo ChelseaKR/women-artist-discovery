@@ -12,6 +12,55 @@ tag, not backfilled to an earlier commit date.
 
 ## [Unreleased]
 
+### Added
+
+- **Identity-blind tag and era filters on `recommend`, `report` and `export` (#123).**
+  `--include-tags`, `--exclude-tags`, `--year-from`, `--year-to`. They narrow the *candidate
+  pool* before anything is scored, so the values lens, rank protection, the serendipity pass
+  and both counterfactual ranks all run over what survives — which keeps each card's
+  rank-shift sentence a claim about the lens rather than about three mechanisms at once
+  (#113). Every filtered run states the active filters: on stdout for `recommend`, as a
+  `<p class="filters">` in the report, and on **stderr** for `export`, because the playlist
+  file is contracted to carry artist and track names and nothing else.
+
+  **Absence never excludes.** An artist with no tags, or no known start year, is kept by all
+  four filters. This is the same rule that governs identity, and it matters for the same
+  reason: upstream tag and date coverage is thinnest for the least documented artists —
+  small, new, independent — so a filter that dropped them for having no metadata would
+  quietly re-impose the popularity bias the whole ranking resists, while looking like a
+  neutral content preference. A filter removes only on a *positive* match.
+
+  **Identity-blindness is guarded twice.** The predicates live in a new
+  `recommender/content_filters.py` rather than in `recommender/filters.py`, because that
+  module holds `is_sourced_man_only`, which reads a sourced gender on purpose; keeping them
+  apart is what lets the new module be held to the whole-module AST scan `diversify.py`
+  already lives under, instead of a weaker per-function allowlist. The module also imports
+  no project type at all and is never handed an `Artist` — the two values it sees are passed
+  in — and a second test asserts that. Beside the code guard, a property test computes the
+  surviving set two ways and asserts the identity mix is identical, so blindness is checked
+  at the outcome as well as at the source.
+
+  A contradictory specification is refused rather than silently decided: a tag both included
+  and excluded, or `--year-from` later than `--year-to`, exits 2 with the reason. A filter
+  that matches nothing is an empty result with a sentence saying so, not an error.
+
+- **`Artist.career_start_year`, sourced from the MusicBrainz lookup already performed.**
+  Parsed from `life-span.begin` by `parse_musicbrainz_life_span_begin`, via a second,
+  *optional* `CareerSpanSource` protocol so no existing enricher breaks: one that does not
+  implement it yields unknown, which is the answer the era filter keeps. **It is the act's
+  begin year, not the year of its first release** — the field and its docstring say so,
+  because a first-release year needs a release-group payload nothing here retrieves, and
+  labelling a formation year as a release year would be a number wearing a name it did not
+  earn. Every unreadable upstream value, and every malformed value already in a cache,
+  decodes to `None`; a coerced garbage year would silently drop real artists from a filtered
+  run. No cache migration: a payload written before the field existed decodes to unknown,
+  which is what this build actually knows about those artists.
+
+  `--min-tag-weight`, which #123 also proposed, is deliberately **not** implemented: tags
+  carry no weight anywhere in this codebase (`content.py` builds a candidate's vector with
+  `dict.fromkeys(artist.tags, 1.0)`), so the flag would have had to invent the number it
+  filtered on.
+
 ### Fixed
 
 - **A merge-blocking fairness guarantee was measured over an empty segment, and

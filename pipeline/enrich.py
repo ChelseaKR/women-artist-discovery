@@ -37,7 +37,7 @@ import logging
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Optional, Protocol, runtime_checkable
 
 from pipeline.http import Fetcher, HttpFetchError
 from pipeline.identity import IdentityEvidence, resolve_identity
@@ -93,6 +93,52 @@ class EnrichmentSource(Protocol):
     def composition_evidence(
         self, artist_id: str
     ) -> tuple[list[FrontPerson], list[IdentityEvidence]]: ...
+
+
+#: A MusicBrainz life-span begin date: a year, a year-month, or a full date.
+#: Anything else is not a date this code will read a year out of.
+_MB_LIFE_SPAN_BEGIN = re.compile(r"^(\d{4})(?:-\d{2}(?:-\d{2})?)?$")
+
+
+@runtime_checkable
+class CareerSpanSource(Protocol):
+    """An enricher that can also state when an act began.
+
+    Deliberately a *second*, optional protocol rather than a method on
+    :class:`EnrichmentSource`. Adding it there would break structural conformance for every
+    existing implementation at once, including the test doubles, for a field that is optional
+    by design; an enricher that does not implement this simply yields no year, which is the
+    same answer as upstream having none, and the era filter keeps such artists either way.
+    """
+
+    def career_start_year(self, artist_id: str) -> Optional[int]: ...
+
+
+def parse_musicbrainz_life_span_begin(payload: object) -> Optional[int]:
+    """The year a MusicBrainz artist's life-span begins, or ``None``.
+
+    This is the ``life-span.begin`` field the artist lookup already returns -- for a group,
+    when it formed; for a person, when they were born. **It is not the year of the act's first
+    release**, which MusicBrainz exposes only through release-groups, a payload nothing here
+    retrieves. The distinction is why the field on :class:`~pipeline.models.Artist` is called
+    ``career_start_year`` and not ``first_release_year``: a band that formed in 1994 and put
+    out its first record in 1998 answers 1994 here, and calling that a release year would be a
+    number wearing a label it did not earn.
+
+    Everything unreadable is ``None``. A partial or non-numeric begin value is *unknown*, and
+    unknown is kept by every filter, so there is no path by which a malformed upstream date
+    removes an artist from a listener's results.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("musicbrainz payload must be an object")
+    span = payload.get("life-span")
+    if not isinstance(span, dict):
+        return None
+    begin = span.get("begin")
+    if not isinstance(begin, str):
+        return None
+    match = _MB_LIFE_SPAN_BEGIN.match(begin.strip())
+    return int(match.group(1)) if match is not None else None
 
 
 def parse_musicbrainz_gender(
@@ -213,10 +259,15 @@ class FixtureEnricher:
         gender: dict[str, list[IdentityEvidence]],
         composition: dict[str, tuple[list[FrontPerson], list[IdentityEvidence]]],
         orientation: Optional[dict[str, list[IdentityEvidence]]] = None,
+        career_start_years: Optional[dict[str, int]] = None,
     ) -> None:
         self._gender = gender
         self._composition = composition
         self._orientation = orientation or {}
+        self._career_start_years = career_start_years or {}
+
+    def career_start_year(self, artist_id: str) -> Optional[int]:
+        return self._career_start_years.get(artist_id)
 
     def gender_evidence(self, artist_id: str) -> list[IdentityEvidence]:
         return list(self._gender.get(artist_id, []))
@@ -516,6 +567,19 @@ class MusicBrainzEnricher:
         return fronts, [stated]
 
     # -- internals ---------------------------------------------------------
+    def career_start_year(self, artist_id: str) -> Optional[int]:
+        """The act's begin year from the lookup this enricher already performs.
+
+        No extra request: ``_artist_payload`` is the same call ``gender_evidence`` made, and
+        the HTTP cache serves it. See :func:`parse_musicbrainz_life_span_begin` for what the
+        field means and, more importantly, what it does not.
+        """
+        mbid = self.resolve_mbid(artist_id)
+        if mbid is None:
+            return None
+        payload = self._artist_payload(mbid)
+        return None if payload is None else parse_musicbrainz_life_span_begin(payload)
+
     def resolve_mbid(self, artist_id: str) -> Optional[str]:
         """The MusicBrainz id for a Last.fm artist key, or ``None`` if ambiguous."""
         if artist_id in self._resolved:

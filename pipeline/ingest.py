@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from typing import Optional, overload
 
 from pipeline.cache import Cache
-from pipeline.enrich import EnrichmentSource
+from pipeline.enrich import CareerSpanSource, EnrichmentSource
 from pipeline.identity import resolve_composition, resolve_identity, resolve_queer_identity
 from pipeline.lastfm import NamedSimilaritySource, ScrobbleSource
 from pipeline.models import Artist, IdentityLabel, ListeningProfile, Scrobble, Source
@@ -110,6 +110,12 @@ def enrich_artist(
     queer = resolve_queer_identity(evidence)
     fronts, comp_evidence = enricher.composition_evidence(artist_id)
     composition = resolve_composition(fronts, comp_evidence)
+    # Optional second protocol (see `enrich.CareerSpanSource`): an enricher that cannot state a
+    # start year yields none, which is the same answer as upstream having none. Either way the
+    # era filter keeps the artist, so no enricher is penalised for not implementing it.
+    career_start_year = (
+        enricher.career_start_year(artist_id) if isinstance(enricher, CareerSpanSource) else None
+    )
     return Artist(
         artist_id=artist_id,
         name=name,
@@ -117,6 +123,7 @@ def enrich_artist(
         identity=identity,
         queer=queer,
         composition=composition,
+        career_start_year=career_start_year,
         listeners=listeners,
         playcount=playcount,
     )

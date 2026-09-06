@@ -357,14 +357,25 @@ def render_cards_html(
     username: str = "demo",
     scheme: str = "auto",
     exposure_panel: dict[str, object] | None = None,
+    filters_line: str | None = None,
 ) -> str:
     """Render a complete, accessible HTML document for the given recommendations.
 
     ``scheme="auto"`` (the shipped default) responds to ``prefers-color-scheme``;
     ``"light"``/``"dark"`` pin that palette so the a11y gate audits both schemes.
+
+    ``filters_line`` states the listener's identity-blind tag/era narrowing, so a shorter
+    list is never unexplained. It is omitted entirely when no filter is active, which keeps
+    the unfiltered render byte-identical to what it produced before filters existed — that
+    render is a committed gate input (``docs/audits/dashboard.html``), and moving it for a
+    feature nobody switched on would be a change to published evidence in order to add a
+    sentence saying nothing happened.
     """
     cards = "".join(_card_html(r) for r in recs)
     coverage_html = _coverage_html(identity_coverage(recs))
+    filters_html = (
+        f'<p class="filters">{escape(filters_line)}</p>' if filters_line is not None else ""
+    )
     lens_pct = f"{lens_strength:.0%}"
     return (
         "<!doctype html>"
@@ -383,6 +394,7 @@ def render_cards_html(
         "artists with unknown identity are surfaced on musical merit alone."
         "</p></header>"
         '<main id="main">'
+        f"{filters_html}"
         f"{coverage_html}"
         "<h2>Score summary</h2>"
         f"{_table_html(recs)}"
