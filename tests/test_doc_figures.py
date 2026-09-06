@@ -199,6 +199,7 @@ _OFFLINE_DERIVERS = (
     df.coverage_scope,
     df.refresh_limit_default,
     df.mutation_kill_threshold,
+    df.refresh_cadence_days,
 )
 
 

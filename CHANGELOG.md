@@ -13,6 +13,14 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- Periodic re-enrichment is scheduled (ADR 0013). `make refresh LAVENDER_USER=<you>` is the
+  bounded re-check; `make schedule LAVENDER_USER=<you>` prints the launchd agent (macOS) or
+  crontab line that runs it every 7 days on the operator's own machine, with absolute paths, a
+  log, and no credential in the entry — it sources a mode-600 env file instead. Deliberately not
+  a GitHub Actions cron: the cache being refreshed is a personal listening history in a per-user
+  data directory, so a hosted runner has nothing to refresh unless that history is uploaded to
+  CI. Closes the "there is no scheduler" gap `docs/ROADMAP.md` §11, `docs/RESEARCH-ROADMAP.md`
+  R2/E9, and AIR-8 all recorded.
 - Docs-figures gate + auto-stamp (`scripts/docs_figures.py`, `make stamp`): one manifest pairs
   each figure the docs state about this repo with the callable that re-derives it, so gating a
   new claim is a manifest row instead of another bespoke script. Nine rows ship across

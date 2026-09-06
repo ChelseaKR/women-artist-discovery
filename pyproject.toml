@@ -91,6 +91,7 @@ max-complexity = 10
 "app/*" = ["T20"]                     # streamlit uses st.write, not print; harmless
 "scripts/writeup-check.py" = ["T20"]  # CLI checker reports via stdout/stderr
 "scripts/docs_figures.py" = ["T20"]   # CLI checker reports via stdout/stderr
+"scripts/refresh_schedule.py" = ["T20"]  # prints the scheduler entry to stdout
 
 # ---------------------------------------------------------------------------
 # Type-check gate (CI stage 2) — strict.
