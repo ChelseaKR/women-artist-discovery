@@ -63,6 +63,24 @@ tag, not backfilled to an earlier commit date.
 
 ### Fixed
 
+- **An empty run reported "0% sourced" instead of no share at all.**
+  `IdentityCoverage.sourced_fraction` and `unknown_fraction` divided by `total` and fell back to
+  `0.0` when `total` was zero, and `to_dict()` published both. Over a run with no picks that
+  reads as a measurement — "none of these picks carried a sourced identity" — when what happened
+  is that there were no picks. The tell is the arithmetic: over any real run the two shares are a
+  partition and sum to one, and the empty case returned `0.0` and `0.0`, which sums to nothing.
+
+  Both now return `None` over an empty run, `to_dict()` publishes JSON `null` beside a new
+  `fractions_measured` flag, and `total` is the denominator that says why. This is the same rule
+  and the same reason as `segment_retention` reporting `null` for a segment absent from pure
+  taste's top-k (#129) — a different site of one defect, not a new one. `summary_line()` was
+  already honest ("No picks yet.") and is unchanged, so no rendered page moves.
+
+  **The test that pinned the old behaviour is rewritten.** It asserted
+  `sourced_fraction == 0.0 and unknown_fraction == 0.0`, which describes a run where no pick was
+  sourced *and* no pick was unknown — a distribution that cannot exist. Two tests replace it: one
+  for the empty run's nulls, one asserting the two shares sum to one whenever they are measured.
+
 - **A merge-blocking fairness guarantee was measured over an empty segment, and
   scored it 1.0.** `segment_retention()` returned `1.0` when the segment it protects
   had no artist in pure taste's top-k — a perfect retention score for a measurement
