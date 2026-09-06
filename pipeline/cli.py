@@ -47,6 +47,8 @@ from pipeline.cache import DEFAULT_DB_PATH, DEFAULT_HTTP_TTL_DAYS, Cache
 from pipeline.demo import DEMO_USER, demo_catalog, demo_profile, demo_scrobbles, demo_source
 from pipeline.doctor import run_diagnostics
 from pipeline.enrich import MusicBrainzEnricher
+from pipeline.fileingest import FORMATS as FILE_FORMATS
+from pipeline.fileingest import FileIngestError, ImportedHistory, dedupe, read_history
 from pipeline.http import CachedHttpFetcher, build_user_agent
 from pipeline.identity import (
     IdentityEvidence,
@@ -630,8 +632,85 @@ def _cmd_pending_corrections(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ingest_from_file(args: argparse.Namespace) -> int:
+    """OFFLINE: read a listening history out of a file the listener already has.
+
+    No API key, and — unless ``--enrich`` is passed — no socket at all. Without
+    enrichment every artist stays first-class ``UNKNOWN``, which is a normal
+    state here rather than a half-finished one.
+    """
+    today = datetime.now(UTC).date().isoformat()
+    try:
+        result = read_history(args.from_file, fmt=args.format)
+    except FileIngestError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
+
+    scrobbles = dedupe(result.scrobbles)
+    print(result.summary_line())  # noqa: T201
+    if len(scrobbles) != len(result.scrobbles):
+        print(  # noqa: T201
+            f"  {len(result.scrobbles) - len(scrobbles)} exact repeat(s) in the file "
+            "collapsed to one play each"
+        )
+    if not scrobbles:
+        print(  # noqa: T201
+            "error: no readable plays in that file — nothing was imported",
+            file=sys.stderr,
+        )
+        return 1
+
+    history = ImportedHistory(args.user, scrobbles)
+    with Cache(args.db) as cache:
+        cache.put_scrobbles(args.user, scrobbles)
+        profile = profile_from_cache(cache, args.user)
+        cached_plays = len(cache.get_scrobbles(args.user))
+        print(  # noqa: T201
+            f"{len(profile.play_counts)} artist(s) played, from {cached_plays} "
+            f"cached play(s) for {args.user!r}"
+        )
+        if not args.enrich:
+            print(  # noqa: T201
+                "identity was not resolved: every artist is unknown until you run "
+                f"`lavender ingest --from-file {args.from_file} --user {args.user} --enrich` "
+                "(that reaches MusicBrainz/Wikidata) — unknown is first-class here, so "
+                "nothing downstream treats it as a gap"
+            )
+            print(f"next: lavender recommend --user {args.user}")  # noqa: T201
+            return 0
+
+        # The same `ingest` the live path runs, with an offline source: the
+        # imported plays are already cached, so its incremental fetch is a
+        # no-op, and what it does here is exactly the top-N identity resolution.
+        enricher = _live_enricher(cache, retrieved_at=today, ttl_days=args.ttl_days)
+        print(f"enriching your top {args.enrich_top} artist(s) …", flush=True)  # noqa: T201
+        _profile, catalog = ingest(
+            args.user,
+            history,
+            enricher,
+            cache=cache,
+            fetched_at=today,
+            limit=args.page_size,
+            enrich_top=args.enrich_top,
+        )
+    sourced = sum(1 for artist in catalog.values() if artist.identity.is_known)
+    print(  # noqa: T201
+        f"cached {len(catalog)} artist(s): {sourced} with a cited basis, "
+        f"{len(catalog) - sourced} unknown"
+    )
+    print(  # noqa: T201
+        "note: an export carries plays, not Last.fm's tags or its similar-artist graph, "
+        "so this world has no content or collaborative signal to rank with yet. Identity "
+        "resolved; ranking needs `lavender ingest --user` against a Last.fm account."
+    )
+    print(f"next: lavender recommend --user {args.user}")  # noqa: T201
+    return 0
+
+
 def _cmd_ingest(args: argparse.Namespace) -> int:
     """LIVE: sync one listener's history and resolve identity from upstream sources."""
+    if getattr(args, "from_file", None):
+        return _cmd_ingest_from_file(args)
     today = datetime.now(UTC).date().isoformat()
     try:
         api_key = _require_api_key()
@@ -868,9 +947,35 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ingest = sub.add_parser(
         "ingest",
-        help="LIVE: sync a Last.fm history and resolve identity upstream (needs an API key)",
+        help="sync a Last.fm history (LIVE, needs an API key) or read one from a file "
+        "(--from-file, offline)",
     )
-    p_ingest.add_argument("--user", required=True, help="Last.fm username to sync")
+    p_ingest.add_argument(
+        "--user",
+        required=True,
+        help="Last.fm username to sync, or — with --from-file — the local name to file the "
+        "imported history under (no account is contacted)",
+    )
+    p_ingest.add_argument(
+        "--from-file",
+        default=None,
+        metavar="PATH",
+        help="read the listening history out of an export you already have instead of "
+        "fetching it. No API key, and no network at all unless --enrich is given.",
+    )
+    p_ingest.add_argument(
+        "--format",
+        choices=FILE_FORMATS,
+        default="auto",
+        help="which export shape --from-file holds (default: auto, which sniffs and "
+        "refuses to guess rather than importing under the wrong contract)",
+    )
+    p_ingest.add_argument(
+        "--enrich",
+        action="store_true",
+        help="with --from-file: also resolve identity against MusicBrainz/Wikidata. "
+        "Without it the run opens no socket and every artist stays first-class unknown.",
+    )
     p_ingest.add_argument("--db", default=str(DEFAULT_DB_PATH), help="cache database path")
     p_ingest.add_argument(
         "--page-size",

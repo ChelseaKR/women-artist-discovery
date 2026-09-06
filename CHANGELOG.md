@@ -13,6 +13,21 @@ tag, not backfilled to an earlier commit date.
 ## [Unreleased]
 
 ### Added
+- `lavender ingest --from-file` — build a listening profile from an export the listener already
+  has (`pipeline/fileingest.py`): a Last.fm data download (CSV, or the `user.getrecenttracks`
+  JSON), Spotify's "Extended streaming history" JSON, a ListenBrainz export, or a plain
+  `artist,track,timestamp` CSV. No API key; **no socket at all** unless `--enrich` is passed, which
+  resolves identity against MusicBrainz/Wikidata and nothing else. Until now the only route to a
+  real profile was a live Last.fm key, so someone who left Last.fm, listens on Spotify, or will not
+  create a developer account could not run this on their own history — and a file import is the
+  most local-first ingest there is: the listens never leave the machine. Every format is read under
+  a documented contract that is checked rather than assumed: a missing required column fails naming
+  the column, malformed rows are counted and reported (never silently dropped — a half-read file
+  that reports success is this project's dominant defect class in a new place), `--format auto`
+  refuses to guess rather than importing under the wrong contract, an unreadable timestamp is never
+  replaced with "now", and a re-import adds no rows. An export carries plays and not Last.fm's tags
+  or similar-artist graph, so `ImportedHistory` returns empty for both and says so at both surfaces
+  instead of inferring either from track names. Closes #119.
 - Periodic re-enrichment is scheduled (ADR 0013). `make refresh LAVENDER_USER=<you>` is the
   bounded re-check; `make schedule LAVENDER_USER=<you>` prints the launchd agent (macOS) or
   crontab line that runs it every 7 days on the operator's own machine, with absolute paths, a

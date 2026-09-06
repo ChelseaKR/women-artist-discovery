@@ -52,6 +52,20 @@ already in your cache (see below — including on a weekly schedule, if you inst
 external APIs for reachability and reads nothing else. Every other `lavender` command is
 offline, and the sanctioned egress list is gated in `tests/test_privacy.py`.
 
+**No Last.fm account?** `lavender ingest --from-file history.csv --user me` builds the
+same profile from an export you already have — a Last.fm data download (CSV or the
+`user.getrecenttracks` JSON), Spotify's "Extended streaming history" JSON, a ListenBrainz
+export, or a plain `artist,track,timestamp` CSV. No API key, and **no network at all**
+unless you add `--enrich`, which resolves identity against MusicBrainz and Wikidata and
+nothing else. Without it every artist is `unknown`, which is a normal state here. Each
+format is read under a documented, strictly-checked contract: a file missing a required
+column fails naming that column, malformed rows are counted and reported rather than
+silently dropped, `--format auto` refuses to guess rather than importing a file under the
+wrong contract, and re-importing the same file adds nothing. An export carries plays, not
+Last.fm's tags or its similar-artist graph, so a file-only world has no ranking signal
+until a Last.fm sync supplies one — `pipeline/fileingest.py` returns empty for both rather
+than inferring either from track names.
+
 Expect the first ingest to take a few minutes; it paces itself to one request per
 second and caches every response, so later runs are fast and cost the registries
 nothing. Everything it learns stays in your local cache. Artists it cannot resolve to
@@ -61,7 +75,7 @@ exactly one upstream record stay `unknown`, which costs them nothing in the rank
 Your library leans toward women and female-fronted bands by taste, but no recommender helps you lean into that on purpose without either ignoring identity entirely or guessing it crudely. Doing this *well* — sourced, transparent, non-essentialist — is the whole point and the interesting part.
 
 ## What it does
-- **Builds listening profiles** from your Last.fm history — paginated, incremental, and resumable — or from the offline demo world when you have no account to hand.
+- **Builds listening profiles** from your Last.fm history — paginated, incremental, and resumable — from an export file you already have (`--from-file`: Last.fm CSV/JSON, Spotify extended streaming history, ListenBrainz, or plain CSV; no API key, and no network unless you ask for identity enrichment) — or from the offline demo world when you have no account to hand.
 - **Hybrid recommendations:** collaborative similarity + content/tags, then a values-aware re-rank.
 - **Two declared lenses,** chosen per run with `--lens-name`: `women-nonbinary` (the default) and `queer` — sourced queer women plus sourced nonbinary artists ([ADR 0011](./docs/adr/0011-queer-lens-and-the-trans-vocabulary-amendment.md)). Each is a `LensSpec` manifest carrying its own aligned set, boost bound, rationale, and honest harms note. Sourced queerness is sparse and skews toward the already-famous, Anglophone, living and out, so the queer lens boosts rather than filters and `unknown` never reads as "not queer".
 - **Sourced identity, never inferred:** identity basis is shown and cited; woman means woman, cis or trans, with no distinction drawn; nonbinary is represented properly; unknown artists are surfaced on musical merit alone.
@@ -84,7 +98,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 1079 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 1116 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
