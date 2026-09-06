@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation
+from recommender.content_filters import NO_FILTER, ContentFilter
 from recommender.exposure import observability_panel
 from recommender.feedback import Feedback
 from recommender.hybrid import recommend
@@ -51,6 +52,7 @@ def recommendations_by_lens(
     hide_sourced_men: bool = False,
     lens: LensSpec = VALUES_LENS,
     lens_grid: tuple[float, ...] = LENS_GRID,
+    content_filter: ContentFilter = NO_FILTER,
 ) -> dict[float, list[Recommendation]]:
     """The lens sweep, with every knob other than ``lens_strength`` held fixed.
 
@@ -69,6 +71,10 @@ def recommendations_by_lens(
             feedbacks=feedbacks,
             hide_sourced_men=hide_sourced_men,
             lens=lens,
+            # Held fixed across the sweep like every other knob: a panel that
+            # compared a filtered list at one lens value with an unfiltered one at
+            # another would be measuring the filter and calling it the lens.
+            content_filter=content_filter,
         )
         for value in sorted({*lens_grid, current_lens})
     }
@@ -87,6 +93,7 @@ def observability_inputs(
     hide_sourced_men: bool = False,
     lens: LensSpec = VALUES_LENS,
     lens_grid: tuple[float, ...] = LENS_GRID,
+    content_filter: ContentFilter = NO_FILTER,
 ) -> tuple[list[Recommendation], dict[str, object]]:
     """Return ``(displayed_recs, panel)`` — the list to show and the panel about it.
 
@@ -105,6 +112,7 @@ def observability_inputs(
         hide_sourced_men=hide_sourced_men,
         lens=lens,
         lens_grid=lens_grid,
+        content_filter=content_filter,
     )
     panel = observability_panel(recs_by_lens, current_lens=current_lens, k=panel_k)
     return recs_by_lens[current_lens], panel

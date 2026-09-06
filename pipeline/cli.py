@@ -27,6 +27,12 @@ from app.observability import observability_inputs
 from app.render import render_cards_html
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
+from recommender.content_filters import (
+    MAX_YEAR,
+    MIN_YEAR,
+    ContentFilter,
+    FilterSpecError,
+)
 from recommender.coverage import identity_coverage
 from recommender.eval import (
     check_regression,
@@ -188,6 +194,21 @@ def _nonnegative_int(value: str) -> int:
     return parsed
 
 
+def _tag_list(raw: str) -> tuple[str, ...]:
+    """A comma-separated tag list. Empty entries are dropped, not treated as a tag."""
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _year(raw: str) -> int:
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a four-digit year") from exc
+    if not (MIN_YEAR <= parsed <= MAX_YEAR):
+        raise argparse.ArgumentTypeError(f"must be between {MIN_YEAR} and {MAX_YEAR}")
+    return parsed
+
+
 def _add_world_args(parser: argparse.ArgumentParser) -> None:
     """``--user``/``--db``: which world a recommendation surface reads from."""
     parser.add_argument(
@@ -210,6 +231,56 @@ def _add_world_args(parser: argparse.ArgumentParser) -> None:
         help="drop artists whose sourced gender is a man's, and acts whose sourced "
         "lineup is entirely sourced men. Never drops unknown-identity artists — "
         "an absent claim is not a claim (see recommender/filters.py)",
+    )
+    _add_content_filter_args(parser)
+
+
+def _add_content_filter_args(parser: argparse.ArgumentParser) -> None:
+    """``--include-tags``/``--exclude-tags``/``--year-from``/``--year-to``.
+
+    Identity-blind by construction: they read tags and a start year and nothing else, and an
+    artist with no tags or no known start year is *kept* by all four (see
+    :mod:`recommender.content_filters`).
+    """
+    parser.add_argument(
+        "--include-tags",
+        type=_tag_list,
+        default=(),
+        metavar="TAG,TAG",
+        help="keep only artists carrying at least one of these tags. Artists with no "
+        "tags at all are kept: an absent tag is not a mismatch",
+    )
+    parser.add_argument(
+        "--exclude-tags",
+        type=_tag_list,
+        default=(),
+        metavar="TAG,TAG",
+        help="drop artists carrying any of these tags. Artists with no tags are kept",
+    )
+    parser.add_argument(
+        "--year-from",
+        type=_year,
+        default=None,
+        help="drop artists whose MusicBrainz life-span begins before this year. This is "
+        "when the act began, not the year of its first release; artists with no known "
+        "start year are kept",
+    )
+    parser.add_argument(
+        "--year-to",
+        type=_year,
+        default=None,
+        help="drop artists whose MusicBrainz life-span begins after this year. Artists "
+        "with no known start year are kept",
+    )
+
+
+def _content_filter(args: argparse.Namespace) -> ContentFilter:
+    """Build the filter from parsed args, or exit non-zero saying what cannot be honoured."""
+    return ContentFilter.build(
+        include_tags=args.include_tags,
+        exclude_tags=args.exclude_tags,
+        year_from=args.year_from,
+        year_to=args.year_to,
     )
 
 
@@ -801,6 +872,11 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def _cmd_recommend(args: argparse.Namespace) -> int:
+    try:
+        content_filter = _content_filter(args)
+    except FilterSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
     with Cache(args.db) as cache:
         try:
             profile, catalog, source = _load_world(cache, args)
@@ -818,7 +894,14 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
             feedbacks=feedbacks,
             hide_sourced_men=args.hide_sourced_men,
             lens=LENSES[args.lens_name],
+            content_filter=content_filter,
         )
+    if content_filter.active:
+        print(content_filter.describe())  # noqa: T201
+        if not recs:
+            print(  # noqa: T201
+                "no artist in this world matches those filters — an empty result, not an error"
+            )
     print(f"Identity coverage: {identity_coverage(recs).summary_line()}")  # noqa: T201
     for rec in recs:
         why = why_this_artist(rec)
@@ -838,6 +921,11 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
+    try:
+        content_filter = _content_filter(args)
+    except FilterSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
     with Cache(args.db) as cache:
         try:
             profile, catalog, source = _load_world(cache, args)
@@ -855,6 +943,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             feedbacks=feedbacks,
             hide_sourced_men=args.hide_sourced_men,
             lens=LENSES[args.lens_name],
+            content_filter=content_filter,
         )
     tracks = recommendations_to_tracks(recs)
     text = render(tracks, ExportFormat(args.format), playlist_name="Lavender Rotation")
@@ -865,6 +954,10 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"wrote {out}")  # noqa: T201
     else:
         print(text)  # noqa: T201
+    # On stderr, so it reaches a person watching the run without entering a playlist file
+    # that is contracted to carry artist and track names and nothing else.
+    if content_filter.active:
+        print(content_filter.describe(), file=sys.stderr)  # noqa: T201
     return 0
 
 
@@ -885,6 +978,11 @@ def _cmd_feedback(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
+    try:
+        content_filter = _content_filter(args)
+    except FilterSpecError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
     with Cache(args.db) as cache:
         try:
             profile, catalog, source = _load_world(cache, args)
@@ -903,12 +1001,14 @@ def _cmd_report(args: argparse.Namespace) -> int:
             panel_k=min(3, args.k),
             hide_sourced_men=args.hide_sourced_men,
             lens=LENSES[args.lens_name],
+            content_filter=content_filter,
         )
     html = render_cards_html(
         recs,
         lens_strength=args.lens,
         username=profile.username,
         exposure_panel=panel,
+        filters_line=content_filter.describe() if content_filter.active else None,
     )
     privacy_footer = (
         "<footer><p><strong>Privacy note:</strong> this report contains listening "

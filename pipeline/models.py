@@ -457,6 +457,14 @@ class Artist:
     #: which is what every artist enriched before that ADR carries.
     queer: QueerIdentity = field(default_factory=QueerIdentity)
     composition: Optional[BandComposition] = None
+    #: The year this act's MusicBrainz life-span begins, when upstream states one.
+    #: ``None`` is the normal answer and means *unknown*, never "old" and never
+    #: "new": the era filter keeps an artist with no known year, for the same
+    #: reason the lens never down-ranks an artist with no sourced identity.
+    #: It is the act's begin year, not the year of its first release -- see
+    #: ``parse_musicbrainz_life_span_begin``, which says what upstream field it
+    #: reads and what that field does and does not mean.
+    career_start_year: Optional[int] = None
     listeners: int = 0  # popularity proxy, for the baseline + debias check
     playcount: int = 0
 

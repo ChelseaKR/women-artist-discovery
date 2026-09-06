@@ -28,6 +28,7 @@ export LAVENDER_CONTACT=you@example.org  # sent in the User-Agent MusicBrainz as
 lavender ingest --user <your-lastfm-username>
 lavender recommend --user <your-lastfm-username>
 lavender recommend --user <you> --lens 1.0 --hide-sourced-men   # strongest lens, plus the filter
+lavender recommend --user <you> --include-tags shoegaze,dream-pop --year-from 2015
 ```
 
 Other commands, all offline unless you pass `--user`: `lavender report` writes a
@@ -41,6 +42,18 @@ upstream), and `lavender eval` / `lavender eval-real` run the offline evaluation
 recommendation surface also takes `--explore` (0 to 1), an identity-blind serendipity
 slider that trades relevance for tag-space diversity among the movable picks; it is 0 by
 default, and it never moves a rank-protected one.
+
+`recommend`, `report` and `export` also take identity-blind content filters —
+`--include-tags`, `--exclude-tags`, `--year-from`, `--year-to` — which narrow the candidate
+pool before anything is scored, so the lens, rank protection and the rank-shift accounting
+all run over what survives. They read tags and a start year and nothing else, enforced by the
+same whole-module AST scan the diversifier is held to. **An artist with no tags, or no known
+start year, is kept by all four**: absence never excludes, for the same reason unknown
+identity never costs a rank — metadata coverage upstream is thinnest for the least documented
+artists, and dropping them would re-impose the popularity bias the ranking resists while
+looking like a neutral content preference. `--year-from`/`--year-to` compare against the act's
+MusicBrainz life-span begin year, which is when it began and not the year of its first
+release. Every filtered run states the active filters in its output.
 
 `lavender ingest` is the only command that fetches your listening history: it syncs your
 scrobbles from Last.fm (incrementally — a second run fetches only what is new), resolves
@@ -98,7 +111,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 1143 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 1191 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,

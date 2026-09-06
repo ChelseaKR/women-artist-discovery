@@ -112,6 +112,17 @@ def composition_from_dict(d: dict[str, Any]) -> BandComposition:
     )
 
 
+def _optional_year(value: Any) -> Optional[int]:
+    """A stored year, or ``None``. A stored value that is not an integer year is ``None``.
+
+    A malformed cached value must decode to *unknown*, never to a plausible-looking number:
+    a filter bound compared against a coerced garbage year would silently drop real artists.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
 def artist_to_dict(a: Artist) -> dict[str, Any]:
     return {
         "artist_id": a.artist_id,
@@ -120,6 +131,7 @@ def artist_to_dict(a: Artist) -> dict[str, Any]:
         "identity": identity_to_dict(a.identity),
         "queer": queer_to_dict(a.queer),
         "composition": composition_to_dict(a.composition) if a.composition else None,
+        "career_start_year": a.career_start_year,
         "listeners": a.listeners,
         "playcount": a.playcount,
     }
@@ -136,6 +148,10 @@ def artist_from_dict(d: dict[str, Any]) -> Artist:
         identity=identity_from_dict(d["identity"]) if d.get("identity") else IdentityLabel(),
         queer=queer_from_dict(d["queer"]) if d.get("queer") else QueerIdentity(),
         composition=comp,
+        # Absent on every payload cached before this field existed, which decodes to
+        # "year unknown" -- the value the era filter keeps. No cache migration is needed
+        # and none would be honest: this build does not know those artists' start years.
+        career_start_year=_optional_year(d.get("career_start_year")),
         listeners=d.get("listeners", 0),
         playcount=d.get("playcount", 0),
     )
