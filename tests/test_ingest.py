@@ -816,3 +816,263 @@ def test_an_axis_that_did_answer_is_still_written() -> None:
         ]
     finally:
         cache.close()
+
+
+# --- #112: the local corrections ledger is not upstream speaking --------------
+#
+# `enrich_artist` is called with `cache=cache` on the refresh path, so
+# `Cache.get_corrections` merges the operator's ledger into the evidence and the
+# resolvers turn it into ordinary `Source` rows. `_is_sourced` asked only
+# whether *any* source existed, so a corrected artist came back "sourced" on a
+# run where every upstream lookup timed out: the cached upstream citations were
+# written over, `fetched_at` advanced, `diff_identity_sources` walked the new
+# sources and found nothing to report, and `upstream_answered` — documented as
+# "only a citation coming back over the wire proves the far end spoke" — was
+# True. The blast radius was exactly the artists someone cared enough to
+# correct.
+
+_MB_CITATION = "https://musicbrainz.org/artist/b7ffd2af-418f-4be2-bdd1-22f8b48613da"
+_CORRECTION_CITATION = "https://example.org/mystery-act-correction"
+
+
+def _dead_upstream() -> FixtureEnricher:
+    """What `MusicBrainzEnricher` produces on a timeout, a 503 or a throttle.
+
+    `_json` renders every failure as `None`, so all three evidence methods come
+    back empty — indistinguishable, at this layer, from "upstream holds no
+    claim".
+    """
+    return FixtureEnricher(gender={}, composition={}, orientation={})
+
+
+def _cached_with_a_correction(
+    cache: Cache,
+    lastfm: FixtureLastfm,
+    upstream: FixtureEnricher,
+    *,
+    correction_value: str,
+    fetched_at: str = "2026-08-01",
+) -> None:
+    """Cache one artist carrying an upstream citation *and* a filed correction."""
+    cache.put_correction(
+        "mystery-act",
+        IdentityEvidence(
+            kind=SourceKind.ARTIST_STATEMENT,
+            value=correction_value,
+            citation=_CORRECTION_CITATION,
+            retrieved_at="2026-07-01",
+        ),
+        entered_at="2026-07-01",
+    )
+    cached = enrich_artist("mystery-act", "Mystery Act", lastfm, upstream, cache=cache)
+    cache.put_artist(cached, fetched_at=fetched_at)
+
+
+def test_a_correction_only_refresh_is_not_upstream_speaking() -> None:
+    """#112: a dead upstream must not erase the citation the ingest paid for."""
+    lastfm = FixtureLastfm(scrobbles={}, tags={"mystery-act": ()}, similar={})
+    upstream = FixtureEnricher(
+        gender={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.MUSICBRAINZ_GENDER,
+                    value="female",
+                    citation=_MB_CITATION,
+                    retrieved_at="2026-08-01",
+                )
+            ]
+        },
+        composition={},
+    )
+    cache = Cache(":memory:")
+    try:
+        _cached_with_a_correction(cache, lastfm, upstream, correction_value="nonbinary")
+        before = cache.get_artist("mystery-act")
+        assert before is not None
+        assert before.identity.gender is Gender.NONBINARY  # the correction wins
+        assert any(s.kind is SourceKind.MUSICBRAINZ_GENDER for s in before.identity.sources)
+
+        outcome = refresh_catalog(cache, lastfm, _dead_upstream(), fetched_at="2026-09-06")
+
+        assert outcome.verified == ()
+        assert outcome.unverified == ("mystery-act",)
+        assert outcome.protected == ("mystery-act",)
+        assert outcome.upstream_answered is False, (
+            "a correction read out of the local ledger is not evidence that the far end spoke"
+        )
+        assert outcome.changes == ()
+
+        stored = cache.get_artist("mystery-act")
+        assert stored is not None
+        assert any(s.kind is SourceKind.MUSICBRAINZ_GENDER for s in stored.identity.sources), (
+            "a run that never reached MusicBrainz erased its citation"
+        )
+        assert stored.identity.conflict is True, "the FIX-10 source disagreement must survive"
+        assert cache.artist_fetched_at("mystery-act") == "2026-08-01", (
+            "`fetched_at` claims this artist was checked that day; nobody answered"
+        )
+    finally:
+        cache.close()
+
+
+def test_a_correction_does_not_stand_in_for_a_p91_read_on_the_queer_axis() -> None:
+    """#112, ADR 0011's axis: a trans self-identification is not a P91 fetch."""
+    lastfm = FixtureLastfm(scrobbles={}, tags={"mystery-act": ()}, similar={})
+    upstream = FixtureEnricher(
+        gender={},
+        composition={},
+        orientation={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P91,
+                    value="Q6636",
+                    citation="https://www.wikidata.org/wiki/Q22222222",
+                    retrieved_at="2026-08-01",
+                )
+            ]
+        },
+    )
+    cache = Cache(":memory:")
+    try:
+        # "trans woman" is in `_TRANS_ASSERTED_VALUES`, so the correction lands
+        # on the queer axis as well as the gender one.
+        _cached_with_a_correction(cache, lastfm, upstream, correction_value="trans woman")
+        before = cache.get_artist("mystery-act")
+        assert before is not None
+        assert before.queer.trans_self_identified is True
+        assert any(s.kind is SourceKind.WIKIDATA_P91 for s in before.queer.sources)
+
+        outcome = refresh_catalog(cache, lastfm, _dead_upstream(), fetched_at="2026-09-06")
+
+        assert outcome.upstream_answered is False
+        assert outcome.protected == ("mystery-act",)
+        stored = cache.get_artist("mystery-act")
+        assert stored is not None
+        assert any(s.kind is SourceKind.WIKIDATA_P91 for s in stored.queer.sources), (
+            "the P91 citation was erased by a run that never read Wikidata"
+        )
+        assert cache.artist_fetched_at("mystery-act") == "2026-08-01"
+    finally:
+        cache.close()
+
+
+def test_a_correction_does_not_defeat_the_per_axis_guard_on_a_partial_answer() -> None:
+    """#112 meets #96: MusicBrainz up, Wikidata down, and a correction filed.
+
+    The per-axis guard asked whether the refreshed axis was *empty*. A ledger
+    correction is on every axis it speaks to, on every run, so the queer axis
+    was never empty and the guard never fired — the P91 citation went out with
+    the write that #96 exists to prevent.
+    """
+    lastfm = FixtureLastfm(scrobbles={}, tags={"mystery-act": ()}, similar={})
+    both_axes = FixtureEnricher(
+        gender={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.MUSICBRAINZ_GENDER,
+                    value="female",
+                    citation=_MB_CITATION,
+                    retrieved_at="2026-08-01",
+                )
+            ]
+        },
+        composition={},
+        orientation={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.WIKIDATA_P91,
+                    value="Q6636",
+                    citation="https://www.wikidata.org/wiki/Q22222222",
+                    retrieved_at="2026-08-01",
+                )
+            ]
+        },
+    )
+    gender_only = FixtureEnricher(
+        gender={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.MUSICBRAINZ_GENDER,
+                    value="female",
+                    citation=_MB_CITATION,
+                    retrieved_at="2026-09-06",
+                )
+            ]
+        },
+        composition={},
+    )
+    cache = Cache(":memory:")
+    try:
+        _cached_with_a_correction(cache, lastfm, both_axes, correction_value="trans woman")
+
+        outcome = refresh_catalog(cache, lastfm, gender_only, fetched_at="2026-09-06")
+
+        assert outcome.verified == ("mystery-act",)  # MusicBrainz did answer
+        assert outcome.protected == ("mystery-act",), (
+            "the axis Wikidata was silent about must be reported as held"
+        )
+        stored = cache.get_artist("mystery-act")
+        assert stored is not None
+        assert any(s.kind is SourceKind.WIKIDATA_P91 for s in stored.queer.sources), (
+            "a silent Wikidata erased a P91 citation because a correction filled the axis"
+        )
+        # The axis that did answer still moves.
+        gender_sources = [
+            s for s in stored.identity.sources if s.kind is SourceKind.MUSICBRAINZ_GENDER
+        ]
+        assert gender_sources and gender_sources[0].retrieved_at == "2026-09-06"
+    finally:
+        cache.close()
+
+
+def test_a_corrected_artist_upstream_did_answer_about_is_still_verified() -> None:
+    """The over-correction this must not become: corrections are not poison.
+
+    Ignoring a correction as *proof* must not make a corrected artist
+    unrefreshable. Upstream answering about a corrected artist is still an
+    answer, and the correction still wins at resolve time.
+    """
+    lastfm = FixtureLastfm(scrobbles={}, tags={"mystery-act": ()}, similar={})
+    was = FixtureEnricher(
+        gender={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.MUSICBRAINZ_GENDER,
+                    value="female",
+                    citation=_MB_CITATION,
+                    retrieved_at="2026-08-01",
+                )
+            ]
+        },
+        composition={},
+    )
+    now = FixtureEnricher(
+        gender={
+            "mystery-act": [
+                IdentityEvidence(
+                    kind=SourceKind.MUSICBRAINZ_GENDER,
+                    value="male",
+                    citation=_MB_CITATION,
+                    retrieved_at="2026-09-06",
+                )
+            ]
+        },
+        composition={},
+    )
+    cache = Cache(":memory:")
+    try:
+        _cached_with_a_correction(cache, lastfm, was, correction_value="nonbinary")
+
+        outcome = refresh_catalog(cache, lastfm, now, fetched_at="2026-09-06")
+
+        assert outcome.verified == ("mystery-act",)
+        assert outcome.upstream_answered is True
+        assert cache.artist_fetched_at("mystery-act") == "2026-09-06"
+        assert [(c.source_kind, c.old_value, c.new_value) for c in outcome.changes] == [
+            ("musicbrainz-gender", "female", "male")
+        ]
+        stored = cache.get_artist("mystery-act")
+        assert stored is not None
+        assert stored.identity.gender is Gender.NONBINARY, "the correction still wins"
+    finally:
+        cache.close()

@@ -41,6 +41,20 @@ tag, not backfilled to an earlier commit date.
   moved to `tests/test_doc_figures.py`. No gate was weakened or dropped.
 
 ### Fixed
+- **A locally filed correction counted as upstream speaking, so a dead upstream erased the
+  citation it never re-read.** `enrich_artist` is called with the cache on the refresh path, so
+  `Cache.get_corrections` merges the operator's ledger into the evidence and the resolvers turn it
+  into ordinary `Source` rows. `_is_sourced` asked only whether *any* source existed, so a
+  corrected artist scored as "upstream answered" on a run where every lookup timed out: the cached
+  MusicBrainz/Wikidata citations were written over, `fetched_at` advanced, `diff_identity_sources`
+  walked the new sources and had nothing to report, `RefreshOutcome.upstream_answered` was `True`
+  against its own docstring, and `lavender refresh --user` exited `0` and reconciled pending
+  corrections against an upstream nobody read. The per-axis guard added for #96 was defeated the
+  same way — a correction is on its axis on every run, so that axis was never "empty". The refresh
+  path now reads the discriminator the model already carried
+  (`Source.is_local_correction`): proof of an answer means an *upstream* citation, on `_is_sourced`
+  and on every per-axis guard. Nothing is lost — a correction lives in the ledger, not in the
+  cached row, and is re-applied and still wins on priority at the next enrichment.
 - **`DEFINITION_OF_DONE.md` said coverage is measured on `pipeline`/`recommender`/`export`.**
   `app` joined the coverage addopts on 2026-08-28 and the sentence did not follow. Found by the
   new docs-figures gate on its first run against `main`, and stamped from the addopts.

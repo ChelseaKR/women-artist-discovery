@@ -469,13 +469,40 @@ def diff_identity_labels(
     return _diff_sources(artist_id, old.sources, new.sources)
 
 
+def _upstream_sources(sources: Sequence[Source]) -> tuple[Source, ...]:
+    """The subset of *sources* that came over the wire (#112).
+
+    :meth:`~pipeline.cache.Cache.get_corrections` hands the operator's local
+    corrections ledger to :func:`enrich_artist` as ordinary
+    ``ARTIST_STATEMENT`` evidence, and the resolvers turn it into ordinary
+    :class:`~pipeline.models.Source` rows on the resolved label. That is
+    correct at resolve time — a correction should win on priority, with no
+    special-casing in the resolver — and wrong at *refresh* time, where the
+    only question being asked is whether the far end spoke.
+
+    Read from the ledger, a correction is present on every run, including the
+    run where every upstream lookup timed out. Counting it as a citation makes
+    a dead upstream indistinguishable from an answering one on exactly the
+    artists an operator cared enough to correct. The model already carries the
+    discriminator (:attr:`~pipeline.models.Source.is_local_correction`); this
+    is where the refresh path consults it.
+    """
+    return tuple(source for source in sources if not source.is_local_correction)
+
+
 def _is_sourced(artist: Artist) -> bool:
-    """Whether this artist carries at least one citation on *any* sourced axis.
+    """Whether this artist carries at least one **upstream** citation on any sourced axis.
 
     Gender, band composition, or the queer axis. The docstring said "either
-    identity axis" while the implementation looked at two of three (#93).
+    identity axis" while the implementation looked at two of three (#93); it
+    then said "citation" while the implementation also counted the local
+    corrections ledger, which no upstream ever sends (#112).
+
+    Nothing is lost by not counting a correction as proof: it lives in the
+    ledger rather than in the cached row, so :func:`enrich_artist` re-applies it
+    on every later enrichment and it still wins by priority.
     """
-    return bool(_identity_sources(artist))
+    return bool(_upstream_sources(_identity_sources(artist)))
 
 
 def _preserve_unanswered_axes(cached: Artist, refreshed: Artist) -> tuple[Artist, tuple[str, ...]]:
@@ -494,8 +521,20 @@ def _preserve_unanswered_axes(cached: Artist, refreshed: Artist) -> tuple[Artist
     the *new* sources, so an emptied axis has nothing to report: the erasure
     would be silent, which is the exact pairing this module exists to refuse.
 
-    So the protection is per axis. An axis that came back with citations is
-    written; an axis that came back empty keeps what the cache already held.
+    So the protection is per axis. An axis that came back with *upstream*
+    citations is written; an axis that came back with none keeps what the cache
+    already held.
+
+    "Empty" has to mean "empty of upstream citations" rather than literally
+    empty, because the refresh path enriches with ``cache=cache``: the
+    operator's corrections ledger is merged into the evidence, so a corrected
+    artist's axis is never empty even when nothing at all came back over the
+    wire (#112). Reading that as "the axis answered" defeated this guard with
+    the very row it exists to protect alongside — and did it on precisely the
+    artists someone cared enough to correct. Taking the cached axis drops the
+    correction from the written row and nothing more: it lives in the ledger,
+    and :func:`enrich_artist` re-applies it, still winning on priority, at the
+    next enrichment.
 
     ``fetched_at`` still advances, and that is deliberate rather than an
     oversight: it is an artist-level claim that this artist was checked today,
@@ -506,12 +545,12 @@ def _preserve_unanswered_axes(cached: Artist, refreshed: Artist) -> tuple[Artist
     kept: list[str] = []
 
     identity = refreshed.identity
-    if not identity.sources and cached.identity.sources:
+    if not _upstream_sources(identity.sources) and _upstream_sources(cached.identity.sources):
         identity = cached.identity
         kept.append("identity")
 
     queer = refreshed.queer
-    if not queer.sources and cached.queer.sources:
+    if not _upstream_sources(queer.sources) and _upstream_sources(cached.queer.sources):
         queer = cached.queer
         kept.append("queer")
 
@@ -520,7 +559,9 @@ def _preserve_unanswered_axes(cached: Artist, refreshed: Artist) -> tuple[Artist
     cached_composition_sources = (
         cached.composition.sources if cached.composition is not None else ()
     )
-    if not refreshed_composition_sources and cached_composition_sources:
+    if not _upstream_sources(refreshed_composition_sources) and _upstream_sources(
+        cached_composition_sources
+    ):
         composition = cached.composition
         kept.append("composition")
 
