@@ -13,7 +13,7 @@ both a conventional software vulnerability *and* an identity-handling defect are
 ## Supported versions
 
 **Release stance (2026-07-05): unreleased pre-1.0 development line.** `pyproject.toml` carries
-version `0.1.0` as the in-development source version, but **no git tag and no GitHub release exist
+version `0.1.0.dev0` as the in-development source version, but **no git tag and no GitHub release exist
 yet** — there is no "0.1.x release line" to support. Until the first tag is cut, only `main` is
 supported and security fixes land as new commits.
 

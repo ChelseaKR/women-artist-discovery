@@ -30,6 +30,7 @@ import time
 from collections.abc import Callable
 from typing import Optional, Protocol
 
+from pipeline import __version__
 from pipeline.cache import Cache
 from pipeline.lastfm import MAX_ATTEMPTS, RateLimiter, is_transient_failure
 
@@ -38,7 +39,7 @@ log = logging.getLogger("lavender.enrich")
 #: Sent on every identity-source request. MusicBrainz's rate-limit policy asks
 #: for an application name, a version, and a way to contact whoever is running
 #: it; an operator supplies the contact half via ``LAVENDER_CONTACT``.
-USER_AGENT_BASE = "lavender-rotation/0.1.0"
+USER_AGENT_BASE = f"lavender-rotation/{__version__}"
 PROJECT_URL = "https://github.com/ChelseaKR/lavender-rotation"
 
 #: MusicBrainz asks for at most one request per second from an anonymous client.
