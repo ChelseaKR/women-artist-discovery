@@ -41,6 +41,22 @@ tag, not backfilled to an earlier commit date.
   moved to `tests/test_doc_figures.py`. No gate was weakened or dropped.
 
 ### Fixed
+- **The dashboard's fairness observability panel was recomputed without `explore`, so it published
+  exposure shares for a ranking the page was not showing.** The displayed list carried the
+  Serendipity slider's value and the `recs_by_lens` sweep beside it did not; every other argument
+  matched, so it was an omission, not a different question by design. At the top of the slider the
+  page reported that no sourced man held a top-3 slot while a sourced man sat visibly in slot 3 of
+  the same screen, and `identity_coverage` immediately above was computed on the displayed list —
+  two adjacent panels describing two different rankings. `app/observability.py` now returns the
+  list to display and the panel about it from one call, so a surface cannot show one ranking and
+  measure another; `app/dashboard.py`, `app/build_static.py` and `lavender report` all use it.
+  Neither of the other two exposes an `explore` control, so their output is unchanged. Tested
+  through the new seam because `app/dashboard.py` is excluded from coverage.
+- **EXP-04's excellence bar claimed identity-segment exposure is "statistically unchanged by the
+  diversifier at any setting".** Measured at k=3 on the demo world, it is not — moving the slider
+  changes which segment holds a top-3 slot. `docs/ideation/03-expansions.md` now records that as an
+  aspiration with the measurement, and a test pins the fact so the claim cannot be quietly
+  restored. Identity-*blindness* is unaffected and still proved by AST.
 - **The why-card's rank-shift sentence attributed serendipity and the `--hide-sourced-men`
   subtraction to the values lens, including at `--lens 0` where every `rerank_delta` in the run is
   `0.0`.** `base_rank` was recorded before the lens and `rank` was not assigned until after two

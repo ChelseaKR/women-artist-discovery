@@ -83,6 +83,15 @@ way.
 can answer "what exactly does this lens boost, and why?" without reading code.
 
 ### EXP-04 — Serendipity control with provably identity-blind diversification
+**Status (2026-09-06):** Implemented, with the excellence bar's *second* clause
+recorded as an aspiration rather than a met bar. Identity-blindness is proved —
+`tests/test_diversify.py` holds the pass to permutation-not-rescore and asserts
+by AST that it never reads `identity`/`composition`. Exposure neutrality is
+**not** met: measured at k=3 on the demo world, moving the slider from 0.0 to
+1.0 changes which identity segment holds a top-3 slot. Blindness at the input is
+not neutrality at the output, and nothing enforced the second clause. See #114;
+`tests/test_observability.py::test_the_diversifier_does_move_top_k_exposure_on_this_world`
+pins the measurement so the claim cannot be quietly restored.
 **Pitch:** An "explore ↔ exploit" control that diversifies results (MMR-style
 over tag space) while a test proves diversification never reads identity.
 **Impact:** Single-user discovery tools die of staleness; the collaborative
