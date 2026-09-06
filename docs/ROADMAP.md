@@ -131,6 +131,43 @@ CodeQL/zizmor/osv-scanner/Scorecard workflows added. Nothing in the identity/fai
   dated, historical snapshots by design, not live claims — checking them would be a category
   error, not a fix.
 
+### Build log addendum (2026-09-05) — the auto-stamp, which the addendum above left open
+
+- **Closes the item the previous addendum named.** The 2026-08-04 entry said in its own text
+  that the guard it shipped was the local fix and "the auto-stamp backlog item is the systemic
+  fix and **remains open**." It was still open a month later, and the shape of the debt was
+  visible in the repo: three separate hand-written checkers (`scripts/check-readme-claims.py`,
+  `scripts/writeup-check.py`, `scripts/check-staleness.sh`), each covering exactly one document's
+  claims, and no way to gate a fourth without writing a fourth script.
+- **`scripts/docs_figures.py`** replaces `scripts/check-readme-claims.py` in `make test` (stage 3,
+  same position, same merge-blocking status). A gated figure is now a row in one `FIGURES`
+  manifest: a document, the *section* the claim lives in, a regex whose `value` group is the
+  claim, and the callable that re-derives it. Nothing in the mechanism knows what a test count or
+  a coverage floor is. Nine rows ship, over four documents and five sources of truth.
+- **It stamps rather than only complaining.** `make stamp` (`--write`) substitutes the derived
+  value into the document. The old guard could only fail and ask a human to retype a number,
+  which is the hand-editing step that produces drift in the first place. Writing is a separate
+  target on purpose: `make test` must never rewrite the documents it is checking, the same
+  separation `eval-check` exists to enforce for `docs/audits/eval-report.json`.
+- **A number stated in four places, derived from one.** The `≥85%` coverage floor appears in
+  `CONTRIBUTING.md` twice, `DEFINITION_OF_DONE.md`, and §7 below, and lives only in
+  `pyproject.toml`'s `--cov-fail-under`. Raising the floor and updating three of the four is now
+  a failing gate. The mutation kill threshold is derived by *inverting* what `mutation-gate.sh`
+  enforces (`cr-rate --fail-over 30`), because reading the script's own "70%" prose would check a
+  sentence against itself.
+- **A figure need not be a number.** `DEFINITION_OF_DONE.md` said coverage was measured on
+  `pipeline`/`recommender`/`export`; `app` joined the addopts on 2026-08-28 and the sentence did
+  not. The new gate found that on `main` and `make stamp` fixed it — the first thing it caught
+  was a real stale claim, not a hypothetical one.
+- **Locating a claim is where an auto-stamp goes wrong, so both failures are errors.** A pattern
+  that matches nothing in its section is a `FigureError`, not a silent pass; a pattern that
+  matches twice is a `FigureError`, not a first-match guess that rewrites the wrong sentence.
+  `tests/test_doc_figures.py` holds both as tests.
+- **Scope is unchanged from the narrow rule above, and now enforced structurally.** Dated
+  snapshots — this file's build-log addenda, `docs/plans/*`, `docs/USER-RESEARCH.md`'s persona,
+  `CHANGELOG.md` — are still out of scope, and section-scoping is what keeps a live claim
+  distinguishable from a historical one inside the same file.
+
 ## 7. Quality attributes & metrics
 | Metric | Target | Measured by | Gate |
 |--------|--------|-------------|------|
@@ -177,7 +214,7 @@ docs/
 
 ## 11. Operations & sustainability
 - **Hosting/cost.** Runs locally or on a small host; cheap; the cache cuts API load.
-- **Maintenance.** Cache TTL/diff primitives exist and live enrichment uses them (`lavender ingest --ttl-days`, FIX-01). Source-correction fold-back is now wired too: `lavender refresh --user` walks the live enricher, and a filed correction reconciles only against an observation that actually came back (`RefreshOutcome.upstream_answered`) — a silent upstream is reported as unreachable, never as agreement, and never overwrites a citation. What remains deferred is *periodic* re-enrichment: there is no scheduler, so a re-check is an operator running the command again, and a full catalog is several bounded runs.
+- **Maintenance.** Cache TTL/diff primitives exist and live enrichment uses them (`lavender ingest --ttl-days`, FIX-01). Source-correction fold-back is now wired too: `lavender refresh --user` walks the live enricher, and a filed correction reconciles only against an observation that actually came back (`RefreshOutcome.upstream_answered`) — a silent upstream is reported as unreachable, never as agreement, and never overwrites a citation. *Periodic* re-enrichment is no longer deferred: `make refresh` is the run and `make schedule` prints the launchd agent or crontab line that executes it every 7 days on the operator's own machine, logged, with no credential in the entry. It is deliberately **not** a GitHub Actions cron — the cache being refreshed is a personal listening history in a per-user data directory, so a hosted runner has nothing to refresh unless that history is uploaded to CI, and a workflow that cannot reach its data reports green for work that did not happen. A full catalog is still several bounded runs; the runs rotate stalest-first, so the schedule is a sweep. [ADR 0013](./adr/0013-local-refresh-schedule-not-hosted-cron.md) records the cadence, what it buys against the 30-day HTTP cache (ADR 0008), and why daily was rejected.
 - **Sustainability.** Single-user, low cost, open methodology survives the maintainer.
 
 ## 12. Responsible-tech summary

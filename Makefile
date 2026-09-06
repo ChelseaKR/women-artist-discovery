@@ -12,11 +12,23 @@ A11Y_HTML_LIGHT := /tmp/lavender-dashboard-light.html
 A11Y_HTML_DARK  := /tmp/lavender-dashboard-dark.html
 
 .DEFAULT_GOAL := help
-.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation audit clean forget
+.PHONY: help install dev verify format lint typecheck test security render a11y a11y-e2e eval eval-check eval-real i18n bench mutation stamp refresh schedule audit clean forget
 
 # eval-real inputs (FIX-06's human-gated real-data leg — LOCAL ONLY, never CI).
 EVAL_REAL_USER ?=
 EVAL_REAL_DB ?=
+
+# Periodic re-enrichment (ADR 0013) — LOCAL ONLY, never CI. The cache being
+# refreshed is your listening history on your machine; a hosted runner has no
+# such cache, and giving it one would mean uploading a personal listening
+# profile to CI. `make schedule` prints the launchd/cron entry that runs
+# `make refresh` on the recorded cadence.
+LAVENDER_USER ?=
+SCHEDULER ?=
+# Extra flags for a scheduled or hand-run refresh, e.g. REFRESH_ARGS="--limit 50".
+# Deliberately empty: the bounds live in the CLI's own defaults, so restating
+# them here would be a second place for them to drift.
+REFRESH_ARGS ?=
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -68,10 +80,13 @@ test: ## Stage 3 — unit + integration tests with coverage gates (>=85%; identi
 	# resolver must hold >=95% branch coverage, above the 85% baseline. Scoped
 	# re-report over the .coverage data the pytest run just wrote.
 	$(PYTHON) -m coverage report --include="pipeline/identity.py" --fail-under=95
-	# Docs-currency guard: README's "NNN tests at NN% coverage" claim must match
-	# this run, not a hand-typed number from whenever it was last edited (the
-	# "M8 auto-stamp backlog item" PR #49 flagged as still open).
-	$(PYTHON) scripts/check-readme-claims.py
+	# Docs-currency gate: every figure the docs state about this repo must match
+	# what the repo derives right now, not a hand-typed number from whenever it
+	# was last edited. One manifest (scripts/docs_figures.py), one row per stated
+	# claim — this is the "M8 auto-stamp backlog item" PR #49 flagged as the
+	# systemic fix, replacing the single-claim scripts/check-readme-claims.py.
+	# `make stamp` writes the derived values in.
+	$(PYTHON) scripts/docs_figures.py
 
 # Dependency-audit waivers (SECURITY-AND-SUPPLY-CHAIN-STANDARD §4 "Unfixable
 # HIGH/CRITICAL waiver — committed, justified waiver JSON").
@@ -142,7 +157,7 @@ eval: ## Stage 7 — multi-world offline eval; fails unless hybrid beats baselin
 	@# report the line above just regenerated. This used to run only in `make
 	@# audit`, which is not the merge gate, so the writeup could drift on `main`
 	@# for as long as nobody ran `audit` — the same "hand-typed and stale"
-	@# failure `scripts/check-readme-claims.py` exists to prevent for the README.
+	@# failure `scripts/docs_figures.py` exists to prevent for the README.
 	$(PYTHON) scripts/writeup-check.py
 
 # Stage 7 as `verify` runs it. `eval` above writes the report straight into the
@@ -201,6 +216,24 @@ eval-real: ## LOCAL-ONLY — real-data eval leg against your own cached scrobble
 	@test -n "$(EVAL_REAL_DB)" || { echo "usage: make eval-real EVAL_REAL_USER=<lastfm-username> EVAL_REAL_DB=<path-to-cache.db>"; exit 1; }
 	$(PYTHON) -m pipeline.cli eval-real --user "$(EVAL_REAL_USER)" --scrobbles "$(EVAL_REAL_DB)"
 
+# Periodic re-enrichment, the operator-facing half (ADR 0013). LOCAL ONLY, never
+# CI: this reads your own cache and reaches MusicBrainz/Wikidata. One run is
+# bounded by the CLI's own `--limit` default and rotates stalest-first, so a
+# whole catalog is several runs and each resumes where the last stopped. It
+# exits non-zero when the upstream answered nothing — a silent source is
+# reported as unreachable, never as agreement, so a red scheduled run is real.
+refresh: ## LOCAL-ONLY — re-ask upstream about the stalest cached artists (needs LAVENDER_USER)
+	@test -n "$(LAVENDER_USER)" || { echo "usage: make refresh LAVENDER_USER=<lastfm-username> [REFRESH_ARGS=\"--limit 50\"]"; exit 1; }
+	$(PYTHON) -m pipeline.cli refresh --user "$(LAVENDER_USER)" $(REFRESH_ARGS)
+
+# The schedule itself. Prints; installs nothing. A job that runs on your behalf
+# should be something you read and paste, not something a `make` target wrote
+# into your login session. Credentials are never rendered into the entry — it
+# sources a mode-600 env file the script's output tells you how to create.
+schedule: ## Print the launchd/cron entry that runs `make refresh` on the ADR 0013 cadence
+	@test -n "$(LAVENDER_USER)" || { echo "usage: make schedule LAVENDER_USER=<lastfm-username> [SCHEDULER=launchd|cron]"; exit 1; }
+	@$(PYTHON) scripts/refresh_schedule.py --user "$(LAVENDER_USER)" $(if $(SCHEDULER),--scheduler $(SCHEDULER))
+
 i18n: ## Stage 8 — i18n N/A declaration gate (INTERNATIONALIZATION-STANDARD §1)
 	@./scripts/i18n-gate.sh
 
@@ -213,6 +246,15 @@ bench: ## Benchmark the scoring path on a generated 5k-artist / 50k-scrobble wor
 # cosmic-ray mutates them in place and restores them (guarded in the script).
 mutation: $(PYTHON) ## Mutation-test identity.py + rerank.py (CQ-47; fails under 70% mutants killed; slow)
 	@./scripts/mutation-gate.sh
+
+# The write half of the stage-3 docs-figures gate. Deliberately a separate
+# target: `make test` must never rewrite the documents it is checking, or the
+# gate would pass by editing the evidence (the same failure `eval` had before
+# `eval-check` split it in two). Run it after a `make test` that reported drift —
+# the coverage figure is read from the `.coverage` that run just wrote, so a
+# stamp on a cold checkout says so rather than inventing a number.
+stamp: ## Write the derived value into every docs figure that has drifted (see `make test`)
+	$(PYTHON) scripts/docs_figures.py --write
 
 audit: render a11y eval ## Regenerate all committed responsible-tech artifacts
 	$(PYTHON) -m pytest -q >/dev/null

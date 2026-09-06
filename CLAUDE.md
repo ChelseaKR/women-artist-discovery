@@ -26,8 +26,10 @@
 - **Live mode is wired, not deferred.** `lavender ingest --user` (FIX-01, #86)
   syncs a real history end to end, and `lavender refresh --user` re-asks upstream
   and reconciles the corrections ledger. Both are opt-in; without `--user`
-  nothing opens a socket. What remains deferred is *scheduling* — a re-check is
-  an operator running the command again.
+  nothing opens a socket. Scheduling ships too (ADR 0013): `make schedule` prints
+  a launchd/cron entry that runs `make refresh` weekly on the operator's own
+  machine. Never propose a GitHub Actions cron for it — a hosted runner has no
+  cache to refresh, and giving it one means uploading a listening history to CI.
 - **The refresh invariant:** an upstream that says nothing is not an upstream
   that agrees. `MusicBrainzEnricher` renders every fetch failure as "no
   evidence", so on any path that *overwrites* a stored label, an empty
