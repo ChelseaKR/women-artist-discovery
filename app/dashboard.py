@@ -47,12 +47,11 @@ from pipeline.ingest import build_profile
 from pipeline.lastfm import ScrobbleSource
 from pipeline.models import Artist, ListeningProfile, Recommendation, Scrobble
 from recommender.coverage import identity_coverage
-from recommender.exposure import observability_panel
 from recommender.feedback import Feedback
-from recommender.hybrid import recommend
 from recommender.lens import VALUES_LENS
 from recommender.why import QUEER_SOURCES_HEADING, WhyThisArtist, why_this_artist
 
+from app.observability import LENS_GRID, OBSERVABILITY_K, observability_inputs
 from app.render import POSITION_HELD, position_basis
 
 
@@ -96,8 +95,11 @@ _FALLBACKS: tuple[tuple[str, ExportFormat, str], ...] = (
     ("M3U playlist", ExportFormat.M3U, "audio/x-mpegurl"),
     ("JSPF (JSON)", ExportFormat.JSPF, "application/json"),
 )
-LENS_GRID: tuple[float, ...] = (0.0, 0.25, 0.5, 0.75, 1.0)
-OBSERVABILITY_K = 3
+# Re-exported from `app.observability`, which is where the panel's inputs are
+# decided (#114). Kept bound here so existing references to
+# `app.dashboard.LENS_GRID` still resolve, and so there is exactly one
+# definition rather than a second copy to drift.
+__all__ = ["LENS_GRID", "OBSERVABILITY_K"]
 
 
 def _finish_spotify_export(
@@ -309,12 +311,15 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
     )
     with Cache(DEFAULT_DB_PATH) as cache:
         feedbacks = cache.load_feedback(username)
-    recs = recommend(
+    # One call decides both the list on screen and the sweep the fairness panel
+    # measures, so the two can never drift apart again (#114).
+    recs, panel = observability_inputs(
         profile,
         catalog,
         source,
+        current_lens=lens,
         k=10,
-        lens_strength=lens,
+        panel_k=OBSERVABILITY_K,
         explore=explore,
         feedbacks=feedbacks,
     )
@@ -347,11 +352,6 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
         "only ever adds to a score; it never subtracts from one."
     )
 
-    recs_by_lens = {
-        value: recommend(profile, catalog, source, k=10, lens_strength=value, feedbacks=feedbacks)
-        for value in sorted({*LENS_GRID, lens})
-    }
-    panel = observability_panel(recs_by_lens, current_lens=lens, k=OBSERVABILITY_K)
     exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
     retention_rows = cast("list[dict[str, object]]", panel["retention_rows"])
     lens_keys = list(cast("dict[str, float]", retention_rows[0]["by_lens"]))
@@ -373,6 +373,11 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
                 for key in lens_keys
             },
         }
+    )
+    st.caption(
+        "Both tables are computed at your current Serendipity setting, over the "
+        "same ranking shown below — so the shares describe the picks on this "
+        "screen rather than a different list."
     )
     st.caption(
         "Retention covers score, top-k presence, and list position, and it is "

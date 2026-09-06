@@ -23,6 +23,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
+from app.observability import observability_inputs
 from app.render import render_cards_html
 from export.models import ExportFormat
 from export.tracklist import recommendations_to_tracks, render
@@ -35,7 +36,6 @@ from recommender.eval import (
     fairness_report,
     to_report,
 )
-from recommender.exposure import observability_panel
 from recommender.feedback import Feedback
 from recommender.hybrid import recommend
 from recommender.lens import LENSES
@@ -786,21 +786,21 @@ def _cmd_report(args: argparse.Namespace) -> int:
         except LiveModeError as exc:
             print(f"error: {exc}", file=sys.stderr)  # noqa: T201
             return 2
-        recs_by_lens = {
-            lens: recommend(
-                profile,
-                catalog,
-                source,
-                k=args.k,
-                lens_strength=lens,
-                hide_sourced_men=args.hide_sourced_men,
-                lens=LENSES[args.lens_name],
-            )
-            for lens in sorted({0.0, 0.25, 0.5, 0.75, 1.0, args.lens})
-        }
-    panel = observability_panel(recs_by_lens, current_lens=args.lens, k=min(3, args.k))
+        # The same seam the dashboard and the static build use, so the rendered
+        # list and the panel measuring it come from one call (#114). This
+        # surface exposes no `--explore`, so the default of 0.0 stands.
+        recs, panel = observability_inputs(
+            profile,
+            catalog,
+            source,
+            current_lens=args.lens,
+            k=args.k,
+            panel_k=min(3, args.k),
+            hide_sourced_men=args.hide_sourced_men,
+            lens=LENSES[args.lens_name],
+        )
     html = render_cards_html(
-        recs_by_lens[args.lens],
+        recs,
         lens_strength=args.lens,
         username=profile.username,
         exposure_panel=panel,
