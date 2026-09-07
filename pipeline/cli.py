@@ -19,6 +19,7 @@ import json
 import math
 import os
 import sys
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
@@ -75,7 +76,24 @@ from pipeline.ingest import (
 )
 from pipeline.lastfm import CachedLastfm, LastfmClient, ScrobbleSource
 from pipeline.logconfig import LOG_FORMATS, configure_logging
-from pipeline.models import Artist, ListeningProfile, SourceKind, UnsourcedIdentityError
+from pipeline.models import (
+    Artist,
+    ListeningProfile,
+    Recommendation,
+    SourceKind,
+    UnsourcedIdentityError,
+)
+from pipeline.runs import (
+    DEFAULT_KEEP,
+    RunManifestError,
+    build_manifest,
+    diff_runs,
+    find_manifest,
+    list_manifest_paths,
+    prune_manifests,
+    read_manifest,
+    write_manifest,
+)
 
 _BASELINE_METRICS = frozenset({"precision_at_k", "recall_at_k", "map_at_k"})
 
@@ -884,6 +902,7 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)  # noqa: T201
             return 2
         feedbacks = cache.load_feedback(profile.username)
+        cache_schema_version = cache.schema_version
         recs = recommend(
             profile,
             catalog,
@@ -896,6 +915,16 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
             lens=LENSES[args.lens_name],
             content_filter=content_filter,
         )
+    _record_run(
+        surface="recommend",
+        recs=recs,
+        profile=profile,
+        feedbacks=feedbacks,
+        args=args,
+        cache_schema_version=cache_schema_version,
+        content_filter=content_filter,
+        explore=args.explore,
+    )
     if content_filter.active:
         print(content_filter.describe())  # noqa: T201
         if not recs:
@@ -920,6 +949,96 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
     return 0
 
 
+def _record_run(
+    *,
+    surface: str,
+    recs: Sequence[Recommendation],
+    profile: ListeningProfile,
+    feedbacks: Sequence[Feedback],
+    args: argparse.Namespace,
+    cache_schema_version: int,
+    content_filter: ContentFilter | None,
+    explore: float,
+) -> None:
+    """Write this run's manifest, and never let that failure end the run.
+
+    Recording is observability, not the product. A read-only data directory or a
+    full disk must not turn a working recommendation into an error, so the
+    failure is reported on stderr and the run stands. The converse would be
+    worse than not recording at all: a listener whose `recommend` started
+    exiting non-zero because of a bookkeeping file.
+    """
+    try:
+        manifest = build_manifest(
+            surface=surface,
+            recs=list(recs),
+            username=profile.username,
+            profile_artist_ids=profile.known_artist_ids,
+            profile_total_plays=int(sum(profile.play_counts.values())),
+            votes=[(f.artist_id, f.vote) for f in feedbacks],
+            lens_name=args.lens_name,
+            lens_strength=args.lens,
+            explore=explore,
+            hide_sourced_men=bool(args.hide_sourced_men),
+            k=args.k,
+            content_filter=content_filter,
+            cache_schema_version=cache_schema_version,
+        )
+        write_manifest(manifest)
+    except (OSError, ValueError) as exc:  # pragma: no cover - environment-dependent
+        print(f"warning: could not record this run: {exc}", file=sys.stderr)  # noqa: T201
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    if args.runs_action == "prune":
+        removed = prune_manifests(args.keep)
+        print(f"pruned {len(removed)} run manifest(s); kept the newest {args.keep}")  # noqa: T201
+        return 0
+    if args.runs_action == "show":
+        try:
+            manifest = read_manifest(find_manifest(args.run_id))
+        except RunManifestError as exc:
+            print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+            return 2
+        print(json.dumps(manifest.to_dict(), indent=2, sort_keys=True))  # noqa: T201
+        return 0
+    paths = list_manifest_paths()
+    if not paths:
+        # An empty list is the answer, not an error: nothing has been run yet.
+        print("no run manifests recorded yet")  # noqa: T201
+        return 0
+    for path in paths:
+        try:
+            manifest = read_manifest(path)
+        except RunManifestError as exc:
+            # Named and skipped rather than fatal: one unreadable file must not
+            # hide every readable one, and silence would hide it entirely.
+            print(f"{path.stem}\tUNREADABLE\t{exc}")  # noqa: T201
+            continue
+        print(  # noqa: T201
+            f"{manifest.run_id}\t{manifest.surface}\t{manifest.created_at}\t"
+            f"lens={manifest.lens_name}@{manifest.lens_strength}\tk={manifest.k}\t"
+            f"listener={manifest.listener_digest[:8]}"
+        )
+    return 0
+
+
+def _cmd_diff(args: argparse.Namespace) -> int:
+    try:
+        before = read_manifest(find_manifest(args.before))
+        after = read_manifest(find_manifest(args.after))
+        result = diff_runs(before, after, allow_mixed=args.allow_mixed)
+    except RunManifestError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))  # noqa: T201
+        return 0
+    for line in result.summary_lines():
+        print(line)  # noqa: T201
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     try:
         content_filter = _content_filter(args)
@@ -933,6 +1052,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             print(f"error: {exc}", file=sys.stderr)  # noqa: T201
             return 2
         feedbacks = cache.load_feedback(profile.username)
+        cache_schema_version = cache.schema_version
         recs = recommend(
             profile,
             catalog,
@@ -945,6 +1065,16 @@ def _cmd_export(args: argparse.Namespace) -> int:
             lens=LENSES[args.lens_name],
             content_filter=content_filter,
         )
+    _record_run(
+        surface="export",
+        recs=recs,
+        profile=profile,
+        feedbacks=feedbacks,
+        args=args,
+        cache_schema_version=cache_schema_version,
+        content_filter=content_filter,
+        explore=args.explore,
+    )
     tracks = recommendations_to_tracks(recs)
     text = render(tracks, ExportFormat(args.format), playlist_name="Lavender Rotation")
     if args.out:
@@ -992,6 +1122,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
         # The same seam the dashboard and the static build use, so the rendered
         # list and the panel measuring it come from one call (#114). This
         # surface exposes no `--explore`, so the default of 0.0 stands.
+        feedbacks = cache.load_feedback(profile.username)
+        cache_schema_version = cache.schema_version
         recs, panel = observability_inputs(
             profile,
             catalog,
@@ -1003,6 +1135,18 @@ def _cmd_report(args: argparse.Namespace) -> int:
             lens=LENSES[args.lens_name],
             content_filter=content_filter,
         )
+    # `report` exposes no `--explore`, so 0.0 is the value the run actually used
+    # rather than a default standing in for one nobody supplied.
+    _record_run(
+        surface="report",
+        recs=recs,
+        profile=profile,
+        feedbacks=feedbacks,
+        args=args,
+        cache_schema_version=cache_schema_version,
+        content_filter=content_filter,
+        explore=0.0,
+    )
     html = render_cards_html(
         recs,
         lens_strength=args.lens,
@@ -1252,6 +1396,34 @@ def build_parser() -> argparse.ArgumentParser:
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
     p_corr.set_defaults(func=_cmd_corrections)
+
+    p_runs = sub.add_parser(
+        "runs", help="browse the manifests each recommend/report/export run records"
+    )
+    runs_sub = p_runs.add_subparsers(dest="runs_action")
+    runs_sub.add_parser("list", help="list recorded runs, oldest first")
+    p_runs_show = runs_sub.add_parser("show", help="print one run manifest as JSON")
+    p_runs_show.add_argument("run_id", help="run id, or an unambiguous prefix of one")
+    p_runs_prune = runs_sub.add_parser("prune", help="delete all but the newest N manifests")
+    p_runs_prune.add_argument(
+        "--keep", type=_nonnegative_int, default=DEFAULT_KEEP, help="how many to keep"
+    )
+    p_runs.set_defaults(func=_cmd_runs, runs_action="list")
+
+    p_diff = sub.add_parser("diff", help="what changed between two recorded runs, and why")
+    p_diff.add_argument("before", help="earlier run id, or an unambiguous prefix")
+    p_diff.add_argument("after", help="later run id, or an unambiguous prefix")
+    p_diff.add_argument("--json", action="store_true", help="emit the diff as JSON")
+    p_diff.add_argument(
+        "--allow-mixed",
+        action="store_true",
+        help=(
+            "compare runs that differ in listener, lens name, or content filter. "
+            "Those runs are answers to different questions, so read the result as "
+            "such rather than as a change in the same list."
+        ),
+    )
+    p_diff.set_defaults(func=_cmd_diff)
 
     p_pending = sub.add_parser(
         "pending-corrections", help="list or file pending human upstream edits (EXP-05)"
