@@ -121,8 +121,19 @@ def _lens_key(lens_strength: float) -> str:
     return f"{lens_strength:.2f}"
 
 
-def exposure_at_k(recs: list[Recommendation], k: int) -> dict[str, float]:
-    """Share of the top-``k`` recommendation slots held by each identity segment."""
+def exposure_at_k(recs: list[Recommendation], k: int) -> dict[str, float | None]:
+    """Share of the top-``k`` recommendation slots held by each identity segment.
+
+    ``None`` for every segment when there are no slots to hold. This used to return ``0.0``
+    across the board, and the arithmetic is the tell: over any real list these shares are a
+    partition of the top-k and sum to one, so a set that sums to *zero* is not a distribution --
+    it is "nobody held a slot" published where "there were no slots" is what happened. The
+    fairness panel renders these, and a reader meeting a table of 0% has been told something
+    measured about a ranking that does not exist.
+
+    Same rule and same reason as ``segment_retention`` reporting ``None`` for a segment absent
+    from pure taste's top-k (#129); this is the third figure in the same family.
+    """
     if k < 1:
         raise ValueError("k must be at least 1")
     top = recs[:k]
@@ -130,7 +141,9 @@ def exposure_at_k(recs: list[Recommendation], k: int) -> dict[str, float]:
     for rec in top:
         counts[identity_segment(rec.artist)] += 1
     n = len(top)
-    return {seg: round(counts[seg] / n, 4) if n else 0.0 for seg in SEGMENTS}
+    if not n:
+        return dict.fromkeys(SEGMENTS, None)
+    return {seg: round(counts[seg] / n, 4) for seg in SEGMENTS}
 
 
 def _segment_state(

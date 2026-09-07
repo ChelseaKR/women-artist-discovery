@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -63,6 +64,51 @@ def _year_range(scrobbles: list[Scrobble]) -> tuple[int, int]:
     years = [datetime.fromtimestamp(item.ts, tz=UTC).year for item in scrobbles]
     lo, hi = min(years), max(years)
     return (lo - 1, hi + 1) if lo == hi else (lo, hi)
+
+
+UNMEASURED_TEXT = "not measured"
+
+
+def unmeasured_or_percent(value: object) -> str:
+    """A percentage, or the words for a figure that was never measured.
+
+    ``None`` reaches here for two reasons, both of them "there was nothing to measure": a
+    rank-protected segment with no artist in pure taste's top-k (#129), and an empty top-k with
+    no slots to share out. Formatting either as ``0%`` or ``100%`` states a measurement that did
+    not happen, which is the one thing this panel exists not to do.
+    """
+
+    if value is None:
+        return UNMEASURED_TEXT
+    return f"{cast(float, value):.0%}"
+
+
+def fairness_exposure_table(rows: Sequence[Mapping[str, object]]) -> dict[str, list[object]]:
+    """The exposure-share table the fairness panel renders.
+
+    Built here rather than inline in the Streamlit call so that it can be exercised without a
+    Streamlit runtime. It was inline, nothing rendered it in the suite, and a value that became
+    nullable upstream turned the demo dashboard into a ``TypeError``.
+    """
+
+    return {
+        "Identity segment": [row["segment"] for row in rows],
+        "Base share": [unmeasured_or_percent(row["base_share"]) for row in rows],
+        "Current share": [unmeasured_or_percent(row["current_share"]) for row in rows],
+    }
+
+
+def fairness_retention_table(
+    rows: Sequence[Mapping[str, object]], lens_keys: Sequence[str]
+) -> dict[str, list[object]]:
+    """The retention table the fairness panel renders, one column per lens strength."""
+
+    table: dict[str, list[object]] = {"Identity segment": [row["segment"] for row in rows]}
+    for key in lens_keys:
+        table[f"Lens {key}"] = [
+            unmeasured_or_percent(cast("Mapping[str, object]", row["by_lens"])[key]) for row in rows
+        ]
+    return table
 
 
 def _build_temporal_profile(
@@ -354,26 +400,10 @@ def main() -> None:  # pragma: no cover - exercised via the live Streamlit runti
 
     exposure_rows = cast("list[dict[str, object]]", panel["exposure_rows"])
     retention_rows = cast("list[dict[str, object]]", panel["retention_rows"])
-    lens_keys = list(cast("dict[str, float]", retention_rows[0]["by_lens"]))
+    lens_keys = list(cast("dict[str, float | None]", retention_rows[0]["by_lens"]))
     st.subheader(f"Fairness observability (top {OBSERVABILITY_K})")
-    st.table(
-        {
-            "Identity segment": [row["segment"] for row in exposure_rows],
-            "Base share": [f"{cast(float, row['base_share']):.0%}" for row in exposure_rows],
-            "Current share": [f"{cast(float, row['current_share']):.0%}" for row in exposure_rows],
-        }
-    )
-    st.table(
-        {
-            "Identity segment": [row["segment"] for row in retention_rows],
-            **{
-                f"Lens {key}": [
-                    f"{cast('dict[str, float]', row['by_lens'])[key]:.0%}" for row in retention_rows
-                ]
-                for key in lens_keys
-            },
-        }
-    )
+    st.table(fairness_exposure_table(exposure_rows))
+    st.table(fairness_retention_table(retention_rows, lens_keys))
     st.caption(
         "Both tables are computed at your current Serendipity setting, over the "
         "same ranking shown below — so the shares describe the picks on this "
