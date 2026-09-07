@@ -25,6 +25,7 @@ the whole class of error this catches.
 from __future__ import annotations
 
 import argparse
+import itertools
 import re
 import shlex
 import shutil
@@ -121,6 +122,23 @@ def _long_options(parser: argparse.ArgumentParser) -> set[str]:
     return {opt for action in parser._actions for opt in action.option_strings}
 
 
+def _positional_count(parser: argparse.ArgumentParser) -> int:
+    """How many positional arguments this parser takes, subcommands excluded.
+
+    Without this the checker could not describe a whole legitimate command
+    shape: a command with positionals and no subcommands. It read the first
+    positional as a subcommand and reported `lavender diff A B` -- a correct
+    line -- as naming a subcommand that does not exist. That is the dangerous
+    direction, because it is the one that gets "fixed" by editing the document
+    to match the checker rather than the checker to match the command.
+    """
+    return sum(
+        1
+        for action in parser._actions
+        if not action.option_strings and not isinstance(action, argparse._SubParsersAction)
+    )
+
+
 def _check_top_level(tokens: list[str], root: argparse.ArgumentParser) -> str | None:
     """Why this bare `lavender --flag` line is wrong, or ``None`` if it is fine.
 
@@ -142,6 +160,33 @@ def _check_top_level(tokens: list[str], root: argparse.ArgumentParser) -> str | 
     return None
 
 
+def _check_flags(command: str, tokens: list[str], allowed: set[str]) -> str | None:
+    for token in tokens:
+        if not token.startswith("--"):
+            continue
+        flag = token.split("=", 1)[0]
+        if flag not in allowed:
+            return f"{flag!r} is not an option of `lavender {command}`"
+    return None
+
+
+def _check_positional_command(
+    command: str,
+    parser: argparse.ArgumentParser,
+    rest: list[str],
+    allowed: set[str],
+) -> str | None:
+    """A command that takes positionals rather than a subcommand."""
+    positionals = _positional_count(parser)
+    supplied = len(list(itertools.takewhile(lambda t: not t.startswith("-"), rest)))
+    if supplied > positionals:
+        return (
+            f"`lavender {command}` takes {positionals} positional argument(s), "
+            f"but the docs pass {supplied}"
+        )
+    return _check_flags(command, rest[supplied:], allowed)
+
+
 def check_invocation(argv: str) -> str | None:
     """Why this documented invocation is wrong, or ``None`` if it is fine."""
     tokens = shlex.split(argv)
@@ -159,6 +204,9 @@ def check_invocation(argv: str) -> str | None:
     nested = _subparsers(parser)
     if rest and not rest[0].startswith("-"):
         if not nested:
+            positionals = _positional_count(parser)
+            if positionals:
+                return _check_positional_command(command, parser, rest, allowed)
             return (
                 f"{command!r} takes no subcommand, but the docs pass {rest[0]!r}. "
                 f"Did they mean a different command?"
@@ -169,13 +217,7 @@ def check_invocation(argv: str) -> str | None:
         allowed |= _long_options(parser)
         rest = rest[1:]
 
-    for token in rest:
-        if not token.startswith("--"):
-            continue
-        flag = token.split("=", 1)[0]
-        if flag not in allowed:
-            return f"{flag!r} is not an option of `lavender {command}`"
-    return None
+    return _check_flags(command, rest, allowed)
 
 
 def test_the_docs_actually_contain_invocations_to_check() -> None:
