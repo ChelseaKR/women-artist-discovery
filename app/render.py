@@ -211,6 +211,18 @@ def _table_html(recs: Sequence[Recommendation]) -> str:
     )
 
 
+def _share_cell(value: float | None) -> str:
+    """One exposure-share cell, or an explicit statement that there was nothing to share out.
+
+    An empty top-k has no shares. Rendering that as a column of "0%" says every segment held
+    none of the slots, which is a measurement; what happened is that there were no slots.
+    """
+
+    if value is None:
+        return '<td class="unmeasured">not measured \u2014 no picks in the top-k</td>'
+    return f"<td>{value:.0%}</td>"
+
+
 def _retention_cell(value: float | None) -> str:
     """One retention cell, or an explicit statement that nothing was measured.
 
@@ -234,8 +246,9 @@ def _exposure_panel_html(panel: dict[str, object] | None) -> str:
     current_pct = f"{cast(float, panel['current_lens']):.0%}"
     body = "".join(
         f'<tr><th scope="row">{escape(str(row["segment"]))}</th>'
-        f"<td>{cast(float, row['base_share']):.0%}</td>"
-        f"<td>{cast(float, row['current_share']):.0%}</td></tr>"
+        + _share_cell(cast("float | None", row["base_share"]))
+        + _share_cell(cast("float | None", row["current_share"]))
+        + "</tr>"
         for row in rows
     )
     retention_rows = cast("list[dict[str, object]]", panel["retention_rows"])

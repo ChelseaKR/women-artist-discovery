@@ -63,6 +63,30 @@ tag, not backfilled to an earlier commit date.
 
 ### Fixed
 
+- **The interactive dashboard crashed on the demo world.** `segment_retention` started reporting
+  `None` for a segment absent from pure taste's top-k (#129) and `app/render.py` was taught to
+  say so; `app/dashboard.py` was not. Its retention table still did `f"{...:.0%}"` over those
+  values, so the Streamlit app raised
+  `TypeError: unsupported format string passed to NoneType.__format__` — on the demo world, which
+  is the only world it shows, because that catalogue holds no artist sourced as `Gender.OTHER`
+  and so `other_retention` is `None` for every lens.
+
+  **Two gates were in a position to catch it and neither could.** `mypy --strict` read a
+  `cast("dict[str, float]", ...)` on the same expression, and a cast is a promise it takes at its
+  word. And `tests/test_committed_render.py` holds the *static* render to the byte while
+  `tests/test_observability.py` holds the *panel* — between them, the dashboard's own table
+  construction was rendered by nothing. It is now built by two named functions
+  (`fairness_exposure_table`, `fairness_retention_table`) and
+  `tests/test_dashboard_fairness_tables.py` calls them over the real demo world.
+
+- **An empty top-k reported a 0% share for every identity segment.** `exposure_at_k` divided by
+  the slot count and fell back to `0.0` when there were no slots. Seven shares of zero is not a
+  distribution — over any real top-k they are a partition and sum to one — so what read as
+  "no segment held any of the slots" was "there were no slots". It now reports `None` per
+  segment, and the fairness panel says "not measured" in both the static render and the
+  dashboard. Same rule and same reason as #129; the third figure in that family.
+
+  The test that pinned the old behaviour, `test_exposure_at_k_empty_is_all_zero`, is rewritten.
 - **An empty run reported "0% sourced" instead of no share at all.**
   `IdentityCoverage.sourced_fraction` and `unknown_fraction` divided by `total` and fell back to
   `0.0` when `total` was zero, and `to_dict()` published both. Over a run with no picks that

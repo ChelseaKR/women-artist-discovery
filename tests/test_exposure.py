@@ -91,9 +91,16 @@ def test_exposure_shares_sum_to_one(profile, catalog, source) -> None:
     assert sum(shares.values()) == pytest.approx(1.0)
 
 
-def test_exposure_at_k_empty_is_all_zero() -> None:
+def test_an_empty_top_k_has_no_shares_rather_than_shares_of_zero() -> None:
+    """This test previously asserted the defect, as ``test_exposure_at_k_empty_is_all_zero``.
+
+    ``{0.0}`` across every segment says each of them held none of the slots -- a measurement --
+    when what happened is that there were no slots. The arithmetic is the tell: over any real
+    top-k these shares are a partition and sum to one, and a set summing to zero is not one.
+    """
     shares = exposure_at_k([], k=5)
-    assert set(shares.values()) == {0.0}
+    assert set(shares) == set(SEGMENTS)
+    assert set(shares.values()) == {None}
 
 
 def test_exposure_metrics_reject_nonpositive_k() -> None:
