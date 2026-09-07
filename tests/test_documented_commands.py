@@ -250,3 +250,16 @@ def test_the_check_rejects_the_command_that_shipped_in_two_documents() -> None:
     # Top-level invocations with no subcommand, both directions.
     assert check_invocation("--help") is None
     assert check_invocation("--definitely-not-a-top-level-flag") is not None
+    # A command that takes positionals rather than a subcommand, both
+    # directions. Added because a control on the arity branch stayed green:
+    # once the docs were correct, no documented line reached it, so the branch
+    # had no case that could fail.
+    assert check_invocation("diff run-a run-b") is None
+    assert check_invocation("diff run-a run-b --json") is None
+    assert check_invocation("diff run-a run-b --allow-mixed") is None
+    assert check_invocation("diff run-a run-b extra") is not None
+    assert check_invocation("diff run-a run-b --not-a-flag") is not None
+    # `runs` still resolves as a subcommand, not as a positional.
+    assert check_invocation("runs show some-id") is None
+    assert check_invocation("runs prune --keep 5") is None
+    assert check_invocation("runs nonsense") is not None
