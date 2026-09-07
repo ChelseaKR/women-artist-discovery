@@ -55,6 +55,24 @@ ENV_KEYS: tuple[str, ...] = (
     "LAVENDER_TIDAL_REDIRECT_URI",
 )
 
+# The modules this project permits to open a socket. Everything else in
+# `pipeline/`, `recommender/`, `export/` and `app/` is checked by
+# `tests/test_privacy.py` for network tokens and must have none.
+#
+# It lives here, in shipped code, rather than only in that test, for two reasons.
+# A reader who wants to know what this tool is allowed to contact should not have
+# to read its test suite, and `lavender doctor --json` reports this list. The test
+# imports it, so there is still exactly one definition and the gate still fails if
+# a module starts opening sockets outside it.
+NETWORK_EGRESS_MODULES: frozenset[str] = frozenset(
+    {
+        "pipeline/lastfm.py",  # the Last.fm API client
+        "pipeline/http.py",  # the cached HTTP layer MusicBrainz/Wikidata go through
+        "pipeline/doctor.py",  # this module: the opt-in --check-upstream probe
+        "export/base.py",  # the playlist-provider exporters
+    }
+)
+
 # (human label, host) — used only by the opt-in upstream reachability check.
 UPSTREAM_APIS: tuple[tuple[str, str], ...] = (
     ("Last.fm", "https://ws.audioscrobbler.com/2.0/"),

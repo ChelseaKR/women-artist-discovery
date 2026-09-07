@@ -14,6 +14,51 @@ tag, not backfilled to an earlier commit date.
 
 ### Added
 
+- **`--json` on `recommend`, `export` and `doctor`, with committed schemas (part of
+  #121).** One versioned document per invocation, described by
+  `schemas/*.schema.json`, generated from `pipeline/jsonout.py` rather than
+  hand-written beside it. The point is not convenience. Three of this project's
+  guarantees are asserted today by tests over Python objects, which means a third
+  party has to take them on trust; these documents make them checkable from a
+  shell.
+  - **Identity is never inferred, structurally.** The `recommend` schema pins
+    `inferred` to `false`, has no slot for a guessed value, and makes a sourced
+    gender without provenance a schema error. A pick whose basis is `unknown`
+    carries `sourced_gender: "unknown"` — a value, not a missing key — and no
+    citations. A property test drives the demo world across k, both lenses, the
+    whole `--lens`/`--explore` range and the men filter, and asserts no pick ever
+    carries an unsourced label; its checker has a negative control of its own,
+    because a guard that cannot see the defect it guards against reads as a pass
+    on every run.
+  - **`doctor --json` publishes the egress allowlist.** The modules permitted to
+    open a socket moved out of `tests/test_privacy.py` and into
+    `pipeline/doctor.py` as `NETWORK_EGRESS_MODULES`; the test imports it, so
+    there is still one definition and the same gate, but what this tool may
+    contact is now readable without opening its test suite. The document also
+    reports `upstream_checked`, because a run without `--check-upstream` carries
+    no upstream checks at all and their absence is not a report that every API
+    was reachable.
+  - **`export --json` wraps the portable file verbatim** and adds only metadata
+    (format, count, generated-at, destination), so the envelope cannot carry a
+    field the chosen format does not already carry.
+  - **A refusal is emitted in the same shape**, with a machine-switchable
+    `error.kind` and a non-zero exit, so a script cannot read a refusal as an
+    empty result. An unmeasurable share is `null`, never `0.0`.
+  - `recommend --json` carries no timestamp and no run id, and is byte-identical
+    across runs of the same query. The guard runs the CLI in three separate
+    interpreters under different `PYTHONHASHSEED` values over a seven-pick world,
+    because two renders inside one interpreter share a stable set iteration order
+    and a one-row fixture has no order to get wrong.
+  - Per-document schema versions, not one shared number: bumping one would tell
+    every consumer their contract had changed when only one document moved.
+  - `python3 scripts/gen_schemas.py [--check]` writes or verifies the committed
+    schemas, and the validator in `pipeline/jsonout.py` is dependency-free and
+    asserts its own keyword coverage against those schemas, so it cannot pass a
+    document by ignoring a constraint it does not implement.
+  - **Not yet:** `report`, `feedback`, `refresh`, `corrections`,
+    `pending-corrections`, `eval` and `runs`. #121 stays open for them; `diff`
+    already had its own `--json` before this.
+
 - **Identity-blind tag and era filters on `recommend`, `report` and `export` (#123).**
   `--include-tags`, `--exclude-tags`, `--year-from`, `--year-to`. They narrow the *candidate
   pool* before anything is scored, so the values lens, rank protection, the serendipity pass

@@ -74,6 +74,13 @@ from pipeline.ingest import (
     profile_from_cache,
     refresh_catalog,
 )
+from pipeline.jsonout import (
+    doctor_document,
+    emit,
+    error_document,
+    export_document,
+    recommend_document,
+)
 from pipeline.lastfm import CachedLastfm, LastfmClient, ScrobbleSource
 from pipeline.logconfig import LOG_FORMATS, configure_logging
 from pipeline.models import (
@@ -889,18 +896,44 @@ def _cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refuse(command: str, kind: str, message: str, *, as_json: bool) -> int:
+    """One refusal, rendered in whichever shape the caller asked for.
+
+    A caller who passed `--json` gets JSON when the run fails too. A human
+    sentence on stderr and an empty stdout is exactly the shape that lets a
+    script read a refusal as an empty result.
+    """
+    if as_json:
+        print(emit(error_document(command=command, kind=kind, message=message)), end="")  # noqa: T201
+        return 2
+    print(f"error: {message}", file=sys.stderr)  # noqa: T201
+    return 2
+
+
+def _add_json_flag(parser: argparse.ArgumentParser, document: str) -> None:
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            f"emit one versioned {document} document on stdout instead of the "
+            f"human rendering (schemas/{document}.schema.json). A refusal is "
+            "emitted in the same shape, so a script cannot read one as an "
+            "empty result."
+        ),
+    )
+
+
 def _cmd_recommend(args: argparse.Namespace) -> int:
+    as_json = bool(getattr(args, "json", False))
     try:
         content_filter = _content_filter(args)
     except FilterSpecError as exc:
-        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-        return 2
+        return _refuse("recommend", "invalid_filter", str(exc), as_json=as_json)
     with Cache(args.db) as cache:
         try:
             profile, catalog, source = _load_world(cache, args)
         except LiveModeError as exc:
-            print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-            return 2
+            return _refuse("recommend", "live_mode", str(exc), as_json=as_json)
         feedbacks = cache.load_feedback(profile.username)
         cache_schema_version = cache.schema_version
         recs = recommend(
@@ -925,6 +958,27 @@ def _cmd_recommend(args: argparse.Namespace) -> int:
         content_filter=content_filter,
         explore=args.explore,
     )
+    if as_json:
+        # The filter description and the coverage summary are inside the
+        # document rather than printed beside it: a caller parsing stdout must
+        # get one JSON value and nothing else.
+        print(  # noqa: T201
+            emit(
+                recommend_document(
+                    recommendations=recs,
+                    coverage=identity_coverage(recs),
+                    listener=profile.username,
+                    lens_name=args.lens_name,
+                    lens_strength=args.lens,
+                    explore=args.explore,
+                    hide_sourced_men=bool(args.hide_sourced_men),
+                    k=args.k,
+                    content_filter_description=content_filter.describe(),
+                )
+            ),
+            end="",
+        )
+        return 0
     if content_filter.active:
         print(content_filter.describe())  # noqa: T201
         if not recs:
@@ -1040,17 +1094,16 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
+    as_json = bool(getattr(args, "json", False))
     try:
         content_filter = _content_filter(args)
     except FilterSpecError as exc:
-        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-        return 2
+        return _refuse("export", "invalid_filter", str(exc), as_json=as_json)
     with Cache(args.db) as cache:
         try:
             profile, catalog, source = _load_world(cache, args)
         except LiveModeError as exc:
-            print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-            return 2
+            return _refuse("export", "live_mode", str(exc), as_json=as_json)
         feedbacks = cache.load_feedback(profile.username)
         cache_schema_version = cache.schema_version
         recs = recommend(
@@ -1076,12 +1129,34 @@ def _cmd_export(args: argparse.Namespace) -> int:
         explore=args.explore,
     )
     tracks = recommendations_to_tracks(recs)
-    text = render(tracks, ExportFormat(args.format), playlist_name="Lavender Rotation")
+    export_format = ExportFormat(args.format)
+    playlist_name = "Lavender Rotation"
+    text = render(tracks, export_format, playlist_name=playlist_name)
+    written_to: str | None = None
     if args.out:
         out = Path(args.out)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(text, encoding="utf-8")
-        print(f"wrote {out}")  # noqa: T201
+        written_to = str(out)
+    if as_json:
+        # The envelope wraps the rendered file verbatim, so it cannot carry a
+        # field the portable format does not already carry.
+        print(  # noqa: T201
+            emit(
+                export_document(
+                    export_format=export_format,
+                    playlist_name=playlist_name,
+                    tracks=tracks,
+                    content=text,
+                    generated_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    written_to=written_to,
+                )
+            ),
+            end="",
+        )
+        return 0
+    if written_to is not None:
+        print(f"wrote {written_to}")  # noqa: T201
     else:
         print(text)  # noqa: T201
     # On stderr, so it reaches a person watching the run without entering a playlist file
@@ -1168,6 +1243,12 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     report = run_diagnostics(check_upstream=args.check_upstream)
+    if getattr(args, "json", False):
+        print(  # noqa: T201
+            emit(doctor_document(report, upstream_checked=bool(args.check_upstream))),
+            end="",
+        )
+        return 0 if report.ok else 1
     for check in report.checks:
         status = "PASS" if check.passed else "FAIL"
         print(f"[{status}] {check.name}: {check.detail}")  # noqa: T201
@@ -1299,6 +1380,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
     )
+    _add_json_flag(p_rec, "recommend")
     _add_world_args(p_rec)
     p_rec.set_defaults(func=_cmd_recommend)
 
@@ -1315,6 +1397,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="serendipity slider in [0,1]; 0=pure relevance, 1=max tag-space diversity",
     )
     p_exp.add_argument("--out", default=None, help="write to a file instead of stdout")
+    _add_json_flag(p_exp, "export")
     _add_world_args(p_exp)
     p_exp.set_defaults(func=_cmd_export)
 
@@ -1342,6 +1425,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also probe upstream APIs (opt-in; makes network calls)",
     )
+    _add_json_flag(p_doctor, "doctor")
     p_doctor.set_defaults(func=_cmd_doctor)
 
     p_ref = sub.add_parser(
