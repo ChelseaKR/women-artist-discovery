@@ -22,6 +22,7 @@ import app
 import export
 import pipeline
 import recommender
+from pipeline.doctor import NETWORK_EGRESS_MODULES
 
 TELEMETRY_TOKENS = (
     "mixpanel",
@@ -46,12 +47,11 @@ TELEMETRY_TOKENS = (
 # by the same seam discipline, last entry the identity path needs: MusicBrainz and
 # Wikidata are both fetched through that one transport, and `pipeline/enrich.py`
 # takes its fetcher as an argument rather than importing a client of its own.
-NETWORK_ALLOWED = {
-    "pipeline/lastfm.py",
-    "pipeline/http.py",
-    "pipeline/doctor.py",
-    "export/base.py",
-}
+# Imported, not restated. The allowlist is shipped code now, because
+# `lavender doctor --json` publishes it and a reader should not have to open a
+# test file to learn what this tool may contact. A second copy here would be a
+# second place for it to drift.
+NETWORK_ALLOWED = set(NETWORK_EGRESS_MODULES)
 NETWORK_TOKENS = (
     "import requests",
     "import httpx",

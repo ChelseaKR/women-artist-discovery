@@ -45,6 +45,35 @@ recommendation surface also takes `--explore` (0 to 1), an identity-blind serend
 slider that trades relevance for tag-space diversity among the movable picks; it is 0 by
 default, and it never moves a rank-protected one.
 
+**Machine-readable output.** `recommend`, `export` and `doctor` each take `--json`
+and emit one versioned document described by a committed schema under
+[`schemas/`](schemas/). The point is not convenience: it makes three of this
+project's guarantees checkable by someone who does not trust it.
+
+```sh
+lavender recommend --json | jq '.recommendations[].identity | {basis, sourced_gender, inferred}'
+lavender doctor --json    | jq '.egress_allowlist'
+```
+
+- **Identity is never inferred, structurally.** The `recommend` schema pins
+  `inferred` to `false` and has no slot for a guessed value; a pick whose basis
+  is `unknown` carries no provenance, and a sourced gender without provenance is
+  a schema error. A reviewer can confirm that from the command line rather than
+  from this paragraph.
+- **`doctor --json` publishes the egress allowlist** — the modules permitted to
+  open a socket and the hosts the opt-in probe reaches — so what this tool may
+  contact is readable without opening its test suite. It also reports
+  `upstream_checked`, because "no upstream failure" and "upstream not probed" are
+  different findings.
+- **`export --json` wraps the portable file verbatim**, adding only metadata, so
+  the envelope cannot carry a field the format does not.
+
+An unmeasurable share is `null`, never `0.0`. A refusal is emitted in the same
+shape with a machine-switchable `error.kind` and a non-zero exit, so a script
+cannot read one as an empty result. `recommend --json` carries no timestamp and
+no run id and is byte-identical across runs of the same query — that is what
+lets you tell a ranking change from a bookkeeping one.
+
 **Why is this week's list different from last week's?** `recommend`, `report` and
 `export` each write a run manifest — the lens and its strength, `--explore`,
 `--hide-sourced-men`, k, the active content filter, the cache schema version, the
@@ -139,7 +168,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 1240 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 1261 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,
