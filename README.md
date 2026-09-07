@@ -45,14 +45,16 @@ recommendation surface also takes `--explore` (0 to 1), an identity-blind serend
 slider that trades relevance for tag-space diversity among the movable picks; it is 0 by
 default, and it never moves a rank-protected one.
 
-**Machine-readable output.** `recommend`, `export` and `doctor` each take `--json`
-and emit one versioned document described by a committed schema under
-[`schemas/`](schemas/). The point is not convenience: it makes three of this
-project's guarantees checkable by someone who does not trust it.
+**Machine-readable output.** `recommend`, `export`, `doctor`, `corrections` and
+`pending-corrections` each take `--json` and emit one versioned document described
+by a committed schema under [`schemas/`](schemas/). The point is not convenience:
+it makes several of this project's guarantees checkable by someone who does not
+trust it.
 
 ```sh
 lavender recommend --json | jq '.recommendations[].identity | {basis, sourced_gender, inferred}'
 lavender doctor --json    | jq '.egress_allowlist'
+lavender corrections --json | jq '.corrections[] | {artist_id, citation}'
 ```
 
 - **Identity is never inferred, structurally.** The `recommend` schema pins
@@ -67,6 +69,16 @@ lavender doctor --json    | jq '.egress_allowlist'
   different findings.
 - **`export --json` wraps the portable file verbatim**, adding only metadata, so
   the envelope cannot carry a field the format does not.
+- **The two ledgers read back one layer earlier.** `corrections --json` is what a
+  person asserted and cited; `pending-corrections --json` is what they have asked
+  an upstream source to change and has not reconciled yet. Read beside
+  `recommend --json`, they are the whole chain from assertion to ranking. Both
+  carry an `action`, because listing and writing are different runs: a listing
+  fills `count` and the rows, a write leaves both `null` rather than `0` and `[]`,
+  since a zero immediately after a write would say the ledger is empty. A write
+  never echoes the asserted value back — an identity value is the one thing this
+  project promises never leaves the machine it was typed on, and JSON is the
+  output most likely to reach a log.
 
 An unmeasurable share is `null`, never `0.0`. A refusal is emitted in the same
 shape with a machine-switchable `error.kind` and a non-zero exit, so a script
@@ -168,7 +180,7 @@ These are hard rules, each enforced by a merge-blocking test (see
 ## Project status
 
 The offline demo and full pipeline are implemented and gated: `make verify` runs
-formatting/lint/SAST, strict typing, 1261 tests at 96% coverage, dependency and
+formatting/lint/SAST, strict typing, 1271 tests at 96% coverage, dependency and
 secret scans, axe/pa11y renders plus browser-driven keyboard/reflow/reduced-motion
 specs (Playwright, required in CI), offline multiworld evaluation with
 regression/fairness gates, and the i18n declaration gate. CodeQL, zizmor, OSV,

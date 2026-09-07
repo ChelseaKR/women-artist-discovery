@@ -75,10 +75,14 @@ from pipeline.ingest import (
     refresh_catalog,
 )
 from pipeline.jsonout import (
+    correction_recorded_document,
+    corrections_document,
     doctor_document,
     emit,
     error_document,
     export_document,
+    pending_correction_filed_document,
+    pending_corrections_document,
     recommend_document,
 )
 from pipeline.lastfm import CachedLastfm, LastfmClient, ScrobbleSource
@@ -647,14 +651,14 @@ def _cmd_refresh(args: argparse.Namespace) -> int:
 
 def _cmd_corrections(args: argparse.Namespace) -> int:
     """List the local corrections ledger, or add one (citation required)."""
+    as_json = bool(getattr(args, "json", False))
     with Cache(args.db) as cache:
         if args.artist or args.value or args.citation:
             if not (args.artist and args.value and args.citation):
-                print(  # noqa: T201
-                    "error: adding a correction requires --artist, --value, and --citation",
-                    file=sys.stderr,
+                return _corrections_refusal(
+                    "adding a correction requires --artist, --value, and --citation",
+                    as_json=as_json,
                 )
-                return 1
             today = datetime.now(UTC).date().isoformat()
             # A correction whose value the controlled vocabulary does not cover
             # resolves to nothing, for ever. It used to be written anyway and
@@ -679,25 +683,23 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
                 # spending a run on a value that could never take effect. Naming
                 # the schema on the failure path only was the strictly worse half
                 # of that.
-                print(  # noqa: T201
-                    "error: that is not a value this vocabulary covers, so the "
-                    "correction could never take effect. Nothing was written.\n"
-                    "  the accepted values are listed under --value in "
+                return _corrections_refusal(
+                    "that is not a value this vocabulary covers, so the "
+                    "correction could never take effect. Nothing was written. "
+                    "The accepted values are listed under --value in "
                     "`lavender corrections --help`",
-                    file=sys.stderr,
+                    as_json=as_json,
                 )
-                return 1
             retrieved_at = args.retrieved_at or today
             # An unparseable date silently makes the row permanently "stale"
             # (`_parse_iso_date` returns None and every TTL comparison then
             # treats it as never fetched), which is a slow, invisible failure.
             if _iso_date_problem(retrieved_at) is not None:
-                print(  # noqa: T201
-                    f"error: --retrieved-at {retrieved_at!r} is not an ISO date "
+                return _corrections_refusal(
+                    f"--retrieved-at {retrieved_at!r} is not an ISO date "
                     "(YYYY-MM-DD). Nothing was written.",
-                    file=sys.stderr,
+                    as_json=as_json,
                 )
-                return 1
             evidence = IdentityEvidence(
                 kind=SourceKind.ARTIST_STATEMENT,
                 value=args.value,
@@ -707,13 +709,32 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
             try:
                 cache.put_correction(args.artist, evidence, entered_at=today)
             except UnsourcedIdentityError as exc:
-                print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-                return 1
+                return _corrections_refusal(str(exc), as_json=as_json)
+            if as_json:
+                print(  # noqa: T201
+                    emit(
+                        correction_recorded_document(
+                            artist_id=args.artist,
+                            citation=args.citation,
+                            retrieved_at=retrieved_at,
+                            entered_at=today,
+                            database=str(args.db),
+                        )
+                    ),
+                    end="",
+                )
+                return 0
             print(  # noqa: T201
                 f"recorded correction for {args.artist}: {args.value!r} ({args.citation})"
             )
             return 0
         corrections = cache.list_corrections()
+        if as_json:
+            print(  # noqa: T201
+                emit(corrections_document(corrections=corrections, database=str(args.db))),
+                end="",
+            )
+            return 0
         if not corrections:
             print("no corrections recorded")  # noqa: T201
             return 0
@@ -727,6 +748,7 @@ def _cmd_corrections(args: argparse.Namespace) -> int:
 
 def _cmd_pending_corrections(args: argparse.Namespace) -> int:
     """List or file human upstream edits awaiting a future refresh."""
+    as_json = bool(getattr(args, "json", False))
     path = args.path or str(pending_corrections.default_path(Path(args.db)))
     if args.pending_command == "add":
         edit_url = upstream_edit_url(args.source_kind, args.citation)
@@ -741,11 +763,17 @@ def _cmd_pending_corrections(args: argparse.Namespace) -> int:
             filed_at=datetime.now(UTC).date().isoformat(),
             edit_url=edit_url,
         )
+        if as_json:
+            print(emit(pending_correction_filed_document(row=row, path=path)), end="")  # noqa: T201
+            return 0
         print(f"filed pending correction for {row.artist_id} ({row.source_kind})")  # noqa: T201
         if row.edit_url:
             print(f"  fix at source: {row.edit_url}")  # noqa: T201
         return 0
     rows = pending_corrections.list_corrections(path)
+    if as_json:
+        print(emit(pending_corrections_document(rows=rows, path=path)), end="")  # noqa: T201
+        return 0
     if not rows:
         print("no pending corrections")  # noqa: T201
         return 0
@@ -908,6 +936,24 @@ def _refuse(command: str, kind: str, message: str, *, as_json: bool) -> int:
         return 2
     print(f"error: {message}", file=sys.stderr)  # noqa: T201
     return 2
+
+
+def _corrections_refusal(message: str, *, as_json: bool) -> int:
+    """A `corrections` refusal, in whichever shape the caller asked for.
+
+    Exit 1, not the 2 `_refuse` uses. These refusals predate the JSON flag and
+    a caller's script already branches on that code; adding an output format is
+    not a reason to move a published exit status. The `error` document carries
+    the machine-switchable reason, so nothing is lost by the difference.
+    """
+    if as_json:
+        print(  # noqa: T201
+            emit(error_document(command="corrections", kind="invalid_input", message=message)),
+            end="",
+        )
+        return 1
+    print(f"error: {message}", file=sys.stderr)  # noqa: T201
+    return 1
 
 
 def _add_json_flag(parser: argparse.ArgumentParser, document: str) -> None:
@@ -1479,6 +1525,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_corr.add_argument("--citation", default=None, help="citation (required to add)")
     p_corr.add_argument("--retrieved-at", default=None, help="ISO date; defaults to today")
+    _add_json_flag(p_corr, "corrections")
     p_corr.set_defaults(func=_cmd_corrections)
 
     p_runs = sub.add_parser(
@@ -1514,6 +1561,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_pending.add_argument("--db", default=str(DEFAULT_DB_PATH))
     p_pending.add_argument("--path", default=None, help="pending JSON file (default: beside --db)")
+    _add_json_flag(p_pending, "pending-corrections")
     pending_sub = p_pending.add_subparsers(dest="pending_command")
     p_pending_add = pending_sub.add_parser("add", help="file a pending upstream correction")
     p_pending_add.add_argument("--artist", required=True)

@@ -75,7 +75,27 @@ def test_the_validator_understands_every_keyword_the_schemas_use() -> None:
 def test_every_document_has_its_own_schema_version() -> None:
     """One shared number would tell every consumer their contract had changed
     when only one document moved."""
-    assert set(jsonout.SCHEMA_VERSIONS) == {"recommend", "export", "doctor", "error"}
+    assert set(jsonout.SCHEMA_VERSIONS) == {
+        "recommend",
+        "export",
+        "doctor",
+        "error",
+        "corrections",
+        "pending_corrections",
+    }
+
+
+def test_every_published_schema_pins_a_version_of_its_own() -> None:
+    """The list above is written out on purpose, so a new document has to be
+    added to it deliberately. This is the other half: a schema that shipped
+    without a version key of its own, or that pinned somebody else's, would
+    pass that assertion and still publish a contract nobody can version."""
+    for name in sorted(jsonout.SCHEMAS):
+        document = jsonout.SCHEMAS[name]()
+        pinned = document["properties"]["schema_version"]["const"]
+        key = name.removesuffix(".schema.json").replace("-", "_")
+        assert key in jsonout.SCHEMA_VERSIONS, f"{name} has no version key"
+        assert pinned == jsonout.SCHEMA_VERSIONS[key], name
 
 
 def test_recommend_output_validates(capsys: pytest.CaptureFixture[str]) -> None:
@@ -317,3 +337,253 @@ def test_recommend_json_is_byte_identical_across_interpreters() -> None:
     # order left to get wrong and the guard would pass on anything.
     assert len(document["recommendations"]) >= 5
     assert_valid(document, "recommend")
+
+
+# --- the two ledger documents -------------------------------------------------
+#
+# These are the surfaces a reviewer reads to check the claim one layer earlier
+# than `recommend --json`: this is what a person asserted and cited; that is what
+# the ranking then did with it. The assertions below are about the two ways that
+# reading could go wrong -- a value leaking into a document that is likely to be
+# piped into a log, and an emptiness that means "not done" rendering as one that
+# means "measured and nothing there".
+
+
+def _ledger(tmp_path: Path) -> str:
+    return str(tmp_path / "ledger.db")
+
+
+def test_the_corrections_ledger_lists_with_its_citations(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    database = _ledger(tmp_path)
+    assert (
+        main(
+            [
+                "corrections",
+                "--db",
+                database,
+                "--artist",
+                "ar-1",
+                "--value",
+                "woman",
+                "--citation",
+                "https://example.invalid/interview",
+                "--retrieved-at",
+                "2026-01-02",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    code, document = run_json(capsys, ["corrections", "--db", database, "--json"])
+
+    assert code == 0
+    assert_valid(document, "corrections")
+    assert document["action"] == "list"
+    assert document["count"] == 1
+    row = document["corrections"][0]
+    assert row["artist_id"] == "ar-1"
+    assert row["asserted_value"] == "woman"
+    assert row["citation"] == "https://example.invalid/interview"
+    assert row["retrieved_at"] == "2026-01-02"
+
+
+def test_an_empty_ledger_reports_a_measured_zero_and_a_write_reports_none(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The one place an empty list is the honest answer, and the one place it is not.
+
+    Reading an empty ledger measured nothing there: `count` is 0 and
+    `corrections` is `[]`. A write did not read the ledger at all, so both are
+    `null` -- a 0 there would tell a script the ledger is empty in the same
+    breath as telling it a row was added.
+    """
+    database = _ledger(tmp_path)
+    _, empty = run_json(capsys, ["corrections", "--db", database, "--json"])
+    assert empty["count"] == 0
+    assert empty["corrections"] == []
+    assert empty["recorded"] is None
+
+    _, written = run_json(
+        capsys,
+        [
+            "corrections",
+            "--db",
+            database,
+            "--json",
+            "--artist",
+            "ar-2",
+            "--value",
+            "nonbinary",
+            "--citation",
+            "https://example.invalid/statement",
+        ],
+    )
+    assert_valid(written, "corrections")
+    assert written["action"] == "record"
+    assert written["count"] is None
+    assert written["corrections"] is None
+    assert written["recorded"]["artist_id"] == "ar-2"
+
+
+def test_a_write_does_not_echo_the_asserted_value_back(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """An identity value is the one thing this project promises never leaves the
+    machine it was typed on, and JSON is the output most likely to reach a log.
+    The console path already withholds it; the document must not reintroduce it.
+    """
+    code, document = run_json(
+        capsys,
+        [
+            "corrections",
+            "--db",
+            _ledger(tmp_path),
+            "--json",
+            "--artist",
+            "ar-3",
+            "--value",
+            "woman",
+            "--citation",
+            "https://example.invalid/interview",
+        ],
+    )
+
+    assert code == 0
+    assert "woman" not in json.dumps(document)
+
+
+def test_a_refused_correction_is_json_when_json_was_asked_for(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """A refusal in result shape, and still no echo of the rejected value."""
+    code, document = run_json(
+        capsys,
+        [
+            "corrections",
+            "--db",
+            _ledger(tmp_path),
+            "--json",
+            "--artist",
+            "ar-4",
+            "--value",
+            "femalee",
+            "--citation",
+            "https://example.invalid/x",
+        ],
+    )
+
+    assert code == 1, "the published exit code for this refusal is 1, not 2"
+    assert_valid(document, "error")
+    assert document["ok"] is False
+    assert document["error"]["kind"] == "invalid_input"
+    assert "femalee" not in json.dumps(document)
+
+
+def test_pending_corrections_file_and_list_round_trip(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    path = str(tmp_path / "pending.json")
+    code, filed = run_json(
+        capsys,
+        [
+            "pending-corrections",
+            "--path",
+            path,
+            "--json",
+            "add",
+            "--artist",
+            "ar-5",
+            "--source-kind",
+            "wikidata",
+            "--citation",
+            "https://www.wikidata.org/wiki/Q1",
+            "--proposed",
+            "woman",
+        ],
+    )
+
+    assert code == 0
+    assert_valid(filed, "pending-corrections")
+    assert filed["action"] == "file"
+    assert filed["count"] is None
+    assert filed["pending_corrections"] is None
+    assert filed["filed"]["artist_id"] == "ar-5"
+
+    code, listed = run_json(capsys, ["pending-corrections", "--path", path, "--json"])
+    assert code == 0
+    assert_valid(listed, "pending-corrections")
+    assert listed["action"] == "list"
+    assert listed["count"] == 1
+    assert listed["filed"] is None
+    assert listed["pending_corrections"][0]["artist_id"] == "ar-5"
+
+
+def test_a_row_nothing_has_superseded_reports_null_not_a_blank(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`""` would read as an observation that recorded nothing. There is no
+    observation: no refresh has seen this source say anything else yet."""
+    path = str(tmp_path / "pending.json")
+    run_json(
+        capsys,
+        [
+            "pending-corrections",
+            "--path",
+            path,
+            "--json",
+            "add",
+            "--artist",
+            "ar-6",
+            "--source-kind",
+            "musicbrainz",
+            "--citation",
+            "https://musicbrainz.org/artist/x",
+            "--proposed",
+            "nonbinary",
+        ],
+    )
+    _, listed = run_json(capsys, ["pending-corrections", "--path", path, "--json"])
+    row = listed["pending_corrections"][0]
+    assert row["is_superseded"] is False
+    assert row["superseded_by_value"] is None
+    assert row["superseded_at"] is None
+
+
+def test_an_unknown_source_kind_offers_no_edit_route_rather_than_a_blank_one(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`edit_url` is null when this project knows no edit route for a source
+    kind. An empty string would be a link a caller could try to open."""
+    path = str(tmp_path / "pending.json")
+    run_json(
+        capsys,
+        [
+            "pending-corrections",
+            "--path",
+            path,
+            "--json",
+            "add",
+            "--artist",
+            "ar-7",
+            "--source-kind",
+            "artist-statement",
+            "--citation",
+            "https://example.invalid/zine-interview",
+            "--proposed",
+            "woman",
+        ],
+    )
+    _, listed = run_json(capsys, ["pending-corrections", "--path", path, "--json"])
+    assert listed["pending_corrections"][0]["edit_url"] is None
+
+
+def test_the_text_listings_are_unchanged_when_json_is_not_asked_for(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    database = _ledger(tmp_path)
+    assert main(["corrections", "--db", database]) == 0
+    assert capsys.readouterr().out.strip() == "no corrections recorded"
+    assert main(["pending-corrections", "--path", str(tmp_path / "p.json")]) == 0
+    assert capsys.readouterr().out.strip() == "no pending corrections"
