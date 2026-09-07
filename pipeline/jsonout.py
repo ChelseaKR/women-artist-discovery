@@ -68,6 +68,8 @@ SCHEMA_VERSIONS: dict[str, int] = {
     "export": 1,
     "doctor": 1,
     "error": 1,
+    "corrections": 1,
+    "pending_corrections": 1,
 }
 
 _SCHEMA_BASE = "https://github.com/ChelseaKR/lavender-rotation/blob/main/schemas"
@@ -261,6 +263,123 @@ def doctor_document(report: DoctorReport, *, upstream_checked: bool) -> dict[str
             ),
         },
         "environment_variables_read": list(ENV_KEYS),
+    }
+
+
+def corrections_document(
+    *, corrections: Iterable[tuple[str, Any, str]], database: str
+) -> dict[str, Any]:
+    """The local corrections ledger, listed.
+
+    Every row carries a citation by construction -- ``put_correction`` refuses
+    an unsourced one -- so the ledger has the same sourced-or-nothing shape the
+    recommendation document publishes, and the two can be read together: this is
+    what a person asserted, that is what the ranking then did with it.
+
+    ``count`` beside an empty list is deliberate, and is the one place in this
+    module where an empty container is the honest answer. An empty ledger is a
+    *measured* emptiness: the store was opened and held nothing. The ``null``s
+    elsewhere in these documents mean something the command did not do, which is
+    why the write path below reports ``corrections: null`` rather than ``[]``.
+    """
+    rows = [
+        {
+            "artist_id": artist_id,
+            "source_kind": str(evidence.kind),
+            "asserted_value": evidence.value,
+            "citation": evidence.citation,
+            "retrieved_at": evidence.retrieved_at,
+            "entered_at": entered_at,
+        }
+        for artist_id, evidence, entered_at in corrections
+    ]
+    return {
+        "schema_version": SCHEMA_VERSIONS["corrections"],
+        "command": "corrections",
+        "action": "list",
+        "database": database,
+        "count": len(rows),
+        "corrections": rows,
+        "recorded": None,
+    }
+
+
+def correction_recorded_document(
+    *, artist_id: str, citation: str, retrieved_at: str, entered_at: str, database: str
+) -> dict[str, Any]:
+    """One correction written. The ledger was not listed, and says so.
+
+    The asserted value is **not** echoed back, matching the console path and for
+    the same reason: an identity value is the one thing this project promises
+    never leaves the machine it was typed on, and JSON is the output most likely
+    to be piped into a log. The caller supplied that value a moment ago; what it
+    does not already know is that the row landed, and under which citation.
+    """
+    return {
+        "schema_version": SCHEMA_VERSIONS["corrections"],
+        "command": "corrections",
+        "action": "record",
+        "database": database,
+        # Not 0 and not []: this run did not read the ledger. A zero here would
+        # tell a script the ledger is empty immediately after it was added to.
+        "count": None,
+        "corrections": None,
+        "recorded": {
+            "artist_id": artist_id,
+            "citation": citation,
+            "retrieved_at": retrieved_at,
+            "entered_at": entered_at,
+        },
+    }
+
+
+def _pending_row(row: Any) -> dict[str, Any]:
+    """One filed request.
+
+    ``edit_url`` and the two superseding fields stay ``null`` rather than
+    becoming empty strings. "No edit route is known for this source kind" and
+    "the edit route is the empty string" are different statements, and only the
+    first is one this project can make.
+    """
+    return {
+        "artist_id": row.artist_id,
+        "source_kind": row.source_kind,
+        "citation": row.citation,
+        "current_value": row.current_value,
+        "proposed_value": row.proposed_value,
+        "note": row.note,
+        "filed_at": row.filed_at,
+        "edit_url": row.edit_url,
+        "is_superseded": row.is_superseded,
+        "superseded_by_value": row.superseded_by_value,
+        "superseded_at": row.superseded_at,
+    }
+
+
+def pending_corrections_document(*, rows: Iterable[Any], path: str) -> dict[str, Any]:
+    """Filed-but-not-yet-reconciled upstream edit requests, listed."""
+    listed = [_pending_row(row) for row in rows]
+    return {
+        "schema_version": SCHEMA_VERSIONS["pending_corrections"],
+        "command": "pending-corrections",
+        "action": "list",
+        "path": path,
+        "count": len(listed),
+        "pending_corrections": listed,
+        "filed": None,
+    }
+
+
+def pending_correction_filed_document(*, row: Any, path: str) -> dict[str, Any]:
+    """One request filed. Filing edits nothing upstream; see the schema."""
+    return {
+        "schema_version": SCHEMA_VERSIONS["pending_corrections"],
+        "command": "pending-corrections",
+        "action": "file",
+        "path": path,
+        "count": None,
+        "pending_corrections": None,
+        "filed": _pending_row(row),
     }
 
 
@@ -575,6 +694,182 @@ def doctor_schema() -> dict[str, Any]:
     }
 
 
+def corrections_schema() -> dict[str, Any]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": f"{_SCHEMA_BASE}/corrections.schema.json",
+        "title": "lavender corrections --json",
+        "description": (
+            "The local corrections ledger. Every row carries a citation by "
+            "construction, so this is the sourced-or-nothing shape the "
+            "recommendation document publishes, one layer earlier. 'action' "
+            "says which of the two things this run did: a listing fills "
+            "'corrections' and 'count', a write fills 'recorded' and leaves "
+            "both of those null. Null rather than 0 and [], because a zero "
+            "immediately after a write would tell a script the ledger is empty. "
+            "A write never echoes the asserted value back: an identity value is "
+            "the one thing this project promises never leaves the machine it "
+            "was typed on, and JSON is the output most likely to reach a log."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "command",
+            "action",
+            "database",
+            "count",
+            "corrections",
+            "recorded",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"type": "integer", "const": SCHEMA_VERSIONS["corrections"]},
+            "command": {"type": "string", "const": "corrections"},
+            "action": _enum(("list", "record"), "Which of the two things this run did."),
+            "database": {"type": "string", "minLength": 1},
+            "count": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "description": (
+                    "How many rows the ledger held, or null when this run did "
+                    "not read it. Zero is a measured emptiness; null is not."
+                ),
+            },
+            "corrections": {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "artist_id",
+                        "source_kind",
+                        "asserted_value",
+                        "citation",
+                        "retrieved_at",
+                        "entered_at",
+                    ],
+                    "additionalProperties": False,
+                    "properties": {
+                        "artist_id": {"type": "string", "minLength": 1},
+                        "source_kind": {"type": "string", "minLength": 1},
+                        "asserted_value": {
+                            "type": "string",
+                            "description": (
+                                "The raw thing the person asserted, so it can be audited."
+                            ),
+                        },
+                        "citation": {"type": "string", "minLength": 1},
+                        "retrieved_at": {"type": "string", "minLength": 1},
+                        "entered_at": {"type": "string", "minLength": 1},
+                    },
+                },
+            },
+            "recorded": {
+                "type": ["object", "null"],
+                "required": ["artist_id", "citation", "retrieved_at", "entered_at"],
+                "additionalProperties": False,
+                "properties": {
+                    "artist_id": {"type": "string", "minLength": 1},
+                    "citation": {"type": "string", "minLength": 1},
+                    "retrieved_at": {"type": "string", "minLength": 1},
+                    "entered_at": {"type": "string", "minLength": 1},
+                },
+            },
+        },
+    }
+
+
+def _pending_row_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": [
+            "artist_id",
+            "source_kind",
+            "citation",
+            "current_value",
+            "proposed_value",
+            "note",
+            "filed_at",
+            "edit_url",
+            "is_superseded",
+            "superseded_by_value",
+            "superseded_at",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "artist_id": {"type": "string", "minLength": 1},
+            "source_kind": {"type": "string", "minLength": 1},
+            "citation": {"type": "string", "minLength": 1},
+            "current_value": {"type": "string"},
+            "proposed_value": {"type": "string", "minLength": 1},
+            "note": {"type": "string"},
+            "filed_at": {"type": "string", "minLength": 1},
+            "edit_url": {
+                "type": ["string", "null"],
+                "description": (
+                    "The upstream edit link that was offered, or null when this "
+                    "project knows no edit route for that source kind. Never an "
+                    "empty string: 'no route known' and 'the route is empty' are "
+                    "different statements."
+                ),
+            },
+            "is_superseded": {"type": "boolean"},
+            "superseded_by_value": {
+                "type": ["string", "null"],
+                "description": (
+                    "What a later refresh observed the source asserting instead, "
+                    "or null if none has. The row stays on file either way."
+                ),
+            },
+            "superseded_at": {"type": ["string", "null"]},
+        },
+    }
+
+
+def pending_corrections_schema() -> dict[str, Any]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": f"{_SCHEMA_BASE}/pending-corrections.schema.json",
+        "title": "lavender pending-corrections --json",
+        "description": (
+            "Filed-but-not-yet-reconciled upstream edit requests. Filing records "
+            "what a person believes is right and why; it edits nothing upstream, "
+            "because the edit happens in the upstream interface, by that person. "
+            "'action' says which of the two things this run did, and the fields "
+            "the other action would have filled are null rather than empty."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "command",
+            "action",
+            "path",
+            "count",
+            "pending_corrections",
+            "filed",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {
+                "type": "integer",
+                "const": SCHEMA_VERSIONS["pending_corrections"],
+            },
+            "command": {"type": "string", "const": "pending-corrections"},
+            "action": _enum(("list", "file"), "Which of the two things this run did."),
+            "path": {"type": "string", "minLength": 1},
+            "count": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "description": "Null when this run filed rather than listed.",
+            },
+            "pending_corrections": {
+                "type": ["array", "null"],
+                "items": _pending_row_schema(),
+            },
+            "filed": _pending_row_schema() | {"type": ["object", "null"]},
+        },
+    }
+
+
 def error_schema() -> dict[str, Any]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -608,6 +903,8 @@ SCHEMAS: dict[str, Callable[[], dict[str, Any]]] = {
     "recommend.schema.json": recommend_schema,
     "export.schema.json": export_schema,
     "doctor.schema.json": doctor_schema,
+    "corrections.schema.json": corrections_schema,
+    "pending-corrections.schema.json": pending_corrections_schema,
     "error.schema.json": error_schema,
 }
 

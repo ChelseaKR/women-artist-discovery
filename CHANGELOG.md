@@ -14,6 +14,35 @@ tag, not backfilled to an earlier commit date.
 
 ### Added
 
+- **`--json` on `corrections` and `pending-corrections`, with committed schemas
+  (part of #121).** The two ledgers read back one layer earlier than
+  `recommend --json`: what a person asserted and cited, and what they have asked
+  an upstream source to change and not reconciled yet. Every correction row
+  carries a citation by construction, so the ledger has the same
+  sourced-or-nothing shape the recommendation document publishes.
+  - **A listing and a write are different runs, and the document says which.**
+    `action` is `list` or `record` (`list` or `file` for pending corrections). A
+    listing fills `count` and the rows; a write leaves both `null` rather than `0`
+    and `[]`, because a zero immediately after a write would tell a script the
+    ledger is empty in the same breath as telling it a row landed. An empty
+    *listing* is `0` and `[]` — that one is a measured emptiness.
+  - **A write never echoes the asserted value back.** An identity value is the one
+    thing this project promises never leaves the machine it was typed on, and JSON
+    is the output most likely to be piped into a log. The console path already
+    withheld it on the refusal branch; the document withholds it on the success
+    branch too, and a test asserts the string is absent from the whole document.
+  - `edit_url`, `superseded_by_value` and `superseded_at` are `null`, never `""`:
+    "no edit route is known for that source kind" and "the edit route is the empty
+    string" are different statements, and only the first is one this project can
+    make.
+  - The `corrections` refusals keep their published exit code of `1` rather than
+    inheriting `_refuse`'s `2`. Adding an output format is not a reason to move an
+    exit status a caller's script already branches on; the `error` document carries
+    the machine-switchable reason instead.
+  - `test_every_published_schema_pins_a_version_of_its_own` is new beside the
+    written-out version list: the list makes adding a document deliberate, and the
+    new test catches a schema that shipped pinning somebody else's version.
+
 - **`--json` on `recommend`, `export` and `doctor`, with committed schemas (part of
   #121).** One versioned document per invocation, described by
   `schemas/*.schema.json`, generated from `pipeline/jsonout.py` rather than
