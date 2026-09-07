@@ -38,10 +38,38 @@ portable playlist file (and takes no destination flag — see "Export your picks
 `lavender doctor` reports local configuration and cache health,
 `lavender corrections` / `lavender pending-corrections`
 are the two correction ledgers (a local override, and a change you are proposing
-upstream), and `lavender eval` / `lavender eval-real` run the offline evaluation. Every
+upstream), `lavender runs` browses the manifest every run records and `lavender diff`
+compares two of them, and `lavender eval` / `lavender eval-real` run the offline
+evaluation. Every
 recommendation surface also takes `--explore` (0 to 1), an identity-blind serendipity
 slider that trades relevance for tag-space diversity among the movable picks; it is 0 by
 default, and it never moves a rank-protected one.
+
+**Why is this week's list different from last week's?** `recommend`, `report` and
+`export` each write a run manifest — the lens and its strength, `--explore`,
+`--hide-sourced-men`, k, the active content filter, the cache schema version, the
+coverage and exposure figures, and every pick's three ranks. `lavender runs list`
+browses them, `lavender runs show <id>` prints one, `lavender runs prune --keep N`
+trims the store, and `lavender diff A B` says what changed — add `--json` for the
+machine-readable form.
+
+The diff names *why* a pick moved, and only where the record supports one. The
+recommender stamps three ranks — before the lens, after the lens, and after the
+identity-blind serendipity pass — so a shift can be decomposed into those three
+intervals. A mechanism is named **only when exactly one interval moved**; when more
+than one moved, the answer is `cause not determined` with the movers listed, because
+a diff that attributes every movement to *something* is the same defect
+[#113](https://github.com/ChelseaKR/lavender-rotation/issues/113) describes in a new
+place. The same rule applies one level up: a shift in the pure-taste interval is
+caused by the listening profile, the feedback ledger or the content filter, and it is
+named only when exactly one of those changed.
+
+A diff refuses runs that are answers to different questions — a different listener,
+lens, or content filter — unless you pass `--allow-mixed`, and says so in the output
+when you do. A manifest holds artist ids, names, ranks and the segment and basis the
+run already computed; the profile, the ledger and the filter appear only as digests,
+which compare without disclosing. Recording never fails a run: if the manifest cannot
+be written, the run says so on stderr and stands.
 
 `recommend`, `report` and `export` also take identity-blind content filters —
 `--include-tags`, `--exclude-tags`, `--year-from`, `--year-to` — which narrow the candidate
