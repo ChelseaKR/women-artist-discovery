@@ -82,6 +82,7 @@ def test_every_document_has_its_own_schema_version() -> None:
         "error",
         "corrections",
         "pending_corrections",
+        "diff",
     }
 
 
@@ -587,3 +588,150 @@ def test_the_text_listings_are_unchanged_when_json_is_not_asked_for(
     assert capsys.readouterr().out.strip() == "no corrections recorded"
     assert main(["pending-corrections", "--path", str(tmp_path / "p.json")]) == 0
     assert capsys.readouterr().out.strip() == "no pending corrections"
+
+
+# --- diff: the one --json surface that used to publish an unversioned document --
+
+
+def _diff_manifest(run_id: str, entries: list[Any], **overrides: Any) -> Any:
+    from pipeline.runs import RunManifest
+
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "created_at": f"2026-09-0{run_id[-1]}T00:00:00+00:00",
+        "surface": "recommend",
+        "listener_digest": "listener00000000",
+        "profile_digest": "profile00000000",
+        "feedback_digest": "feedback0000000",
+        "lens_name": "women-nonbinary",
+        "lens_strength": 0.0,
+        "explore": 0.0,
+        "hide_sourced_men": False,
+        "k": 10,
+        "content_filter": {"stated": True, "active": False},
+        "cache_schema_version": 4,
+        "coverage": {"total": len(entries), "sourced": len(entries), "sourced_fraction": 1.0},
+        "exposure": {"woman": 1.0, "unknown": None},
+        "entries": entries,
+    }
+    payload.update(overrides)
+    return RunManifest(**payload)
+
+
+def _diff_entry(artist_id: str, rank: int, base: int, lens: int) -> Any:
+    from pipeline.runs import RunEntry
+
+    return RunEntry(
+        artist_id=artist_id,
+        name=artist_id.title(),
+        rank=rank,
+        base_rank=base,
+        lens_rank=lens,
+        segment="woman",
+        basis="self-identified",
+    )
+
+
+@pytest.fixture
+def two_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Two comparable runs on disk, with enough movement to fill every list."""
+    from pipeline.runs import write_manifest
+
+    monkeypatch.setenv("LAVENDER_DATA_DIR", str(tmp_path))
+    write_manifest(
+        _diff_manifest(
+            "20260101T000000",
+            [_diff_entry("a", 1, 1, 1), _diff_entry("b", 2, 2, 2), _diff_entry("c", 3, 3, 3)],
+        ),
+        data_dir=tmp_path,
+    )
+    write_manifest(
+        _diff_manifest(
+            "20260102T000000",
+            [_diff_entry("a", 1, 1, 1), _diff_entry("c", 2, 3, 2), _diff_entry("d", 3, 3, 3)],
+        ),
+        data_dir=tmp_path,
+    )
+    return tmp_path
+
+
+def test_diff_output_validates_against_its_committed_schema(
+    capsys: pytest.CaptureFixture[str], two_runs: Path
+) -> None:
+    code, document = run_json(capsys, ["diff", "20260101", "20260102", "--json"])
+    assert code == 0
+    assert_valid(document, "diff")
+    # A presence assertion beside the validation: a document with empty lists
+    # would validate too, and would prove nothing about the schema describing
+    # the shapes that carry data.
+    assert document["entered"] and document["left"] and document["shifts"]
+
+
+def test_a_refused_diff_is_a_document_on_stdout_not_a_sentence_on_stderr(
+    capsys: pytest.CaptureFixture[str], two_runs: Path
+) -> None:
+    """The behaviour every other ``--json`` surface promises in its own help text.
+
+    Before this, ``diff --json`` printed the refusal to stderr and left stdout
+    empty, so ``lavender diff --json | jq`` received nothing at all -- which a
+    caller reads as "no differences" rather than as "this did not run".
+    """
+    from pipeline.runs import write_manifest
+
+    write_manifest(
+        _diff_manifest("20260103T000000", [_diff_entry("a", 1, 1, 1)], lens_name="queer"),
+        data_dir=two_runs,
+    )
+    code, document = run_json(capsys, ["diff", "20260101", "20260103", "--json"])
+    assert code != 0
+    assert_valid(document, "error")
+    assert document["ok"] is False
+    assert document["command"] == "diff"
+    assert document["error"]["kind"] == "invalid_input"
+    assert "lens_name" in document["error"]["message"]
+
+
+def test_an_unresolvable_run_id_is_not_found_rather_than_invalid_input(
+    capsys: pytest.CaptureFixture[str], two_runs: Path
+) -> None:
+    """Two refusals, two next moves, two kinds.
+
+    ``not_found`` sends the caller to `lavender runs list`; ``invalid_input``
+    sends them to ``--allow-mixed``. One kind for both would leave a script
+    unable to tell the fixable case from the one that is not.
+    """
+    code, document = run_json(capsys, ["diff", "nosuchrun", "20260102", "--json"])
+    assert code != 0
+    assert_valid(document, "error")
+    assert document["error"]["kind"] == "not_found"
+
+
+def test_every_delta_value_is_a_number_or_null_never_a_string(
+    capsys: pytest.CaptureFixture[str], two_runs: Path
+) -> None:
+    """The constraint ``diff.schema.json`` is structurally unable to carry.
+
+    ``coverage_delta`` and ``exposure_delta`` are keyed by whatever the two
+    manifests recorded, so the schema can only say "object"; this is the rest
+    of the contract. ``null`` is load-bearing -- it means one side did not
+    record the figure, which is not a zero change.
+    """
+    _, document = run_json(capsys, ["diff", "20260101", "20260102", "--json"])
+    seen_null = False
+    for field in ("coverage_delta", "exposure_delta"):
+        assert document[field], f"{field} is empty; this fixture proves nothing"
+        for key, value in document[field].items():
+            assert value is None or (
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+            ), f"{field}[{key}] is {value!r}"
+            seen_null = seen_null or value is None
+    assert seen_null, "no null reached the document; the null rule is untested here"
+
+
+def test_the_diff_text_rendering_is_unchanged_when_json_is_not_asked_for(
+    capsys: pytest.CaptureFixture[str], two_runs: Path
+) -> None:
+    assert main(["diff", "20260101", "20260102"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("20260101T000000 -> 20260102T000000")
+    assert "{" not in out

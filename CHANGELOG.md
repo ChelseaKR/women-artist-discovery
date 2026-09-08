@@ -14,6 +14,34 @@ tag, not backfilled to an earlier commit date.
 
 ### Added
 
+- **`diff --json` becomes a versioned document, and a refused diff becomes a
+  readable one (part of #121).** `lavender diff` had a `--json` flag that printed
+  `RunDiff.to_dict()` straight out: no `schema_version`, no committed schema, and
+  — the part that mattered — **nothing at all on stdout when the diff was
+  refused**. Measured on the tree before this change: both refusal paths exited
+  `2` having written zero bytes to stdout and a prose sentence to stderr, so
+  `lavender diff --json | jq` received an empty stream. Every other `--json`
+  surface in this CLI promises the opposite in its own `--help` text ("a refusal
+  is emitted in the same shape, so a script cannot read one as an empty
+  result"); `diff` was the one command that did not keep it, and its flag was
+  hand-rolled rather than going through `_add_json_flag`, which is how the
+  promise and the behaviour drifted apart unnoticed.
+  - The success document is the same keys at the same depth — `shifts`,
+    `unchanged`, `entered`, `left` are exactly where they were — plus
+    `schema_version`, `command` and `ok`. Nothing that already parsed this
+    output stops parsing.
+  - **The two refusals are given different kinds, because they have different
+    next moves.** A run id that resolves to nothing is `not_found` and the caller
+    should run `lavender runs list`; two runs that answer different questions is
+    `invalid_input` and the caller should pass `--allow-mixed`. One kind for both
+    would report "something was wrong" and hide which of the two it was.
+  - `schemas/diff.schema.json` is committed. `coverage_delta` and
+    `exposure_delta` are keyed by whatever the two manifests recorded, so the
+    schema can only bound them as objects and says so in its own description
+    rather than looking stricter than it is; the constraint it cannot carry —
+    every value is a number or `null`, never a string, and `null` means one side
+    did not record the figure — is a test.
+
 - **`--json` on `corrections` and `pending-corrections`, with committed schemas
   (part of #121).** The two ledgers read back one layer earlier than
   `recommend --json`: what a person asserted and cited, and what they have asked
