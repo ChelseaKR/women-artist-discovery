@@ -61,6 +61,17 @@ from pipeline.doctor import (
     DoctorReport,
 )
 from pipeline.models import Gender, IdentityBasis
+from pipeline.runs import (
+    CAUSE_EXPLORE,
+    CAUSE_FEEDBACK,
+    CAUSE_FILTER,
+    CAUSE_LENS,
+    CAUSE_PROFILE,
+    CAUSE_UNDETERMINED,
+    CAUSE_UPSTREAM,
+    COMPARABLE_FIELDS,
+    RunDiff,
+)
 
 #: Per-document, on purpose. See the module docstring.
 SCHEMA_VERSIONS: dict[str, int] = {
@@ -70,6 +81,7 @@ SCHEMA_VERSIONS: dict[str, int] = {
     "error": 1,
     "corrections": 1,
     "pending_corrections": 1,
+    "diff": 1,
 }
 
 _SCHEMA_BASE = "https://github.com/ChelseaKR/lavender-rotation/blob/main/schemas"
@@ -380,6 +392,27 @@ def pending_correction_filed_document(*, row: Any, path: str) -> dict[str, Any]:
         "count": None,
         "pending_corrections": None,
         "filed": _pending_row(row),
+    }
+
+
+def diff_document(result: RunDiff) -> dict[str, Any]:
+    """One ``diff`` between two recorded runs, as a versioned document.
+
+    The body is :meth:`pipeline.runs.RunDiff.to_dict` unchanged -- flat, at the
+    top level, exactly where a caller who was already reading ``shifts`` and
+    ``unchanged`` will still find them. This adds the two things that make it a
+    contract rather than a print: a ``schema_version`` a consumer can pin, and a
+    ``command`` key, so a document read off a pipe identifies itself.
+
+    ``ok`` is always ``True`` here, and that is the point of it. A refused diff
+    is an ``error`` document carrying ``ok: false``, so a caller can branch on
+    one key across both outcomes rather than on whether ``json.loads`` threw.
+    """
+    return {
+        "schema_version": SCHEMA_VERSIONS["diff"],
+        "command": "diff",
+        "ok": True,
+        **result.to_dict(),
     }
 
 
@@ -899,12 +932,171 @@ def error_schema() -> dict[str, Any]:
     }
 
 
+def _run_entry_schema(description: str) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "description": description,
+        "items": {
+            "type": "object",
+            "required": ["artist_id", "name", "rank", "base_rank", "lens_rank", "segment", "basis"],
+            "additionalProperties": False,
+            "properties": {
+                "artist_id": {"type": "string", "minLength": 1},
+                "name": {"type": "string"},
+                "rank": {"type": "integer", "minimum": 1},
+                "base_rank": {"type": "integer", "minimum": 1},
+                "lens_rank": {"type": "integer", "minimum": 1},
+                "segment": {"type": "string"},
+                "basis": {"type": "string"},
+            },
+        },
+    }
+
+
+def _delta_map_schema(description: str) -> dict[str, Any]:
+    """A map whose keys come from the manifests being compared, not from here.
+
+    The keys are whatever ``coverage``/``exposure`` the two runs recorded, so
+    this schema cannot enumerate them and the validator in this module has no
+    ``additionalProperties``-as-schema or ``patternProperties`` to constrain
+    them with. Declaring only ``object`` is therefore the honest bound, and
+    saying so here is better than a shape that looks stricter than it is.
+    ``tests/test_jsonout.py`` carries the constraint this cannot: every value in
+    both maps is a number or ``null``.
+    """
+    return {"type": "object", "description": description}
+
+
+def diff_schema() -> dict[str, Any]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": f"{_SCHEMA_BASE}/diff.schema.json",
+        "title": "lavender diff <before> <after> --json",
+        "description": (
+            "What changed between two recorded runs, and what the record can "
+            "support saying about why. A cause is named only where exactly one "
+            "mechanism moved; otherwise the shift reports "
+            f"{CAUSE_UNDETERMINED!r} and lists the candidates, which is a "
+            "statement about the evidence rather than about the ranking."
+        ),
+        "type": "object",
+        "required": [
+            "schema_version",
+            "command",
+            "ok",
+            "before_run_id",
+            "after_run_id",
+            "entered",
+            "left",
+            "shifts",
+            "held",
+            "coverage_delta",
+            "exposure_delta",
+            "changed_inputs",
+            "mixed_fields",
+            "unchanged",
+        ],
+        "additionalProperties": False,
+        "properties": {
+            "schema_version": {"type": "integer", "const": SCHEMA_VERSIONS["diff"]},
+            "command": {"type": "string", "const": "diff"},
+            "ok": {"type": "boolean", "const": True},
+            "before_run_id": {"type": "string", "minLength": 1},
+            "after_run_id": {"type": "string", "minLength": 1},
+            "entered": _run_entry_schema("Artists in the later run's top-k and not the earlier."),
+            "left": _run_entry_schema("Artists in the earlier run's top-k and not the later."),
+            "shifts": {
+                "type": "array",
+                "description": "Artists in both runs at different displayed ranks.",
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "artist_id",
+                        "name",
+                        "from_rank",
+                        "to_rank",
+                        "delta",
+                        "cause",
+                        "candidates",
+                    ],
+                    "additionalProperties": False,
+                    "properties": {
+                        "artist_id": {"type": "string", "minLength": 1},
+                        "name": {"type": "string"},
+                        "from_rank": {"type": "integer", "minimum": 1},
+                        "to_rank": {"type": "integer", "minimum": 1},
+                        "delta": {
+                            "type": "integer",
+                            "description": "to_rank - from_rank. Negative is a move up the list.",
+                        },
+                        "cause": _enum(
+                            (
+                                CAUSE_LENS,
+                                CAUSE_EXPLORE,
+                                CAUSE_UPSTREAM,
+                                CAUSE_PROFILE,
+                                CAUSE_FEEDBACK,
+                                CAUSE_FILTER,
+                                CAUSE_UNDETERMINED,
+                            ),
+                            "The mechanism the record singles out, or "
+                            f"{CAUSE_UNDETERMINED!r} when more than one moved. "
+                            "Never absent: a diff that cannot attribute a shift "
+                            "says so rather than omitting the key.",
+                        ),
+                        "candidates": {
+                            "type": "array",
+                            "description": (
+                                "Every mechanism that moved. One entry when the "
+                                "cause is named; two or more when it is not."
+                            ),
+                            "items": {"type": "string", "minLength": 1},
+                        },
+                    },
+                },
+            },
+            "held": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Artists present in both runs at the same rank.",
+            },
+            "coverage_delta": _delta_map_schema(
+                "Change in each recorded coverage figure. A null is 'one side "
+                "did not record this', never a zero change."
+            ),
+            "exposure_delta": _delta_map_schema(
+                "Change in each recorded exposure share, with the same null rule."
+            ),
+            "changed_inputs": {
+                "type": "array",
+                "description": ("Upstream inputs whose digest differs between the two runs."),
+                "items": {"type": "string", "minLength": 1},
+            },
+            "mixed_fields": {
+                "type": "array",
+                "description": (
+                    "Fields that make these two runs answers to different "
+                    "questions, compared anyway under --allow-mixed. Empty on a "
+                    "like-for-like diff; a non-empty list is a caveat on every "
+                    "other figure in this document."
+                ),
+                "items": _enum(COMPARABLE_FIELDS, "A field a diff refuses to cross by default."),
+            },
+            "unchanged": {
+                "type": "boolean",
+                "description": "True when nothing entered, left, or moved.",
+            },
+        },
+    }
+
+
 SCHEMAS: dict[str, Callable[[], dict[str, Any]]] = {
     "recommend.schema.json": recommend_schema,
     "export.schema.json": export_schema,
     "doctor.schema.json": doctor_schema,
     "corrections.schema.json": corrections_schema,
     "pending-corrections.schema.json": pending_corrections_schema,
+    "diff.schema.json": diff_schema,
     "error.schema.json": error_schema,
 }
 

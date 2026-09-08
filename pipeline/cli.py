@@ -77,6 +77,7 @@ from pipeline.ingest import (
 from pipeline.jsonout import (
     correction_recorded_document,
     corrections_document,
+    diff_document,
     doctor_document,
     emit,
     error_document,
@@ -1124,15 +1125,36 @@ def _cmd_runs(args: argparse.Namespace) -> int:
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
+    """Compare two recorded runs, in whichever shape the caller asked for.
+
+    The two refusals are raised as one exception type and are **not** one fact,
+    so they are caught separately and reported under different error kinds. A
+    run id that resolves to nothing is ``not_found`` and the caller's next move
+    is `lavender runs list`; two runs that answer different questions is
+    ``invalid_input`` and the caller's next move is ``--allow-mixed``. A single
+    kind covering both would tell a script "something was wrong" and leave the
+    one fixable case indistinguishable from the one that is not.
+
+    A manifest that is present but unreadable also lands in ``invalid_input``:
+    it was found, so ``not_found`` would be a false statement about it, and the
+    ``message`` names which of the two it was. Splitting it out would mean
+    adding a value to the published ``error.kind`` enum, which is a contract
+    change and not this change's to make.
+    """
+    as_json = bool(getattr(args, "json", False))
     try:
-        before = read_manifest(find_manifest(args.before))
-        after = read_manifest(find_manifest(args.after))
+        before_path = find_manifest(args.before)
+        after_path = find_manifest(args.after)
+    except RunManifestError as exc:
+        return _refuse("diff", "not_found", str(exc), as_json=as_json)
+    try:
+        before = read_manifest(before_path)
+        after = read_manifest(after_path)
         result = diff_runs(before, after, allow_mixed=args.allow_mixed)
     except RunManifestError as exc:
-        print(f"error: {exc}", file=sys.stderr)  # noqa: T201
-        return 2
-    if args.json:
-        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))  # noqa: T201
+        return _refuse("diff", "invalid_input", str(exc), as_json=as_json)
+    if as_json:
+        print(emit(diff_document(result)), end="")  # noqa: T201
         return 0
     for line in result.summary_lines():
         print(line)  # noqa: T201
@@ -1544,7 +1566,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff = sub.add_parser("diff", help="what changed between two recorded runs, and why")
     p_diff.add_argument("before", help="earlier run id, or an unambiguous prefix")
     p_diff.add_argument("after", help="later run id, or an unambiguous prefix")
-    p_diff.add_argument("--json", action="store_true", help="emit the diff as JSON")
+    _add_json_flag(p_diff, "diff")
     p_diff.add_argument(
         "--allow-mixed",
         action="store_true",
