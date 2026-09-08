@@ -14,6 +14,47 @@ tag, not backfilled to an earlier commit date.
 
 ### Added
 
+- **The a11y gate reports what it examined, per rule family (#139).** `make a11y`'s
+  offline checker printed `a11y: 0 violations` and nothing else — the same
+  sentence over a page with twelve interactive controls and over a page with
+  none. The audited artifact is the second kind: `app/render.py` emits no
+  `<button>`, `<input>`, `<select>`, `<textarea>` or `<form>` at all, so every
+  rule that only has something to say about a control ran over nothing and
+  reported a pass, while `app/dashboard.py` builds **12** interactive widgets
+  that Streamlit renders at run time and no gate here reaches. That limit was
+  disclosed in README conformance row 6 and in `tests/test_e2e_a11y.py`'s
+  docstring; neither is reachable from a green line, which is where a reader
+  meets the gate.
+  - Every run now prints a census: **7 rule families**, each with its own
+    denominator. On the committed render that reads `1 of 1 documents`,
+    `19 of 19 headings`, `8 of 8 links`, `3 of 3 tables`, `32 of 32 <th>`, and
+    `not_applicable` for `images` and `controls` — each with a written reason.
+    **63 elements examined**, where the old line stated none.
+  - **A family that examined nothing is never a pass.** It reports
+    `not_applicable` with a reason, because "no findings" and "no inputs" are
+    otherwise byte-identical verdicts.
+  - **Each family declares exactly one of a floor or a written reason**, and the
+    suite holds the table to that either/or, so a family added later cannot skip
+    the question. The floors mean a render that stops emitting tables — or a
+    selector that stops matching — now fails instead of passing on nothing:
+    measured, a page with no tables produced **0 violations and 2 failing
+    families**, where before it produced 0 violations and exit 0.
+  - Every floor is **1**, deliberately. A floor equal to today's count (3 tables,
+    32 `<th>`) is a hand-maintained counter, and this portfolio has jammed its
+    own merge queue on those.
+  - The unreached widget count is **measured from `app/dashboard.py`**, not
+    typed, and prints as "not counted here" rather than `0` when that file
+    cannot be read — a count of zero unreached controls is exactly the false
+    reassurance this change exists to stop giving.
+  - An interactive control in an audited document is now **refused**, because
+    this checker has no accessible-name, label-association or focus-order rule;
+    counting one as examined would report `1 of 1 controls — pass` from a
+    checker that looked at nothing. Whether the Streamlit surface gets a gate of
+    its own is a separate product call and is not decided here.
+  - The entry point audits **every** file it is handed. It read `argv[0]` and
+    dropped the rest, while the `pa11y` branch beside it in the same `make`
+    recipe takes a list — the two halves disagreed about their own arity.
+
 - **`diff --json` becomes a versioned document, and a refused diff becomes a
   readable one (part of #121).** `lavender diff` had a `--json` flag that printed
   `RunDiff.to_dict()` straight out: no `schema_version`, no committed schema, and
