@@ -165,6 +165,15 @@ outside of code (it requires an account and a real edit on live Wikidata). Recor
   treated as first-class security bugs.
 - **Ordinary bugs and taste disagreements:** open a normal GitHub issue.
 
+## Commercial solicitation
+
+Issues here are not open to bids. They are design records — written so a decision is
+reconstructable later — not scope documents for outside quoting, and unsolicited offers to
+implement one for a fee will be declined.
+
+Contributions through the normal fork-and-PR process are welcome, and `good first issue` is the
+place to start.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the project's
